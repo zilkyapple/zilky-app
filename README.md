@@ -1,116 +1,201 @@
-# Zilky App — Etapa 3 (multinegocio con clientes globales)
+# Zilky App — Etapa 2 (online, con cuenta, multi-dispositivo)
 
 Sistema para administrar ventas financiadas, clientes, pagos parciales, cuotas, mora,
-comprobantes, cobranzas, calendario y múltiples negocios (Zilky Apple + Zilky
-Indumentaria + los que agregues), con login propio y base de datos en Postgres.
+productos/stock y múltiples negocios (Zilky Apple + Zilky Indumentaria, con posibilidad
+de agregar más).
 
-## 1. Instalación local
+Desde esta etapa la app **corre contra una base de datos Postgres real** (no un archivo
+local) y **tiene login con email y contraseña**, así que se puede desplegar en internet
+con una dirección propia y usar exactamente igual desde el iPad, una PC, un iPhone o un
+Android — todo guardado en un solo lugar, no en el dispositivo.
 
-Requisitos: **Node.js 22.5+** y **una base Postgres** (local o directamente Neon).
+## 1. Instalación local (para desarrollo/pruebas en tu compu)
+
+Requisitos: **Node.js 22.5 o superior** y **una base de datos Postgres** (puede ser una
+local, o directamente la de Neon que vas a usar en producción — ver sección 2).
 
 ```bash
 cd zilky-app
 npm install
-cp .env.example .env      # completá DATABASE_URL y JWT_SECRET
-npm run migrate
-npm run seed               # opcional: datos de ejemplo
+cp .env.example .env      # completá DATABASE_URL y JWT_SECRET (ver abajo)
+npm run migrate           # crea las tablas
+npm run seed               # (opcional) carga los 2 negocios + clientes/productos de ejemplo
 npm start
 ```
 
-## 2. Resumen de lo implementado en esta etapa
+Abrí `http://localhost:3000`. La primera vez te va a pedir crear una cuenta (email +
+contraseña) — es tuya, queda guardada en la base de datos.
 
-- **Clientes globales**: un mismo cliente (nombre+apellido obligatorios; DNI, teléfono
-  e Instagram opcionales) puede comprar en varios negocios sin duplicarse. Lo que SÍ
-  queda estrictamente aislado por negocio son las ventas, créditos, cuotas, pagos,
-  comprobantes, mora, cobranza, calendario y dashboards — todo filtrado por
-  `negocio_id` en el backend, no sólo ocultado en la pantalla.
-- **Atraso histórico real**: cada cuota guarda `dias_atraso_al_pagar` en el momento en
-  que se termina de pagar. Si el cliente pagó tarde, ese dato queda para siempre aunque
-  el estado pase a "pagada" — no se pierde para analizar riesgo más adelante.
-- **Comprobantes internos**: cada pago genera automáticamente un comprobante con
-  numeración única real (`ZLK-YYYYMMDD-NNNNNN`, usando una secuencia de Postgres, así
-  que nunca se repite ni con escrituras simultáneas). Anular un comprobante NO lo edita:
-  lo marca como anulado (motivo, quién, cuándo), revierte el saldo de las cuotas
-  afectadas, y el comprobante original queda intacto para trazabilidad.
-- **Cobranzas** reorganizada: Hoy / Próximas (ventana configurable: 3, 5, 7 días o la
-  que quieras) / Vencidas / Todas. Cada cuota muestra número de cuota (ej: "3/6").
-- **Calendario mensual**: por día, cantidad de vencimientos y monto a cobrar; tocás un
-  día y ves quién vence.
-- **Clientes finalizados**: por negocio, quiénes ya no tienen deuda ahí pero sí
-  compraron — con estados de seguimiento comercial (contactado / no interesado / volver
-  a contactar).
-- **Historial financiero del cliente**: compras, cuotas totales/pagadas/a tiempo/tarde,
-  deuda actual, total cobrado, atraso promedio y máximo, última compra/pago — filtrable
-  por negocio o consolidado.
-- **Seguridad**: toda consulta de ventas/cuotas/pagos/comprobantes/dashboard exige y
-  valida `negocio_id` en el backend (antes de esta etapa, la lista de clientes no
-  filtraba nada en el servidor; ya está corregido). Contraseñas con bcrypt, sesión con
-  JWT, `DATABASE_URL`/`JWT_SECRET` sólo por variables de entorno, nunca en el código.
-- Todo lo de etapas anteriores sigue intacto: login, stock opcional no bloqueante,
-  creación de negocios, recordatorios de WhatsApp configurables (semi-automáticos, sin
-  API paga), mora con 7 días de gracia, distribución automática de pagos.
+### Variables de entorno (`.env`)
 
-## 3. Cambios de base de datos (todos no-destructivos, con `IF NOT EXISTS`)
+| Variable | Qué hace |
+|---|---|
+| `PORT` | Puerto del servidor (Render lo define solo en producción) |
+| `DATABASE_URL` | String de conexión a Postgres, ej: `postgresql://usuario:pass@host:5432/basededatos` |
+| `JWT_SECRET` | Texto largo y secreto para firmar las sesiones. Generá el tuyo con: `node -e "console.log(require('crypto').randomUUID())"` |
 
-- `clientes`: + `instagram`, + `seguimiento_estado`, + `seguimiento_fecha`, + `seguimiento_nota`
-- `cuotas`: + `dias_atraso_al_pagar`
-- Tabla nueva `comprobantes` + secuencia `comprobantes_seq` para la numeración única
-- Ninguna columna ni tabla existente se borró ni se modificó de forma destructiva
+## 2. Ponerla online (para usarla desde iPad, PC, iPhone y Android con cuenta)
 
-## 4. Tests: 17/17 ✔
+Esto se hace en dos partes, **enteramente desde el navegador, sin instalar nada ni usar
+la terminal** (sirve incluso si sólo tenés el iPad a mano).
 
-Los 4 casos originales del motor financiero + 13 nuevos, incluyendo el que prueba
-exactamente el escenario de aislamiento (mismo cliente comprando en dos negocios,
-cada dashboard ve sólo lo suyo):
+### Parte A — la base de datos (Neon, gratis)
+
+1. Entrá a **neon.tech** y creá una cuenta (con email, Google o GitHub).
+2. Creá un proyecto nuevo (nombre, región más cercana, versión de Postgres — dejá la
+   que venga por defecto).
+3. En el dashboard del proyecto, tocá **"Connect"** y copiá el connection string. Si te
+   muestra dos (uno dice "pooled" y otro no), usá el que **no** dice "pooled" — esta
+   app ya maneja su propio pool de conexiones. Guardalo, lo necesitás en la Parte B.
+
+### Parte B — el código y el despliegue (GitHub + Render, gratis)
+
+1. Entrá a **github.com**, creá una cuenta si no tenés, y creá un repositorio nuevo
+   (puede ser privado). Por ejemplo `zilky-app`.
+2. En la página del repo, buscá la opción para subir archivos directamente (en el botón
+   **"Add file" → "Upload files"**, o el enlace "uploading an existing file" que aparece
+   en un repo vacío). Arrastrá **el contenido** de la carpeta `zilky-app` del zip que te
+   pasé — no hace falta `node_modules` ni la carpeta `data`. Confirmá el commit.
+3. Entrá a **render.com**, creá una cuenta (podés entrar directo con GitHub).
+4. **"New" → "Web Service"**, conectá el repositorio que acabás de crear.
+5. Configurá:
+   - **Build Command**: `npm install && npm run migrate`
+   - **Start Command**: `npm start`
+   - **Instance Type**: Free
+6. En **"Environment Variables"** agregá:
+   - `DATABASE_URL` → el connection string de Neon (Parte A)
+   - `JWT_SECRET` → cualquier texto largo y secreto que inventes
+7. **"Create Web Service"**. Esperá unos minutos a que termine de compilar.
+8. Render te da una dirección propia (algo como `https://zilky-app.onrender.com`). Esa
+   URL es la que abrís desde cualquier dispositivo — ahí creás tu cuenta y ya queda todo
+   guardado en Neon, accesible desde donde sea.
+
+**Dos cosas a tener en cuenta con los planes gratis** (no son errores, son así):
+- Render "duerme" el servicio después de 15 minutos sin uso: la primera vez que alguien
+  entra después de eso, tarda 30-60 segundos en despertar.
+- Neon también "pausa" la base tras un rato sin uso; el primer request después de eso
+  tarda un poco más de lo normal. El resto del tiempo anda a velocidad normal.
+- Si más adelante esto se vuelve crítico para el día a día del negocio, existen planes
+  pagos en ambos servicios (unos dólares por mes) que sacan esos límites — no hace falta
+  ahora para probarlo.
+
+Para cargar los datos de ejemplo en producción: en Render, abrí la pestaña **"Shell"**
+del servicio y corré `npm run seed` (opcional — también podés arrancar directo con tus
+clientes reales).
+
+Cada vez que quieras actualizar la app (cuando sigamos con las próximas etapas), subís
+los archivos nuevos a ese mismo repositorio de GitHub y Render redespliega solo.
+
+## 3. Qué quedó funcionando en esta etapa
+
+- **Cuentas de usuario**: registro y login con email y contraseña (con contraseña
+  encriptada, nunca guardada en texto plano). La sesión se guarda en cada dispositivo,
+  así que no hay que loguearse cada vez.
+- **Base de datos Postgres real**, no un archivo local: los datos están accesibles desde
+  cualquier dispositivo, no atados a una sola compu.
+- **Multiempresa real**: cada negocio tiene su config, clientes, productos, ventas y
+  créditos separados, con vista consolidada en el dashboard.
+- **Motor financiero** (ver tests en la sección 5):
+  - Modalidad **libre** (indumentaria: pagos parciales sin monto fijo, con fecha límite).
+  - Modalidad **cuotas** (Apple: cuotas mensuales que aceptan pagos parciales que se van
+    acumulando hasta completar la cuota vigente).
+  - Modalidad **único** (pago único con fecha límite).
+  - **Vencimiento + 7 días de gracia + mora recién desde el día 8**, calculada
+    dinámicamente.
+  - Interés moratorio configurable por negocio (%, fijo, por día/semana/mes, sobre saldo
+    vencido o sobre el total, simple o acumulativo).
+  - Distribución automática de cada pago: mora vencida primero, después capital de la
+    cuota más antigua, con el excedente pasando a la siguiente cuota o a saldo a favor.
+- **Clientes**: alta rápida, detección de duplicados por DNI/teléfono, perfil único
+  compartido entre negocios con deuda separada y consolidada.
+- **Productos y stock** por negocio, con descuento automático al vender.
+- **Dashboard** general y por negocio, **cobranza** agrupada por vencimiento/atraso,
+  **perfil de riesgo** básico por cliente, y botón de **WhatsApp** con mensaje prearmado.
+- Interfaz mobile-first: navegación inferior, botón flotante "+", diseño oscuro con
+  acento de color que cambia según el negocio elegido.
+
+## 4. Qué queda para las próximas etapas
+
+- **Permisos por rol**: hoy cualquiera que tenga una cuenta ve todo el negocio. Falta
+  diferenciar administrador / vendedor / cobrador / solo lectura, como pide el spec
+  original.
+- Contratos en PDF con firma.
+- Módulo de caja completo (ingresos/egresos/transferencias entre cajas, cierre diario).
+- Auditoría visible desde la interfaz (la tabla ya existe en la base, falta la pantalla).
+- Módulo "Estado del negocio" completo (balance general, rentabilidad, PAR 30/60/90,
+  proyecciones) — hoy sólo está el dashboard resumido.
+- Exportaciones a Excel/CSV/PDF.
+- Envío automático de recordatorios (hoy es manual, se aprieta un botón).
+- Refinanciación de créditos (el estado existe en el modelo de datos, falta el flujo).
+- Recuperar contraseña olvidada (hoy si alguien pierde la contraseña no hay forma de
+  resetearla desde la app; se puede hacer a mano en la base mientras tanto).
+
+Decime cuál de estos te urge más y seguimos por ahí.
+
+## 5. Tests automáticos
+
+Los 5 casos del spec original están como tests automáticos, corriendo contra un
+Postgres real (por defecto uno local; se puede apuntar a otro con `TEST_DATABASE_URL`):
 
 ```bash
-TEST_DATABASE_URL="postgresql://usuario:pass@host:5432/basededatos_test" npm test
+TEST_DATABASE_URL="postgresql://usuario:pass@host:5432/basededatos_de_test" npm test
 ```
 
-## 5. Pendiente real (no implementado, para no fingir que algo funciona sin backend)
+Importante: los tests **truncan las tablas** de la base a la que apunten antes de
+correr — nunca los corras contra tu base de producción con datos reales.
 
-- Permisos por rol (hoy cualquier cuenta logueada ve todos los negocios).
-- Contratos en PDF con firma.
-- Módulo de caja completo.
-- Exportaciones a Excel/CSV/PDF.
-- Recuperar contraseña olvidada.
-- Refinanciación de créditos (el estado existe en el modelo, falta el flujo).
-
-## 6. Desplegar la actualización en Render/Neon sin perder datos
-
-1. Subí estos archivos actualizados a tu mismo repositorio de GitHub (reemplazando los
-   anteriores — podés arrastrar y soltar de nuevo desde "Add file → Upload files").
-2. Render va a redesplegar solo. El **Build Command** ya incluye `npm run migrate`, así
-   que las columnas y tablas nuevas se crean automáticamente contra tu misma base de
-   Neon — no se toca ni se borra ningún dato existente.
-3. No hace falta correr `npm run seed` de nuevo (sólo agrega datos si la base está
-   vacía; si ya tenés negocios cargados, no hace nada).
-4. Nada de tu login ni tus negocios/clientes/ventas actuales se pierde: las migraciones
-   son aditivas.
-
-## 7. Estructura del proyecto
+## 6. Estructura del proyecto
 
 ```
 src/
-  db/            migrate.js, seed.js, connection.js (Postgres)
-  lib/           money.js, dates.js, mora.js (motor financiero puro), auth.js
-  middleware/    requireAuth.js
-  repositories/  negocios, clientes, productos, creditos, cuotas, pagos, usuarios, comprobantes
-  services/      authService, ventasService, pagosService, dashboardService, comprobantesService
-  routes/        auth, negocios, clientes, productos, ventas, pagos, dashboard, comprobantes
-public/          frontend (HTML/CSS/JS plano) — Inicio, Clientes, Cobrar, Calendario,
-                 Ventas, Productos, Comprobantes, Configuración, Más
-test/            17 tests del motor financiero y las reglas de negocio
+  db/            migrate.js (esquema), seed.js (datos de ejemplo), connection.js (Postgres)
+  lib/           money.js (centavos), dates.js (huso horario AR), mora.js (motor financiero puro), auth.js (JWT)
+  middleware/    requireAuth.js (exige sesión válida)
+  repositories/  una función por entidad, consultas SQL directas
+  services/      authService, ventasService, pagosService, dashboardService
+  routes/        /api/auth, /api/negocios, /api/clientes, /api/ventas, /api/pagos, /api/dashboard, /api/productos
+  app.js/server.js
+public/          frontend (HTML/CSS/JS plano, sin build step) + pantalla de login
+test/            tests del motor financiero
 ```
 
-## 8. Endpoints nuevos de esta etapa
+### Por qué estas decisiones técnicas
+
+- **Postgres** en vez de un archivo local: es lo que permite que la misma información
+  se vea desde el iPad, la PC y el celular a la vez, y lo que hace posible desplegar en
+  un servicio como Render.
+- **JWT + bcrypt** para las cuentas, en vez de depender de un servicio externo de login:
+  todo el código de autenticación queda en este mismo proyecto, sin atarte a un tercero.
+- **Plata en centavos (enteros)**, nunca en decimales, para evitar errores de redondeo.
+- **Estados calculados al vuelo** (nunca guardados como "verdad congelada"): así el
+  dashboard y la cobranza siempre reflejan la fecha de hoy.
+- **Frontend sin build step**: HTML/CSS/JS directo sin React/Vite, para que instalar sea
+  literalmente `npm install && npm start` sin pasos intermedios.
+
+## 7. Endpoints principales
 
 ```
-GET    /api/clientes/finalizados?negocio_id=...
-PATCH  /api/clientes/:id/seguimiento
-GET    /api/dashboard/calendario?negocio_id=...&mes=YYYY-MM
-GET    /api/dashboard/calendario/dia?negocio_id=...&fecha=YYYY-MM-DD
-GET    /api/comprobantes?negocio_id=...&cliente_id=...
-POST   /api/comprobantes/:id/anular   { motivo }
-GET    /api/dashboard/cobranza?negocio_id=...&ventana_dias=7
+POST   /api/auth/registro        { email, password, nombre }
+POST   /api/auth/login           { email, password }
+GET    /api/auth/yo              (requiere sesión)
+
+GET    /api/negocios
+POST   /api/negocios
+PATCH  /api/negocios/:id
+
+GET    /api/clientes?q=texto
+POST   /api/clientes
+GET    /api/clientes/:id
+
+GET    /api/productos?negocio_id=...
+POST   /api/productos
+
+POST   /api/ventas
+POST   /api/pagos
+
+GET    /api/dashboard/resumen?negocio_id=...
+GET    /api/dashboard/cobranza?negocio_id=...
 ```
+
+Todos los endpoints salvo `/api/auth/*` requieren el header `Authorization: Bearer <token>`
+que te devuelve el login.
