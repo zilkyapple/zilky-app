@@ -13,32 +13,24 @@ export async function crearPago(data) {
   );
   return getPago(pId);
 }
-
-export async function getPago(pId) {
-  return db.prepare('SELECT * FROM pagos WHERE id = ?').get(pId);
-}
-
+export async function getPago(pId) { return db.prepare('SELECT * FROM pagos WHERE id = ?').get(pId); }
 export async function crearAplicacion(pagoId, { cuotaId, capital, mora }) {
   const aId = id();
   await db.prepare(`
-    INSERT INTO pago_aplicaciones (id, pago_id, cuota_id, capital_centavos, interes_mora_centavos)
-    VALUES (?,?,?,?,?)
+    INSERT INTO pago_aplicaciones (id, pago_id, cuota_id, capital_centavos, interes_mora_centavos) VALUES (?,?,?,?,?)
   `).run(aId, pagoId, cuotaId, capital, mora);
 }
-
-export async function listPagosPorCredito(creditoId) {
-  return db.prepare('SELECT * FROM pagos WHERE credito_id = ? ORDER BY fecha_hora ASC').all(creditoId);
+export async function listPagosPorCredito(creditoId) { return db.prepare('SELECT * FROM pagos WHERE credito_id = ? ORDER BY fecha_hora ASC').all(creditoId); }
+export async function listPagosPorCliente(clienteId) { return db.prepare('SELECT * FROM pagos WHERE cliente_id = ? ORDER BY fecha_hora DESC').all(clienteId); }
+export async function listAplicacionesPorPago(pagoId) { return db.prepare('SELECT * FROM pago_aplicaciones WHERE pago_id = ?').all(pagoId); }
+export async function anularPago(pagoId, motivo) {
+  await db.prepare('UPDATE pagos SET anulado = 1, motivo_anulacion = ? WHERE id = ?').run(motivo || null, pagoId);
+  return getPago(pagoId);
 }
-
-export async function listPagosPorCliente(clienteId) {
-  return db.prepare('SELECT * FROM pagos WHERE cliente_id = ? ORDER BY fecha_hora DESC').all(clienteId);
-}
-
 export async function getSaldoFavor(clienteId, negocioId) {
   const row = await db.prepare('SELECT monto_centavos FROM saldo_favor WHERE cliente_id = ? AND negocio_id = ?').get(clienteId, negocioId);
   return row ? row.monto_centavos : 0;
 }
-
 export async function sumarSaldoFavor(clienteId, negocioId, delta) {
   const actual = await getSaldoFavor(clienteId, negocioId);
   const nuevo = actual + delta;

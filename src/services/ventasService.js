@@ -1,41 +1,39 @@
 import { db } from '../db/connection.js';
 import { id } from '../lib/id.js';
 import { todayAR, addDays, addMonths } from '../lib/dates.js';
-import { descontarStock } from '../repositories/productos.js';
+import { descontarStock, getProducto } from '../repositories/productos.js';
 import { crearCredito, getCredito } from '../repositories/creditos.js';
 import { crearCuota, listCuotasPorCredito } from '../repositories/cuotas.js';
+import { getCliente } from '../repositories/clientes.js';
 
-/**
- * modalidad: 'libre' (indumentaria, fecha límite única) | 'unico' (pago único, fecha límite)
- *            | 'cuotas' (mensuales, cada una acepta pagos parciales)
- */
 export async function crearVenta(input) {
   const {
     negocio_id, cliente_id, fecha = todayAR(), modalidad, items = [],
     entrega_inicial_centavos = 0, empleado = null, notas = null, plan = {},
   } = input;
 
-  if (!negocio_id || !cliente_id || !modalidad) {
-    throw badRequest('negocio_id, cliente_id y modalidad son obligatorios');
-  }
-  if (!['libre', 'unico', 'cuotas'].includes(modalidad)) {
-    throw badRequest(`modalidad inválida: ${modalidad}`);
-  }
+  if (!negocio_id || !cliente_id || !modalidad) throw badRequest('negocio_id, cliente_id y modalidad son obligatorios');
+  if (!['libre', 'unico', 'cuotas'].includes(modalidad)) throw badRequest(`modalidad inválida: ${modalidad}`);
+
+  const cliente = await getCliente(cliente_id);
+  if (!cliente) throw badRequest('Cliente no encontrado');
 
   const montoItems = items.reduce((acc, it) => acc + it.precio_unitario_centavos * (it.cantidad || 1), 0);
   const monto_total_centavos = input.monto_total_centavos ?? montoItems;
-  if (!monto_total_centavos || monto_total_centavos <= 0) {
-    throw badRequest('monto_total_centavos debe ser mayor a 0');
-  }
-  if (entrega_inicial_centavos < 0 || entrega_inicial_centavos > monto_total_centavos) {
-    throw badRequest('entrega_inicial_centavos inválida');
-  }
+  if (!monto_total_centavos || monto_total_centavos <= 0) throw badRequest('monto_total_centavos debe ser mayor a 0');
+  if (entrega_inicial_centavos < 0 || entrega_inicial_centavos > monto_total_centavos) throw badRequest('entrega_inicial_centavos inválida');
 
   const ventaId = id();
+  const advertencias = [];
 
-  // 1) Descontar stock de los items que tengan producto_id (no bloqueante si no se especifica)
+  // 1) Descontar stock de los items que tengan producto_id — nunca bloquea la venta.
   for (const it of items) {
-    if (it.producto_id) await descontarStock(it.producto_id, it.cantidad || 1);
+    if (it.producto_id) {
+      const producto = await getProducto(it.producto_id);
+      if (producto && producto.negocio_id !== negocio_id) throw badRequest('Ese producto pertenece a otro negocio.');
+      const { advertencia } = await descontarStock(it.producto_id, it.cantidad || 1);
+      if (advertencia) advertencias.push(advertencia);
+    }
   }
 
   // 2) Registrar venta + detalle
@@ -61,7 +59,7 @@ export async function crearVenta(input) {
 
   // 4) Cuotas según modalidad
   if (saldoFinanciado <= 0) {
-    // Pagado 100% al contado con entrega inicial: no genera cuotas.
+    // pagado 100% al contado: no genera cuotas
   } else if (modalidad === 'cuotas') {
     const { cantidad_cuotas, valor_cuota_centavos, fecha_primera_cuota, intervalo_dias = 30 } = plan;
     if (!cantidad_cuotas || !valor_cuota_centavos || !fecha_primera_cuota) {
@@ -73,7 +71,6 @@ export async function crearVenta(input) {
       await crearCuota({ credito_id: credito.id, numero: i + 1, monto_centavos: valor_cuota_centavos, fecha_vencimiento: vencimiento });
     }
   } else {
-    // libre | unico -> una sola obligación con fecha límite
     const fechaLimite = plan.fecha_limite || addDays(fecha, plan.plazo_dias || 30);
     await crearCuota({ credito_id: credito.id, numero: 1, monto_centavos: saldoFinanciado, fecha_vencimiento: fechaLimite });
   }
@@ -82,11 +79,8 @@ export async function crearVenta(input) {
     venta: await db.prepare('SELECT * FROM ventas WHERE id = ?').get(ventaId),
     credito: await getCredito(credito.id),
     cuotas: await listCuotasPorCredito(credito.id),
+    advertencias,
   };
 }
 
-function badRequest(msg) {
-  const e = new Error(msg);
-  e.status = 400;
-  return e;
-}
+function badRequest(msg) { const e = new Error(msg); e.status = 400; return e; }

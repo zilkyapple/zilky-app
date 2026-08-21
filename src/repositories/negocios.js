@@ -4,8 +4,8 @@ import { id } from '../lib/id.js';
 export async function crearNegocio(data) {
   const negId = id();
   await db.prepare(`
-    INSERT INTO negocios (id, nombre, color, logo_url, dias_gracia, mora_tipo, mora_valor, mora_periodo, mora_base, mora_acumulativa, orden_aplicacion_pago)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?)
+    INSERT INTO negocios (id, nombre, color, logo_url, dias_gracia, mora_tipo, mora_valor, mora_periodo, mora_base, mora_acumulativa, orden_aplicacion_pago, recordatorio_dias)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
   `).run(
     negId,
     data.nombre,
@@ -17,7 +17,8 @@ export async function crearNegocio(data) {
     data.mora_periodo || 'semana',
     data.mora_base || 'saldo_vencido',
     data.mora_acumulativa ? 1 : 0,
-    JSON.stringify(data.orden_aplicacion_pago || ['mora', 'capital'])
+    JSON.stringify(data.orden_aplicacion_pago || ['mora', 'capital']),
+    JSON.stringify(data.recordatorio_dias || [7, 3, 1, 0])
   );
   return getNegocio(negId);
 }
@@ -35,13 +36,14 @@ export async function actualizarNegocio(negId, data) {
   if (!actual) return null;
   const merged = { ...actual, ...data };
   await db.prepare(`
-    UPDATE negocios SET nombre=?, color=?, logo_url=?, dias_gracia=?, mora_tipo=?, mora_valor=?, mora_periodo=?, mora_base=?, mora_acumulativa=?, orden_aplicacion_pago=?
+    UPDATE negocios SET nombre=?, color=?, logo_url=?, dias_gracia=?, mora_tipo=?, mora_valor=?, mora_periodo=?, mora_base=?, mora_acumulativa=?, orden_aplicacion_pago=?, recordatorio_dias=?
     WHERE id=?
   `).run(
     merged.nombre, merged.color, merged.logo_url, merged.dias_gracia, merged.mora_tipo,
     merged.mora_valor, merged.mora_periodo, merged.mora_base,
     merged.mora_acumulativa ? 1 : 0,
     typeof merged.orden_aplicacion_pago === 'string' ? merged.orden_aplicacion_pago : JSON.stringify(merged.orden_aplicacion_pago),
+    typeof merged.recordatorio_dias === 'string' ? merged.recordatorio_dias : JSON.stringify(merged.recordatorio_dias),
     negId
   );
   return getNegocio(negId);

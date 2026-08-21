@@ -13,23 +13,15 @@ export async function crearCredito(data) {
   );
   return getCredito(crId);
 }
-
-export async function getCredito(crId) {
-  return db.prepare('SELECT * FROM creditos WHERE id = ?').get(crId);
-}
-
+export async function getCredito(crId) { return db.prepare('SELECT * FROM creditos WHERE id = ?').get(crId); }
 export async function listCreditosPorCliente(clienteId, negocioId = null) {
-  if (negocioId) {
-    return db.prepare('SELECT * FROM creditos WHERE cliente_id = ? AND negocio_id = ? ORDER BY fecha_inicio DESC').all(clienteId, negocioId);
-  }
+  if (negocioId) return db.prepare('SELECT * FROM creditos WHERE cliente_id = ? AND negocio_id = ? ORDER BY fecha_inicio DESC').all(clienteId, negocioId);
   return db.prepare('SELECT * FROM creditos WHERE cliente_id = ? ORDER BY fecha_inicio DESC').all(clienteId);
 }
-
 export async function listCreditos(negocioId = null) {
   if (negocioId) return db.prepare('SELECT * FROM creditos WHERE negocio_id = ? ORDER BY fecha_inicio DESC').all(negocioId);
   return db.prepare('SELECT * FROM creditos ORDER BY fecha_inicio DESC').all();
 }
-
 export async function actualizarEstadoCredito(crId, estado) {
   await db.prepare('UPDATE creditos SET estado = ? WHERE id = ?').run(estado, crId);
 }

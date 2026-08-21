@@ -9,7 +9,6 @@ if (!SECRET) {
 export function firmarToken(usuario) {
   return jwt.sign({ sub: usuario.id, email: usuario.email }, SECRET, { expiresIn: '30d' });
 }
-
 export function verificarToken(token) {
-  return jwt.verify(token, SECRET); // lanza si es inválido/expiró
+  return jwt.verify(token, SECRET);
 }

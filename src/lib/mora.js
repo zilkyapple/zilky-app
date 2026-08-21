@@ -1,25 +1,19 @@
 import { diffDays, addDays } from './dates.js';
 
-/**
- * Estados posibles de una cuota (sección 6 del spec).
- * Se calculan dinámicamente a partir de la fecha actual, nunca se "congelan" en la DB,
- * salvo los overrides manuales (refinanciada / anulada / incobrable).
- */
 export function estadoCuota(cuota, negocio, today) {
-  if (cuota.estado_manual) return cuota.estado_manual; // refinanciada | anulada | incobrable
+  if (cuota.estado_manual) return { estado: cuota.estado_manual, parcial: false };
 
   const pagada = cuota.saldo_pendiente_centavos <= 0;
   const parcial = !pagada && cuota.saldo_pendiente_centavos < cuota.monto_centavos;
 
   if (pagada) {
-    // Se compara la fecha REAL en que se completó el pago contra el vencimiento (no la fecha de consulta).
     const fechaReferencia = cuota.fecha_saldada || today;
     const antesDeVencer = diffDays(cuota.fecha_vencimiento, fechaReferencia) > 0;
     return { estado: antesDeVencer ? 'pagada_anticipada' : 'pagada', parcial: false };
   }
 
   const diasGracia = negocio.dias_gracia ?? 7;
-  const dias = diffDays(today, cuota.fecha_vencimiento); // >0 = vencida hace `dias` días
+  const dias = diffDays(today, cuota.fecha_vencimiento);
 
   let estado;
   if (dias < 0) estado = 'proxima';
@@ -30,11 +24,6 @@ export function estadoCuota(cuota, negocio, today) {
   return { estado, parcial };
 }
 
-/**
- * Interés moratorio de una cuota, calculado SOLO sobre el saldo vencido (o el total,
- * según config del negocio) y SOLO a partir del día 8 posterior al vencimiento
- * (vencimiento + 7 días de gracia + 1). Nunca antes.
- */
 export function calcularMora(cuota, negocio, today) {
   const { estado } = estadoCuota(cuota, negocio, today);
   if (estado !== 'mora') return { acumulada: 0, pendiente: 0, diasEnMora: 0 };
@@ -46,14 +35,13 @@ export function calcularMora(cuota, negocio, today) {
 
   const base = negocio.mora_base === 'total' ? cuota.monto_centavos : cuota.saldo_pendiente_centavos;
   const periodoDias = negocio.mora_periodo === 'dia' ? 1 : negocio.mora_periodo === 'mes' ? 30 : 7;
-  // Cualquier día dentro de un período ya devenga ese período completo (política de mora habitual).
   const periodos = Math.ceil(diasEnMora / periodoDias);
 
   let acumulada;
   if (negocio.mora_tipo === 'fijo') {
-    acumulada = Math.round(negocio.mora_valor * 100) * periodos; // mora_valor en pesos -> centavos
+    acumulada = Math.round(negocio.mora_valor * 100) * periodos;
   } else {
-    const tasa = negocio.mora_valor / 100; // ej 2 -> 0.02
+    const tasa = negocio.mora_valor / 100;
     acumulada = negocio.mora_acumulativa
       ? Math.round(base * (Math.pow(1 + tasa, periodos) - 1))
       : Math.round(base * tasa * periodos);
@@ -63,20 +51,12 @@ export function calcularMora(cuota, negocio, today) {
   return { acumulada, pendiente, diasEnMora };
 }
 
-/**
- * Distribuye un pago entre una lista de cuotas (ya ordenadas, la más antigua primero).
- * Orden por defecto: mora vencida -> capital de la cuota más antigua -> siguientes.
- * Devuelve las aplicaciones a persistir + el remanente (saldo a favor) si sobra dinero.
- * NO escribe en la base de datos: es una función pura, fácil de testear.
- */
 export function distribuirPago({ cuotas, monto, negocio, today, cuotaObjetivoId = null }) {
   const orden = JSON.parse(negocio.orden_aplicacion_pago || '["mora","capital"]');
   let disponible = monto;
   const aplicaciones = [];
 
-  const lista = cuotaObjetivoId
-    ? cuotas.filter((c) => c.id === cuotaObjetivoId)
-    : cuotas;
+  const lista = cuotaObjetivoId ? cuotas.filter((c) => c.id === cuotaObjetivoId) : cuotas;
 
   for (const cuota of lista) {
     if (disponible <= 0) break;

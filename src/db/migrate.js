@@ -17,12 +17,13 @@ CREATE TABLE IF NOT EXISTS negocios (
   logo_url TEXT,
   moneda TEXT DEFAULT 'ARS',
   dias_gracia INTEGER DEFAULT 7,
-  mora_tipo TEXT DEFAULT 'porcentaje',        -- 'porcentaje' | 'fijo'
-  mora_valor REAL DEFAULT 2,                   -- ej: 2 (=2%) o monto fijo en centavos si mora_tipo=fijo
-  mora_periodo TEXT DEFAULT 'semana',          -- 'dia' | 'semana' | 'mes'
-  mora_base TEXT DEFAULT 'saldo_vencido',      -- 'saldo_vencido' | 'total'
-  mora_acumulativa INTEGER DEFAULT 0,          -- 0 = interés simple, 1 = compuesto
+  mora_tipo TEXT DEFAULT 'porcentaje',
+  mora_valor REAL DEFAULT 2,
+  mora_periodo TEXT DEFAULT 'semana',
+  mora_base TEXT DEFAULT 'saldo_vencido',
+  mora_acumulativa INTEGER DEFAULT 0,
   orden_aplicacion_pago TEXT DEFAULT '["mora","capital"]',
+  recordatorio_dias TEXT DEFAULT '[7,3,1,0]',
   created_at TEXT DEFAULT (NOW()::text)
 );
 
@@ -32,15 +33,19 @@ CREATE TABLE IF NOT EXISTS clientes (
   apellido TEXT,
   telefono TEXT,
   whatsapp TEXT,
+  instagram TEXT,
   dni TEXT,
   direccion TEXT,
   ciudad TEXT,
   provincia TEXT,
   fecha_nacimiento TEXT,
   trabajo TEXT,
-  frecuencia_pago TEXT,          -- 'diario' | 'semanal' | 'quincenal' | 'mensual'
+  frecuencia_pago TEXT,
   foto_url TEXT,
   notas TEXT,
+  seguimiento_estado TEXT,
+  seguimiento_fecha TEXT,
+  seguimiento_nota TEXT,
   created_at TEXT DEFAULT (NOW()::text)
 );
 
@@ -49,12 +54,12 @@ CREATE TABLE IF NOT EXISTS productos (
   negocio_id TEXT NOT NULL REFERENCES negocios(id),
   nombre TEXT NOT NULL,
   categoria TEXT,
-  variante TEXT,                 -- ej: "Talle 42 / Azul" o IMEI
+  variante TEXT,
   sku TEXT,
   costo_centavos INTEGER DEFAULT 0,
   precio_contado_centavos INTEGER DEFAULT 0,
   precio_financiado_centavos INTEGER DEFAULT 0,
-  stock INTEGER DEFAULT 0,
+  stock INTEGER,
   stock_minimo INTEGER DEFAULT 0,
   imei TEXT,
   estado TEXT DEFAULT 'disponible',
@@ -67,7 +72,7 @@ CREATE TABLE IF NOT EXISTS ventas (
   negocio_id TEXT NOT NULL REFERENCES negocios(id),
   cliente_id TEXT NOT NULL REFERENCES clientes(id),
   fecha TEXT NOT NULL,
-  modalidad TEXT NOT NULL,       -- 'libre' | 'cuotas' | 'unico'
+  modalidad TEXT NOT NULL,
   monto_total_centavos INTEGER NOT NULL,
   entrega_inicial_centavos INTEGER DEFAULT 0,
   notas TEXT,
@@ -94,7 +99,7 @@ CREATE TABLE IF NOT EXISTS creditos (
   entrega_inicial_centavos INTEGER DEFAULT 0,
   saldo_financiado_centavos INTEGER NOT NULL,
   fecha_inicio TEXT NOT NULL,
-  estado TEXT DEFAULT 'activo',   -- activo|terminando|en_gracia|en_mora|finalizado|refinanciado|anulado
+  estado TEXT DEFAULT 'activo',
   created_at TEXT DEFAULT (NOW()::text)
 );
 
@@ -106,8 +111,9 @@ CREATE TABLE IF NOT EXISTS cuotas (
   saldo_pendiente_centavos INTEGER NOT NULL,
   mora_pagada_centavos INTEGER DEFAULT 0,
   fecha_vencimiento TEXT NOT NULL,
-  fecha_saldada TEXT,              -- fecha real en que quedó en $0 (para saber si fue anticipada)
-  estado_manual TEXT,             -- 'refinanciada'|'anulada'|'incobrable' (override manual)
+  fecha_saldada TEXT,
+  dias_atraso_al_pagar INTEGER,
+  estado_manual TEXT,
   created_at TEXT DEFAULT (NOW()::text)
 );
 
@@ -161,10 +167,50 @@ CREATE INDEX IF NOT EXISTS idx_cuotas_credito ON cuotas(credito_id);
 CREATE INDEX IF NOT EXISTS idx_pagos_credito ON pagos(credito_id);
 CREATE INDEX IF NOT EXISTS idx_ventas_negocio ON ventas(negocio_id);
 CREATE INDEX IF NOT EXISTS idx_productos_negocio ON productos(negocio_id);
+
+CREATE SEQUENCE IF NOT EXISTS comprobantes_seq;
+
+CREATE TABLE IF NOT EXISTS comprobantes (
+  id TEXT PRIMARY KEY,
+  numero TEXT UNIQUE NOT NULL,
+  pago_id TEXT NOT NULL REFERENCES pagos(id),
+  negocio_id TEXT NOT NULL REFERENCES negocios(id),
+  cliente_id TEXT NOT NULL REFERENCES clientes(id),
+  venta_id TEXT REFERENCES ventas(id),
+  credito_id TEXT REFERENCES creditos(id),
+  monto_centavos INTEGER NOT NULL,
+  fecha_hora TEXT NOT NULL,
+  medio_pago TEXT,
+  saldo_restante_centavos INTEGER,
+  usuario_id TEXT,
+  estado TEXT DEFAULT 'emitido',      -- 'emitido' | 'anulado'
+  anulado_motivo TEXT,
+  anulado_por TEXT,
+  anulado_fecha TEXT,
+  comprobante_original_id TEXT REFERENCES comprobantes(id),
+  created_at TEXT DEFAULT (NOW()::text)
+);
+CREATE INDEX IF NOT EXISTS idx_comprobantes_cliente ON comprobantes(cliente_id);
+CREATE INDEX IF NOT EXISTS idx_comprobantes_negocio ON comprobantes(negocio_id);
+`;
+
+// Parches para bases ya desplegadas antes de esta versión (CREATE TABLE IF NOT EXISTS
+// no agrega columnas nuevas a una tabla que ya existía, por eso van explícitas acá).
+// Nada de esto borra datos.
+const patches = `
+ALTER TABLE negocios ADD COLUMN IF NOT EXISTS recordatorio_dias TEXT DEFAULT '[7,3,1,0]';
+ALTER TABLE cuotas ADD COLUMN IF NOT EXISTS fecha_saldada TEXT;
+ALTER TABLE cuotas ADD COLUMN IF NOT EXISTS dias_atraso_al_pagar INTEGER;
+ALTER TABLE productos ALTER COLUMN stock DROP NOT NULL;
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS instagram TEXT;
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS seguimiento_estado TEXT;
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS seguimiento_fecha TEXT;
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS seguimiento_nota TEXT;
 `;
 
 export async function migrate() {
   await db.exec(schema);
+  await db.exec(patches);
   console.log('✔ Migraciones aplicadas.');
 }
 
