@@ -3,7 +3,19 @@ import { todayAR, diffDays } from '../lib/dates.js';
 import { estadoCuota, calcularMora } from '../lib/mora.js';
 import { listNegocios, getNegocio } from '../repositories/negocios.js';
 
+function buildNegocioFilter(negocioId) {
+  if (Array.isArray(negocioId) && negocioId.length > 0) {
+    const placeholders = negocioId.map(() => '?').join(',');
+    return { sql: `AND cr.negocio_id IN (${placeholders})`, params: negocioId };
+  }
+  if (negocioId) {
+    return { sql: `AND cr.negocio_id = ?`, params: [negocioId] };
+  }
+  return { sql: '', params: [] };
+}
+
 async function cuotasEnriquecidas(negocioId = null) {
+  const { sql: filterSql, params: filterParams } = buildNegocioFilter(negocioId);
   const sql = `
     SELECT cu.*, cr.negocio_id, cr.cliente_id, cr.modalidad, cr.venta_id,
            cl.nombre AS cliente_nombre, cl.apellido AS cliente_apellido, cl.telefono AS cliente_telefono,
@@ -12,9 +24,9 @@ async function cuotasEnriquecidas(negocioId = null) {
     JOIN creditos cr ON cr.id = cu.credito_id
     JOIN clientes cl ON cl.id = cr.cliente_id
     WHERE cu.saldo_pendiente_centavos > 0 AND cu.estado_manual IS NULL
-    ${negocioId ? 'AND cr.negocio_id = ?' : ''}
+    ${filterSql}
   `;
-  const rows = negocioId ? await db.prepare(sql).all(negocioId) : await db.prepare(sql).all();
+  const rows = await db.prepare(sql).all(...filterParams);
   const today = todayAR();
   const negocioCache = {};
   const out = [];
@@ -44,39 +56,29 @@ export async function resumenGeneral(negocioId = null) {
   const clientesVencidos = new Set(cuotas.filter((c) => c.diasHasta < 0).map((c) => c.cliente_id)).size;
   const clientesConDeuda = new Set(cuotas.map((c) => c.cliente_id)).size;
 
-  const cajaHoyRow = negocioId
-    ? await db.prepare(`SELECT COALESCE(SUM(monto_centavos),0) t FROM pagos WHERE substr(fecha_hora,1,10) = ? AND negocio_id = ? AND anulado = 0`).get(today, negocioId)
-    : await db.prepare(`SELECT COALESCE(SUM(monto_centavos),0) t FROM pagos WHERE substr(fecha_hora,1,10) = ? AND anulado = 0`).get(today);
-  const cajaMesRow = negocioId
-    ? await db.prepare(`SELECT COALESCE(SUM(monto_centavos),0) t FROM pagos WHERE substr(fecha_hora,1,7) = ? AND negocio_id = ? AND anulado = 0`).get(mesActual, negocioId)
-    : await db.prepare(`SELECT COALESCE(SUM(monto_centavos),0) t FROM pagos WHERE substr(fecha_hora,1,7) = ? AND anulado = 0`).get(mesActual);
-  const capitalColocadoRow = negocioId
-    ? await db.prepare(`SELECT COALESCE(SUM(saldo_financiado_centavos),0) t FROM creditos WHERE negocio_id = ?`).get(negocioId)
-    : await db.prepare(`SELECT COALESCE(SUM(saldo_financiado_centavos),0) t FROM creditos`).get();
-  const ventasVendidoRow = negocioId
-    ? await db.prepare(`SELECT COALESCE(SUM(monto_total_centavos),0) t FROM ventas WHERE negocio_id = ?`).get(negocioId)
-    : await db.prepare(`SELECT COALESCE(SUM(monto_total_centavos),0) t FROM ventas`).get();
+  const { sql: nf, params: np } = buildNegocioFilter(negocioId);
+  const cajaHoyRow = await db.prepare(`SELECT COALESCE(SUM(monto_centavos),0) t FROM pagos WHERE substr(fecha_hora,1,10) = ? ${nf.replace('cr.negocio_id', 'negocio_id')} AND anulado = 0`).get(today, ...np);
+  const cajaMesRow = await db.prepare(`SELECT COALESCE(SUM(monto_centavos),0) t FROM pagos WHERE substr(fecha_hora,1,7) = ? ${nf.replace('cr.negocio_id', 'negocio_id')} AND anulado = 0`).get(mesActual, ...np);
+  const capitalColocadoRow = await db.prepare(`SELECT COALESCE(SUM(saldo_financiado_centavos),0) t FROM creditos WHERE 1=1 ${nf.replace('cr.negocio_id', 'negocio_id')}`).get(...np);
+  const ventasVendidoRow = await db.prepare(`SELECT COALESCE(SUM(monto_total_centavos),0) t FROM ventas WHERE 1=1 ${nf.replace('cr.negocio_id', 'negocio_id')}`).get(...np);
   const clientesTotalesRow = negocioId
-    ? await db.prepare(`SELECT COUNT(DISTINCT cliente_id)::int t FROM creditos WHERE negocio_id = ?`).get(negocioId)
+    ? await db.prepare(`SELECT COUNT(DISTINCT cliente_id)::int t FROM creditos WHERE 1=1 ${nf.replace('cr.negocio_id', 'negocio_id')}`).get(...np)
     : await db.prepare(`SELECT COUNT(*)::int t FROM clientes`).get();
-  const ventasActivasRow = negocioId
-    ? await db.prepare(`SELECT COUNT(*)::int t FROM creditos WHERE negocio_id = ? AND estado != 'finalizado'`).get(negocioId)
-    : await db.prepare(`SELECT COUNT(*)::int t FROM creditos WHERE estado != 'finalizado'`).get();
-  const ventasFinalizadasRow = negocioId
-    ? await db.prepare(`SELECT COUNT(*)::int t FROM creditos WHERE negocio_id = ? AND estado = 'finalizado'`).get(negocioId)
-    : await db.prepare(`SELECT COUNT(*)::int t FROM creditos WHERE estado = 'finalizado'`).get();
+  const ventasActivasRow = await db.prepare(`SELECT COUNT(*)::int t FROM creditos WHERE estado != 'finalizado' ${nf.replace('cr.negocio_id', 'negocio_id')}`).get(...np);
+  const ventasFinalizadasRow = await db.prepare(`SELECT COUNT(*)::int t FROM creditos WHERE estado = 'finalizado' ${nf.replace('cr.negocio_id', 'negocio_id')}`).get(...np);
 
   let porNegocio = null;
-  if (!negocioId) {
+  if (!negocioId || (Array.isArray(negocioId) && negocioId.length > 1)) {
     porNegocio = [];
-    for (const n of await listNegocios()) {
+    const negocios = Array.isArray(negocioId) ? negocioId.map(id => ({ id })) : await listNegocios();
+    for (const n of negocios) {
+      const neg = await getNegocio(n.id);
       const r = await resumenGeneral(n.id);
-      porNegocio.push({ negocio_id: n.id, nombre: n.nombre, color: n.color, ...r, porNegocio: undefined });
+      porNegocio.push({ negocio_id: n.id, nombre: neg.nombre, color: neg.color, ...r, porNegocio: undefined });
     }
   }
 
   return {
-    // vendido vs cobrado vs pendiente — nunca se mezclan
     vendidoTotalCentavos: ventasVendidoRow.t,
     cobradoHoyCentavos: cajaHoyRow.t,
     cobradoMesCentavos: cajaMesRow.t,
@@ -95,7 +97,6 @@ export async function resumenGeneral(negocioId = null) {
   };
 }
 
-// Cobranzas: hoy / próximas (ventana configurable) / vencidas / todas.
 export async function listaCobranza(negocioId = null, { ventanaDias = 7 } = {}) {
   const cuotas = await cuotasEnriquecidas(negocioId);
   const hoy = cuotas.filter((c) => c.diasHasta === 0);
@@ -105,7 +106,6 @@ export async function listaCobranza(negocioId = null, { ventanaDias = 7 } = {}) 
   return { hoy, proximas, vencidas, todas, ventanaDias };
 }
 
-// Calendario mensual: cuántas cuotas y cuánto dinero vence cada día.
 export async function calendarioMes(negocioId, mesISO) {
   const cuotas = await cuotasEnriquecidas(negocioId);
   const delMes = cuotas.filter((c) => c.fecha_vencimiento.slice(0, 7) === mesISO);
@@ -138,9 +138,21 @@ export async function recordatoriosDeHoy(negocioId = null) {
   return out;
 }
 
-export async function perfilRiesgoCliente(clienteId) {
-  const pagos = await db.prepare(`SELECT * FROM pagos WHERE cliente_id = ? AND anulado = 0 ORDER BY fecha_hora ASC`).all(clienteId);
-  const todas = await cuotasEnriquecidas();
+export async function perfilRiesgoCliente(clienteId, negocioId = null) {
+  let pagosSql = `SELECT * FROM pagos WHERE cliente_id = ? AND anulado = 0`;
+  const pagosArgs = [clienteId];
+  if (Array.isArray(negocioId) && negocioId.length > 0) {
+    const placeholders = negocioId.map(() => '?').join(',');
+    pagosSql += ` AND negocio_id IN (${placeholders})`;
+    pagosArgs.push(...negocioId);
+  } else if (negocioId) {
+    pagosSql += ` AND negocio_id = ?`;
+    pagosArgs.push(negocioId);
+  }
+  pagosSql += ` ORDER BY fecha_hora ASC`;
+  const pagos = await db.prepare(pagosSql).all(...pagosArgs);
+
+  const todas = await cuotasEnriquecidas(negocioId);
   const cuotas = todas.filter((c) => c.cliente_id === clienteId);
   const enMora = cuotas.filter((c) => c.estado === 'mora').length;
   const enGracia = cuotas.filter((c) => c.estado === 'gracia').length;
@@ -153,15 +165,28 @@ export async function perfilRiesgoCliente(clienteId) {
   return { nivel, notas, pagosRegistrados: pagos.length, cuotasEnMora: enMora, cuotasEnGracia: enGracia };
 }
 
-// Historial financiero completo del cliente (sección 3 del spec): conserva el atraso
-// histórico aunque la cuota ya esté pagada, no sólo el estado actual.
 export async function historialFinancieroCliente(clienteId, negocioId = null) {
-  const filtroVentas = negocioId ? 'AND negocio_id = $2' : '';
-  const filtroPagos = negocioId ? 'AND negocio_id = $2' : '';
-  const filtroCuotas = negocioId ? 'AND cr.negocio_id = $2' : '';
-  const args = negocioId ? [clienteId, negocioId] : [clienteId];
+  // Helper para construir filtro de negocio con placeholders ? (compatible array)
+  function filtroNegocioSql(col, negocioId) {
+    if (Array.isArray(negocioId) && negocioId.length > 0) {
+      const placeholders = negocioId.map(() => '?').join(',');
+      return { sql: `AND ${col} IN (${placeholders})`, params: negocioId };
+    }
+    if (negocioId) {
+      return { sql: `AND ${col} = ?`, params: [negocioId] };
+    }
+    return { sql: '', params: [] };
+  }
 
-  const compras = await db.prepare(`SELECT COUNT(*)::int t FROM ventas WHERE cliente_id = ? ${filtroVentas}`).get(...args);
+  const fv = filtroNegocioSql('negocio_id', negocioId);
+  const fc = filtroNegocioSql('cr.negocio_id', negocioId);
+
+  const argsVentas = [clienteId, ...fv.params];
+  const argsCuotas = [clienteId, ...fc.params];
+  const argsPagos = [clienteId, ...fv.params];
+  const argsCreditos = [clienteId, ...fv.params];
+
+  const compras = await db.prepare(`SELECT COUNT(*)::int t FROM ventas WHERE cliente_id = ? ${fv.sql}`).get(...argsVentas);
   const cuotasRow = await db.prepare(`
     SELECT
       COUNT(*)::int AS total,
@@ -173,12 +198,12 @@ export async function historialFinancieroCliente(clienteId, negocioId = null) {
       COALESCE(AVG(cu.dias_atraso_al_pagar) FILTER (WHERE cu.dias_atraso_al_pagar IS NOT NULL), 0) AS atraso_promedio,
       COALESCE(MAX(cu.dias_atraso_al_pagar), 0) AS atraso_maximo
     FROM cuotas cu JOIN creditos cr ON cr.id = cu.credito_id
-    WHERE cr.cliente_id = ? ${filtroCuotas}
-  `).get(...args);
-  const cobradoRow = await db.prepare(`SELECT COALESCE(SUM(monto_centavos),0) t FROM pagos WHERE cliente_id = ? AND anulado = 0 ${filtroPagos}`).get(...args);
-  const fechasRow = await db.prepare(`SELECT MAX(fecha) t FROM ventas WHERE cliente_id = ? ${filtroVentas}`).get(...args);
-  const ultimoPagoRow = await db.prepare(`SELECT MAX(fecha_hora) t FROM pagos WHERE cliente_id = ? AND anulado = 0 ${filtroPagos}`).get(...args);
-  const finalizadasRow = await db.prepare(`SELECT COUNT(*)::int t FROM creditos WHERE cliente_id = ? ${negocioId ? 'AND negocio_id = $2' : ''} AND estado = 'finalizado'`).get(...args);
+    WHERE cr.cliente_id = ? ${fc.sql}
+  `).get(...argsCuotas);
+  const cobradoRow = await db.prepare(`SELECT COALESCE(SUM(monto_centavos),0) t FROM pagos WHERE cliente_id = ? AND anulado = 0 ${fv.sql}`).get(...argsPagos);
+  const fechasRow = await db.prepare(`SELECT MAX(fecha) t FROM ventas WHERE cliente_id = ? ${fv.sql}`).get(...argsVentas);
+  const ultimoPagoRow = await db.prepare(`SELECT MAX(fecha_hora) t FROM pagos WHERE cliente_id = ? AND anulado = 0 ${fv.sql}`).get(...argsPagos);
+  const finalizadasRow = await db.prepare(`SELECT COUNT(*)::int t FROM creditos WHERE cliente_id = ? ${fv.sql} AND estado = 'finalizado'`).get(...argsCreditos);
 
   return {
     cantidadCompras: compras.t,

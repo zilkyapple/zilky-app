@@ -192,6 +192,7 @@ async function render() {
     else if (root === 'productos') await viewProductos(view);
     else if (root === 'comprobantes') await viewComprobantes(view);
     else if (root === 'configuracion') await viewConfiguracion(view);
+    else if (root === 'empleados') await viewEmpleados(view);
     else if (root === 'mas') await viewMas(view);
     else view.innerHTML = notFound();
   } catch (err) {
@@ -862,12 +863,87 @@ async function viewMas(view) {
     <a class="list-item" href="#/productos"><span class="avatar">${iconProductos()}</span><div class="list-item-body"><div class="list-item-title">Productos y stock</div></div><span class="chev">${iconChevron()}</span></a>
     <a class="list-item" href="#/comprobantes"><span class="avatar">🧾</span><div class="list-item-body"><div class="list-item-title">Comprobantes</div></div><span class="chev">${iconChevron()}</span></a>
     <a class="list-item" href="#/configuracion"><span class="avatar">⚙️</span><div class="list-item-body"><div class="list-item-title">Configuración del negocio</div></div><span class="chev">${iconChevron()}</span></a>
-    ${['Contratos', 'Caja', 'Empleados y permisos', 'Exportaciones'].map((n) => `
+    <a class="list-item" href="#/empleados"><span class="avatar">👥</span><div class="list-item-body"><div class="list-item-title">Empleados y permisos</div></div><span class="chev">${iconChevron()}</span></a>
+    ${['Contratos', 'Caja', 'Exportaciones'].map((n) => `
       <div class="list-item" style="opacity:.55"><span class="avatar">✦</span><div class="list-item-body"><div class="list-item-title">${n}</div><div class="list-item-sub">Próxima etapa</div></div></div>
     `).join('')}
     <div class="section-title">Cuenta</div>
     <div class="list-item" data-action="logout"><span class="avatar">⎋</span><div class="list-item-body"><div class="list-item-title">Cerrar sesión</div></div></div>
   `;
+}
+
+// ---------------- Empleados y permisos ----------------
+const PERMISOS_EMPLEADO = ['clientes.ver','clientes.editar','ventas.crear','pagos.registrar','productos.ver','cobranzas.ver','dashboard_financiero.ver'];
+function parseJsonSeguro(v, fallback = {}) { if (v && typeof v === 'object') return v; try { return JSON.parse(v || ''); } catch { return fallback; } }
+
+async function viewEmpleados(view) {
+  const [usuarios, invitaciones, negocios] = await Promise.all([api('/usuarios'), api('/invitaciones'), api('/negocios')]);
+  const negocioMap = Object.fromEntries(negocios.map((n) => [n.id, n]));
+  const empleados = usuarios.filter((u) => u.rol !== 'administrador');
+  let html = `<div class="section-title">Empleados y permisos</div>`;
+  html += `<div class="card"><div class="section-title">Empleados</div>`;
+  if (!empleados.length) html += `<p style="color:var(--muted)">No hay empleados registrados.</p>`;
+  for (const u of empleados) {
+    const nombres = (u.negocios || []).filter((n) => n.activo).map((n) => negocioMap[n.negocio_id]?.nombre || n.negocio_id).join(', ');
+    html += `<div class="list-item"><span class="avatar">${(u.nombre || u.email || '?').slice(0,1).toUpperCase()}</span><div class="list-item-body"><div class="list-item-title">${u.nombre || 'Sin nombre'}</div><div class="list-item-sub">${u.email} · ${u.activo ? 'Activo' : 'Inactivo'}<br>Negocios: ${nombres || 'Ninguno'}</div></div><div style="display:flex;gap:6px;flex-direction:column"><button class="btn btn-secondary" onclick="toggleEmpleado('${u.id}',${u.activo ? 'false' : 'true'})">${u.activo ? 'Desactivar' : 'Activar'}</button><button class="btn btn-secondary" onclick="editarEmpleado('${u.id}')">Permisos</button></div></div>`;
+  }
+  html += `</div><div class="card" style="margin-top:14px"><div class="section-title">Invitar empleado</div><div class="field"><label>Email</label><input id="invEmail" type="email" placeholder="empleado@email.com"></div><div class="field"><label>Nombre</label><input id="invNombreEmpleado" placeholder="Nombre (opcional)"></div><div class="field"><label>Negocios y permisos</label>`;
+  for (const n of negocios) html += bloquePermisos(n, 'inv', {}, false);
+  html += `</div><button class="btn btn-primary btn-block" onclick="enviarInvitacion()">Crear invitación</button></div>`;
+  const pendientes = invitaciones.filter((i) => i.estado === 'pendiente');
+  html += `<div class="card" style="margin-top:14px"><div class="section-title">Invitaciones pendientes</div>`;
+  if (!pendientes.length) html += `<p style="color:var(--muted)">No hay invitaciones pendientes.</p>`;
+  for (const inv of pendientes) {
+    const asignaciones = parseJsonSeguro(inv.negocios, []);
+    const nombres = asignaciones.map((a) => negocioMap[a.negocio_id]?.nombre || a.negocio_id).join(', ');
+    html += `<div class="list-item"><div class="list-item-body"><div class="list-item-title">${inv.email}</div><div class="list-item-sub">Expira: ${fmtFecha(inv.expira_en)} · ${nombres}</div></div><div style="display:flex;gap:6px;flex-direction:column"><button class="btn btn-secondary" onclick="regenerarInvitacion('${inv.id}')">Regenerar</button><button class="btn btn-secondary" onclick="revocarInvitacion('${inv.id}')">Revocar</button></div></div>`;
+  }
+  html += `</div>`;
+  view.innerHTML = html;
+}
+function bloquePermisos(n, prefijo, permisos, activo) {
+  return `<div style="margin:8px 0;padding:10px;border:1px solid var(--border);border-radius:10px"><label style="font-weight:600"><input type="checkbox" class="${prefijo}-negocio-check" data-id="${n.id}" ${activo ? 'checked' : ''}> ${n.nombre}</label><div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">${PERMISOS_EMPLEADO.map((p) => `<label style="font-size:12px"><input type="checkbox" class="${prefijo}-permiso-check" data-negocio="${n.id}" data-permiso="${p}" ${permisos[p] ? 'checked' : ''}> ${p}</label>`).join('')}</div></div>`;
+}
+function recogerAsignaciones(prefijo) {
+  const negocios = [];
+  document.querySelectorAll(`.${prefijo}-negocio-check:checked`).forEach((cb) => {
+    const permisos = {};
+    document.querySelectorAll(`.${prefijo}-permiso-check[data-negocio="${cb.dataset.id}"]:checked`).forEach((p) => { permisos[p.dataset.permiso] = true; });
+    negocios.push({ negocio_id: cb.dataset.id, permisos });
+  });
+  return negocios;
+}
+async function toggleEmpleado(id, activo) { try { await api(`/usuarios/${id}`, { method:'PATCH', body:JSON.stringify({ activo: activo ? 1 : 0 }) }); toast('Empleado actualizado ✓'); render(); } catch(e){ toast(e.message,true); } }
+async function editarEmpleado(id) {
+  try {
+    const [u, negocios] = await Promise.all([api(`/usuarios/${id}`), api('/negocios')]);
+    let html = `<div class="sheet-handle"></div><div class="sheet-title">Permisos · ${u.nombre || u.email}</div>`;
+    for (const n of negocios) { const a=(u.negocios||[]).find((x)=>x.negocio_id===n.id); html += bloquePermisos(n,'edit',parseJsonSeguro(a?.permisos,{}),!!a?.activo); }
+    html += `<div class="sheet-actions"><button class="btn btn-secondary" onclick="closeSheet()">Cancelar</button><button class="btn btn-primary" onclick="guardarEmpleado('${id}')">Guardar</button></div>`;
+    openSheet(html);
+  } catch(e){ toast(e.message,true); }
+}
+async function guardarEmpleado(id) { try { await api(`/usuarios/${id}`, {method:'PATCH', body:JSON.stringify({negocios:recogerAsignaciones('edit')})}); closeSheet(); toast('Permisos guardados ✓'); render(); } catch(e){ toast(e.message,true); } }
+async function copiarLinkInvitacion(token) {
+  const link = `${location.origin}${location.pathname}?token=${encodeURIComponent(token)}`;
+  try { await navigator.clipboard.writeText(link); toast('Link de invitación copiado ✓'); } catch { window.prompt('Copiá este link de invitación:', link); }
+}
+async function enviarInvitacion() {
+  const email=document.getElementById('invEmail').value.trim(), nombre=document.getElementById('invNombreEmpleado').value.trim(), negocios=recogerAsignaciones('inv');
+  if(!email) return toast('Email es obligatorio',true); if(!negocios.length) return toast('Seleccioná al menos un negocio',true);
+  try { const r=await api('/invitaciones',{method:'POST',body:JSON.stringify({email,nombre,negocios})}); await copiarLinkInvitacion(r.token); render(); } catch(e){toast(e.message,true);}
+}
+async function revocarInvitacion(id){ if(!confirm('¿Revocar esta invitación?'))return; try{await api(`/invitaciones/${id}/revocar`,{method:'POST'});toast('Invitación revocada');render();}catch(e){toast(e.message,true);} }
+async function regenerarInvitacion(id){ if(!confirm('¿Regenerar la invitación?'))return; try{const r=await api(`/invitaciones/${id}/regenerar`,{method:'POST'});await copiarLinkInvitacion(r.token);render();}catch(e){toast(e.message,true);} }
+
+async function renderAceptarInvitacion() {
+  const token = new URLSearchParams(location.search).get('token');
+  document.getElementById('authScreen').style.display='none'; document.getElementById('root').style.display='none'; document.getElementById('invitacionScreen').style.display='flex';
+  const btn=document.getElementById('btnAceptarInvitacion');
+  btn.onclick=async()=>{ const nombre=document.getElementById('invNombre').value.trim(), password=document.getElementById('invPassword').value, password2=document.getElementById('invPassword2').value, err=document.getElementById('invError'); err.style.display='none';
+    if(password.length<6){err.textContent='La contraseña debe tener al menos 6 caracteres';err.style.display='block';return;} if(password!==password2){err.textContent='Las contraseñas no coinciden';err.style.display='block';return;}
+    try{const data=await api('/auth/invitacion/aceptar',{method:'POST',body:JSON.stringify({token,password,nombre})});setToken(data.token);history.replaceState({},'',location.pathname+'#/inicio');document.getElementById('invitacionScreen').style.display='none';await arrancarApp();}catch(e){err.textContent=e.message;err.style.display='block';}
+  };
 }
 
 // ---------------- WhatsApp helpers ----------------
@@ -1067,6 +1143,7 @@ async function arrancarApp() {
 
 (async function init() {
   wireAuthScreen();
+  if (new URLSearchParams(location.search).get('token')) { await renderAceptarInvitacion(); return; }
   if (!getToken()) { showAuthScreen(); return; }
   await arrancarApp();
 })();

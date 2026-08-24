@@ -11,7 +11,9 @@ import { ventasRouter } from './routes/ventas.js';
 import { pagosRouter } from './routes/pagos.js';
 import { dashboardRouter } from './routes/dashboard.js';
 import { comprobantesRouter } from './routes/comprobantes.js';
-import { requireAuth } from './middleware/requireAuth.js';
+import { usuariosRouter } from './routes/usuarios.js';
+import { invitacionesRouter } from './routes/invitaciones.js';
+import { cargarUsuario, requireAuth } from './middleware/authorize.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const app = express();
@@ -19,8 +21,11 @@ export const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Cargar usuario en todas las rutas /api (puede ser null si no hay token)
+app.use('/api', cargarUsuario);
+
 app.use('/api/auth', authRouter);
-app.use('/api', requireAuth);
+app.use('/api', requireAuth); // a partir de acá todo requiere token válido
 
 app.use('/api/negocios', negociosRouter);
 app.use('/api/clientes', clientesRouter);
@@ -29,6 +34,8 @@ app.use('/api/ventas', ventasRouter);
 app.use('/api/pagos', pagosRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/comprobantes', comprobantesRouter);
+app.use('/api/usuarios', usuariosRouter);
+app.use('/api/invitaciones', invitacionesRouter);
 
 app.use(express.static(path.join(__dirname, '..', 'public')));
 

@@ -4,7 +4,7 @@ import { todayAR, addDays, addMonths } from '../lib/dates.js';
 import { descontarStock, getProducto } from '../repositories/productos.js';
 import { crearCredito, getCredito } from '../repositories/creditos.js';
 import { crearCuota, listCuotasPorCredito } from '../repositories/cuotas.js';
-import { getCliente } from '../repositories/clientes.js';
+import { getCliente, vincularClienteNegocio } from '../repositories/clientes.js';
 
 export async function crearVenta(input) {
   const {
@@ -49,7 +49,10 @@ export async function crearVenta(input) {
     `).run(id(), ventaId, it.producto_id || null, it.descripcion || null, it.cantidad || 1, it.precio_unitario_centavos);
   }
 
-  // 3) Crédito
+  // 3) Vincular explícitamente cliente con el negocio (relación cliente_negocio)
+  await vincularClienteNegocio(cliente_id, negocio_id);
+
+  // 4) Crédito
   const saldoFinanciado = monto_total_centavos - entrega_inicial_centavos;
   const credito = await crearCredito({
     venta_id: ventaId, negocio_id, cliente_id, modalidad,
@@ -57,7 +60,7 @@ export async function crearVenta(input) {
     saldo_financiado_centavos: saldoFinanciado, fecha_inicio: fecha,
   });
 
-  // 4) Cuotas según modalidad
+  // 5) Cuotas según modalidad
   if (saldoFinanciado <= 0) {
     // pagado 100% al contado: no genera cuotas
   } else if (modalidad === 'cuotas') {

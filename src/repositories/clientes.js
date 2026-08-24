@@ -35,14 +35,62 @@ export async function listClientes() {
   return db.prepare('SELECT * FROM clientes ORDER BY created_at DESC').all();
 }
 
-// negocioId es opcional: si se pasa, además de buscar por texto, sólo trae clientes que
-// tengan al menos una operación (crédito) en ese negocio — un filtro, no una partición.
+// Relación EXPLÍCITA cliente-negocio (no inferida por créditos)
+export async function vincularClienteNegocio(clienteId, negocioId) {
+  await db.prepare(`
+    INSERT INTO cliente_negocio (cliente_id, negocio_id)
+    VALUES (?, ?)
+    ON CONFLICT (cliente_id, negocio_id) DO NOTHING
+  `).run(clienteId, negocioId);
+}
+
+export async function listNegociosDeCliente(clienteId) {
+  return db.prepare(`
+    SELECT n.* FROM negocios n
+    JOIN cliente_negocio cn ON cn.negocio_id = n.id
+    WHERE cn.cliente_id = ?
+  `).all(clienteId);
+}
+
+export async function listClientesPorNegocio(negocioId) {
+  return db.prepare(`
+    SELECT cl.* FROM clientes cl
+    JOIN cliente_negocio cn ON cn.cliente_id = cl.id
+    WHERE cn.negocio_id = ?
+    ORDER BY cl.nombre ASC
+  `).all(negocioId);
+}
+
+export async function listClientesPorNegocios(negocioIds) {
+  if (!negocioIds || negocioIds.length === 0) return [];
+  const placeholders = negocioIds.map(() => '?').join(',');
+  return db.prepare(`
+    SELECT cl.* FROM clientes cl
+    JOIN cliente_negocio cn ON cn.cliente_id = cl.id
+    WHERE cn.negocio_id IN (${placeholders})
+    ORDER BY cl.nombre ASC
+  `).all(...negocioIds);
+}
+
+// negocioId es opcional: si se pasa, filtra a clientes vinculados a ese/os negocio/s.
 export async function buscarClientes(q, negocioId = null) {
   const like = `%${q}%`;
+  if (Array.isArray(negocioId) && negocioId.length > 0) {
+    const placeholders = negocioId.map(() => '?').join(',');
+    return db.prepare(`
+      SELECT DISTINCT cl.* FROM clientes cl
+      JOIN cliente_negocio cn ON cn.cliente_id = cl.id
+      WHERE cn.negocio_id IN (${placeholders})
+        AND (cl.nombre ILIKE ? OR cl.apellido ILIKE ? OR cl.dni ILIKE ? OR cl.telefono ILIKE ? OR cl.instagram ILIKE ?)
+      ORDER BY cl.nombre ASC LIMIT 25
+    `).all(...negocioId, like, like, like, like, like);
+  }
   if (negocioId) {
     return db.prepare(`
-      SELECT DISTINCT cl.* FROM clientes cl JOIN creditos cr ON cr.cliente_id = cl.id
-      WHERE cr.negocio_id = ? AND (cl.nombre ILIKE ? OR cl.apellido ILIKE ? OR cl.dni ILIKE ? OR cl.telefono ILIKE ? OR cl.instagram ILIKE ?)
+      SELECT DISTINCT cl.* FROM clientes cl
+      JOIN cliente_negocio cn ON cn.cliente_id = cl.id
+      WHERE cn.negocio_id = ?
+        AND (cl.nombre ILIKE ? OR cl.apellido ILIKE ? OR cl.dni ILIKE ? OR cl.telefono ILIKE ? OR cl.instagram ILIKE ?)
       ORDER BY cl.nombre ASC LIMIT 25
     `).all(negocioId, like, like, like, like, like);
   }

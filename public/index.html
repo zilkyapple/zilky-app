@@ -18,7 +18,6 @@
       </div>
       <div class="segmented" id="authTabs" style="margin-bottom:18px">
         <button type="button" class="active" data-mode="login">Iniciar sesión</button>
-        <button type="button" data-mode="registro">Crear cuenta</button>
       </div>
       <div id="authNombreField" class="field" style="display:none">
         <label>Tu nombre</label>
@@ -29,6 +28,18 @@
       <div id="authError" class="auth-error" style="display:none"></div>
       <button class="btn btn-primary btn-block btn-lg" id="authSubmit">Entrar</button>
       <div class="auth-hint">Se guarda en este dispositivo: la próxima vez entrás directo.</div>
+    </div>
+  </div>
+
+  <div id="invitacionScreen" class="auth-screen" style="display:none">
+    <div class="auth-card">
+      <div class="auth-brand"><span class="brand-mark">Z</span><div><strong>Zilky</strong><div class="brand-sub">Aceptar invitación</div></div></div>
+      <p id="invitacionInfo" class="auth-hint" style="margin-bottom:16px">Completá tus datos para crear tu cuenta de empleado.</p>
+      <div class="field"><label>Tu nombre</label><input id="invNombre" placeholder="Tu nombre" /></div>
+      <div class="field"><label>Contraseña</label><input id="invPassword" type="password" placeholder="Mínimo 6 caracteres" /></div>
+      <div class="field"><label>Repetir contraseña</label><input id="invPassword2" type="password" placeholder="Repetí tu contraseña" /></div>
+      <div id="invError" class="auth-error" style="display:none"></div>
+      <button class="btn btn-primary btn-block btn-lg" id="btnAceptarInvitacion">Crear cuenta y entrar</button>
     </div>
   </div>
 
