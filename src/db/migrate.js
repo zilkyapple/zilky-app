@@ -361,6 +361,17 @@ ALTER TABLE clientes ADD COLUMN IF NOT EXISTS seguimiento_nota TEXT;
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS activo INTEGER DEFAULT 1;
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS invitacion_completada INTEGER DEFAULT 1;
 
+-- Compatibilidad con bases ya existentes: CREATE TABLE IF NOT EXISTS no agrega
+-- columnas nuevas a tablas que ya estaban creadas.
+ALTER TABLE negocios ADD COLUMN IF NOT EXISTS organizacion_id TEXT REFERENCES organizaciones(id);
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS organizacion_id TEXT REFERENCES organizaciones(id);
+ALTER TABLE productos ADD COLUMN IF NOT EXISTS organizacion_id TEXT REFERENCES organizaciones(id);
+ALTER TABLE ventas ADD COLUMN IF NOT EXISTS organizacion_id TEXT REFERENCES organizaciones(id);
+ALTER TABLE creditos ADD COLUMN IF NOT EXISTS organizacion_id TEXT REFERENCES organizaciones(id);
+ALTER TABLE pagos ADD COLUMN IF NOT EXISTS organizacion_id TEXT REFERENCES organizaciones(id);
+ALTER TABLE comprobantes ADD COLUMN IF NOT EXISTS organizacion_id TEXT REFERENCES organizaciones(id);
+ALTER TABLE auditoria ADD COLUMN IF NOT EXISTS organizacion_id TEXT REFERENCES organizaciones(id);
+
 -- Migración de datos existentes a organización por defecto
 DO $$
 BEGIN
