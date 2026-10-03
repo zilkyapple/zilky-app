@@ -7,7 +7,7 @@ export const dashboardRouter = Router();
 dashboardRouter.get('/resumen', requirePermiso('dashboard_financiero.ver'), async (req, res, next) => {
   try {
     const { negocio_id } = req.query;
-    const scope = scopeNegocios(req);
+    const scope = scopeNegocios(req, 'dashboard_financiero.ver');
     if (negocio_id) {
       if (!validarScopeNegocio(req, negocio_id)) return res.status(403).json({ error: 'No tenés acceso a ese negocio' });
       res.json(await resumenGeneral(negocio_id));
@@ -34,7 +34,7 @@ dashboardRouter.get('/resumen', requirePermiso('dashboard_financiero.ver'), asyn
 dashboardRouter.get('/cobranza', requirePermiso('cobranzas.ver'), async (req, res, next) => {
   try {
     const { negocio_id } = req.query;
-    const scope = scopeNegocios(req);
+    const scope = scopeNegocios(req, 'cobranzas.ver');
     const ventana = req.query.ventana_dias ? Number(req.query.ventana_dias) : 7;
     if (negocio_id) {
       if (!validarScopeNegocio(req, negocio_id)) return res.status(403).json({ error: 'No tenés acceso a ese negocio' });
@@ -54,7 +54,7 @@ dashboardRouter.get('/cobranza', requirePermiso('cobranzas.ver'), async (req, re
 dashboardRouter.get('/recordatorios', requirePermiso('cobranzas.ver'), async (req, res, next) => {
   try {
     const { negocio_id } = req.query;
-    const scope = scopeNegocios(req);
+    const scope = scopeNegocios(req, 'cobranzas.ver');
     if (negocio_id) {
       if (!validarScopeNegocio(req, negocio_id)) return res.status(403).json({ error: 'No tenés acceso a ese negocio' });
       res.json(await recordatoriosDeHoy(negocio_id));

@@ -31,7 +31,7 @@ export async function listProductos(negocioId) {
 // quedar en negativo, a propósito, para que se note que hay que reponer) y devuelve
 // una advertencia en vez de tirar un error.
 export async function descontarStock(pId, cantidad) {
-  const p = await getProducto(pId);
+  const p = await db.prepare('SELECT * FROM productos WHERE id = ? FOR UPDATE').get(pId);
   if (!p) return { producto: null, advertencia: null };
   if (p.stock === null) return { producto: p, advertencia: null };
 

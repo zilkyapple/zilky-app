@@ -1,3 +1,5 @@
+import {db} from '../db/connection.js';
+import {auditar} from '../lib/audit.js';
 import { nowAR } from '../lib/dates.js';
 import { getComprobante, anularComprobanteRow, listComprobantes } from '../repositories/comprobantes.js';
 import { listAplicacionesPorPago, anularPago, sumarSaldoFavor, getPago } from '../repositories/pagos.js';
@@ -16,12 +18,19 @@ export async function verComprobantes(negocioId, clienteId) {
 // guarda quién/cuándo/por qué, y devuelve a las cuotas el saldo que habían cancelado
 // (incluida la mora ya paga), para que la deuda vuelva a reflejar la realidad.
 export async function anularComprobante(comprobanteId, { motivo, usuarioId }) {
+  return db.transaction(async () => {
+  const inicial=await getComprobante(comprobanteId);
+  if(!inicial) throw badRequest('Comprobante no encontrado');
+  await db.lockClienteNegocio(inicial.cliente_id,inicial.negocio_id);
+  await db.prepare('SELECT id FROM comprobantes WHERE id=? FOR UPDATE').get(comprobanteId);
   const comprobante = await getComprobante(comprobanteId);
   if (!comprobante) throw badRequest('Comprobante no encontrado');
   if (comprobante.estado === 'anulado') throw badRequest('Ese comprobante ya estaba anulado');
   if (!motivo) throw badRequest('El motivo de anulación es obligatorio');
 
   const pago = await getPago(comprobante.pago_id);
+  if(pago.tipo==='entrega_inicial') throw Object.assign(new Error('La entrega inicial no puede anularse desde pagos. Su corrección requiere editar y auditar el financiamiento y se resolverá en la Etapa 6.'),{status:409});
+  if(pago.anulado) throw badRequest('El pago ya fue anulado');
   const aplicaciones = await listAplicacionesPorPago(pago.id);
 
   for (const ap of aplicaciones) {
@@ -54,5 +63,7 @@ export async function anularComprobante(comprobanteId, { motivo, usuarioId }) {
     await recalcularEstadoCredito(credito.id, negocio, fecha.slice(0, 10));
   }
 
+  await auditar('pago',pago.id,'anular',pago,await getPago(pago.id),usuarioId,motivo);
   return getComprobante(comprobanteId);
+  });
 }

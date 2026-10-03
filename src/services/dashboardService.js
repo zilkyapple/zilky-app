@@ -4,6 +4,7 @@ import { estadoCuota, calcularMora } from '../lib/mora.js';
 import { listNegocios, getNegocio } from '../repositories/negocios.js';
 
 function buildNegocioFilter(negocioId) {
+  if (Array.isArray(negocioId) && negocioId.length === 0) return {sql:'AND FALSE',params:[]};
   if (Array.isArray(negocioId) && negocioId.length > 0) {
     const placeholders = negocioId.map(() => '?').join(',');
     return { sql: `AND cr.negocio_id IN (${placeholders})`, params: negocioId };
@@ -141,6 +142,7 @@ export async function recordatoriosDeHoy(negocioId = null) {
 export async function perfilRiesgoCliente(clienteId, negocioId = null) {
   let pagosSql = `SELECT * FROM pagos WHERE cliente_id = ? AND anulado = 0`;
   const pagosArgs = [clienteId];
+  if(Array.isArray(negocioId) && negocioId.length===0) pagosSql+=' AND FALSE';
   if (Array.isArray(negocioId) && negocioId.length > 0) {
     const placeholders = negocioId.map(() => '?').join(',');
     pagosSql += ` AND negocio_id IN (${placeholders})`;
@@ -168,6 +170,7 @@ export async function perfilRiesgoCliente(clienteId, negocioId = null) {
 export async function historialFinancieroCliente(clienteId, negocioId = null) {
   // Helper para construir filtro de negocio con placeholders ? (compatible array)
   function filtroNegocioSql(col, negocioId) {
+    if(Array.isArray(negocioId) && !negocioId.length) return {sql:'AND FALSE',params:[]};
     if (Array.isArray(negocioId) && negocioId.length > 0) {
       const placeholders = negocioId.map(() => '?').join(',');
       return { sql: `AND ${col} IN (${placeholders})`, params: negocioId };
@@ -193,8 +196,8 @@ export async function historialFinancieroCliente(clienteId, negocioId = null) {
       COUNT(*) FILTER (WHERE cu.saldo_pendiente_centavos <= 0)::int AS pagadas,
       COUNT(*) FILTER (WHERE cu.saldo_pendiente_centavos <= 0 AND cu.dias_atraso_al_pagar = 0)::int AS a_tiempo,
       COUNT(*) FILTER (WHERE cu.saldo_pendiente_centavos <= 0 AND cu.dias_atraso_al_pagar > 0)::int AS tarde,
-      COUNT(*) FILTER (WHERE cu.saldo_pendiente_centavos > 0 AND cu.fecha_vencimiento < '${todayAR()}')::int AS vencidas_actualmente,
-      COALESCE(SUM(cu.saldo_pendiente_centavos) FILTER (WHERE cu.saldo_pendiente_centavos > 0), 0) AS deuda_actual,
+      COUNT(*) FILTER (WHERE cu.saldo_pendiente_centavos > 0 AND cu.estado_manual IS NULL AND cu.fecha_vencimiento < '${todayAR()}')::int AS vencidas_actualmente,
+      COALESCE(SUM(cu.saldo_pendiente_centavos) FILTER (WHERE cu.saldo_pendiente_centavos > 0 AND cu.estado_manual IS NULL), 0) AS deuda_actual,
       COALESCE(AVG(cu.dias_atraso_al_pagar) FILTER (WHERE cu.dias_atraso_al_pagar IS NOT NULL), 0) AS atraso_promedio,
       COALESCE(MAX(cu.dias_atraso_al_pagar), 0) AS atraso_maximo
     FROM cuotas cu JOIN creditos cr ON cr.id = cu.credito_id

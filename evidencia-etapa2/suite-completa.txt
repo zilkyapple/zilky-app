@@ -1,0 +1,323 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> zilky-app@0.2.0 test
+> node --test --test-concurrency=1 test/*.test.js
+
+✔ Migraciones aplicadas.
+✔ Caso 1: pagos libres e irregulares cancelan la venta sin generar mora (66.200621ms)
+✔ Caso 2: la mora respeta el período de gracia de 7 días (vence 10/08, mora desde 18/08) (0.729559ms)
+✔ Caso 3: pagos semanales completan la primera cuota sin tocar la siguiente (56.348778ms)
+✔ Caso 4: un pago mayor a la cuota se aplica primero a esa cuota y el resto a la siguiente (23.423078ms)
+✔ Stock: vender sin stock configurado nunca bloquea la venta (8.26272ms)
+✔ 12. Stock insuficiente avisa pero NO bloquea la venta (6.57723ms)
+✔ Cliente requiere nombre y apellido (2.57705ms)
+✔ DNI, teléfono e Instagram pueden quedar vacíos (1.574662ms)
+✔ Instagram se normaliza con @ (3.283447ms)
+✔ 1. El mismo cliente puede comprar en dos negocios, y cada negocio ve SOLO lo suyo (66.401727ms)
+✔ 4 y 5. Cuota vencida aparece en "vencidas" y cuota futura en "próximas" (26.749926ms)
+✔ 6. El calendario devuelve correctamente los vencimientos de cada fecha (7.715235ms)
+✔ 7 y 8. Registrar pago conserva fecha real y días de atraso, y no se borra al pagar tarde (11.776602ms)
+✔ 9. Un pago genera un comprobante único (16.339715ms)
+✔ 10. Un comprobante anulado conserva el original y revierte el saldo (23.159173ms)
+✔ 11. Finalizar todas las cuotas mueve al cliente a "clientes finalizados" DE ESE NEGOCIO (14.430626ms)
+✔ 13. Los dashboards calculan lo COBRADO con pagos reales, no con ventas creadas (17.337583ms)
+✔ Etapa2 UI: empleados activos e inactivos, negocios y permisos por negocio visibles (183.92953ms)
+✔ Etapa2 UI: los cuatro estados muestran únicamente acciones válidas (76.313052ms)
+✔ Etapa2 UI: seleccionar varios negocios conserva permisos diferentes y desactivar negocio deshabilita sus casillas (58.906771ms)
+✔ Etapa2 UI: invitar envía selección por negocio y ofrece enlace si no hay email (84.906597ms)
+✔ Etapa2 UI: no manda invitaciones sin negocio ni con email inválido (81.135472ms)
+✔ Etapa2 UI: editor precarga asignaciones actuales y envía cambios atómicos en un PATCH (61.059169ms)
+✔ Etapa2 UI: manager ve gestión sin endpoints o formulario de invitaciones admin (27.859058ms)
+✔ Etapa2 UI: datos maliciosos de empleados e invitaciones permanecen texto (45.11094ms)
+✔ Etapa2 UI: Invitación vencida bloquea formulario y no crea cuenta (28.541432ms)
+✔ Etapa2 UI: Invitación revocada bloquea formulario y no crea cuenta (24.662611ms)
+✔ Etapa2 UI: Invitación ya utilizada bloquea formulario y no crea cuenta (14.659681ms)
+✔ Etapa2 UI: Invitación no válida bloquea formulario y no crea cuenta (22.914034ms)
+✔ Etapa2 UI: invitado ve email y negocios; contraseña distinta no se envía (23.259492ms)
+✔ Etapa2 UI: no duplica solicitud de aceptación mientras espera respuesta (15.392016ms)
+✔ Etapa2 UI: cerrar un modal anterior no elimina el nuevo resultado de invitación (261.80945ms)
+✔ Cobrar sin negocio genera URL válida con signo de pregunta (205.68888ms)
+✔ Con deuda solicita filtro real al backend y conserva negocio (46.136485ms)
+✔ Clientes con nombre malicioso se muestran como texto, no como HTML (51.581795ms)
+✔ Sanitizador quita eventos, scripts y enlaces javascript (32.55243ms)
+✔ Las hojas conservan markup de UI y siguen sanitizando datos (32.283474ms)
+✔ El calendario conserva sus celdas renderizadas (69.095309ms)
+✔ Toda escritura innerHTML pasa por el único sanitizador (55.512691ms)
+✔ Acción de empleados sigue funcionando sin onclick inline (72.068989ms)
+✔ Ficha sin permiso financiero no rompe el frontend ni muestra importes (23.75445ms)
+✔ Entrega inicial identificada y sin botón de anulación; pago normal sí (31.112391ms)
+✔ Pantalla de invitación conserva creación de contraseña sin handlers inline (36.923294ms)
+✔ Migraciones aplicadas.
+✔ Auth: sin sesión rechazado (67.121314ms)
+✔ Auth: JWT inválido rechazado (6.615943ms)
+✔ Usuario sin asignaciones no ve negocios (15.725751ms)
+✔ Empleado solo lista negocios asignados (6.067709ms)
+✔ Scope negativo: leer negocio ajeno (5.653543ms)
+✔ Scope negativo: configurar negocio ajeno (14.971832ms)
+✔ Scope negativo: configurar negocio propio sin ser admin (6.266479ms)
+✔ Scope negativo: crear negocio (8.141014ms)
+✔ Scope negativo: listar productos B sin permiso (6.527103ms)
+✔ Scope negativo: detalle producto B sin permiso (11.489378ms)
+✔ Scope negativo: detalle producto B usando selector A (4.667046ms)
+✔ Scope negativo: cliente ajeno (7.327045ms)
+✔ Scope negativo: seguimiento ajeno (4.745494ms)
+✔ Scope negativo: cliente B sin permiso (3.656512ms)
+✔ Scope negativo: seguimiento B sin permiso (4.162528ms)
+✔ Scope negativo: pagar B sin permiso (5.014271ms)
+✔ Scope negativo: pagar C fuera de scope (3.662285ms)
+✔ Scope negativo: pagar B con selector A (3.644105ms)
+✔ Scope negativo: comprobantes B (2.428857ms)
+✔ Scope negativo: comprobantes C (4.068465ms)
+✔ Scope negativo: consultar comprobante B (4.18082ms)
+✔ Scope negativo: anular comprobante B (4.593991ms)
+✔ Scope negativo: anular comprobante C (6.669885ms)
+✔ Scope negativo: dashboard B (4.205817ms)
+✔ Scope negativo: cobranza B (3.76249ms)
+✔ Scope negativo: calendario B (4.296292ms)
+✔ Scope negativo: recordatorios B (3.627196ms)
+✔ Scope negativo: venta B (4.839895ms)
+✔ Scope negativo: venta A con cliente C ajeno (6.557574ms)
+✔ Selectores query/body contradictorios se rechazan (3.330908ms)
+✔ La denegación de pago/anulación no cambia saldos ajenos (3.707695ms)
+✔ Producto autorizado oculta costo sin costos.ver (4.105016ms)
+✔ Admin mantiene acceso total a negocios, finanzas y costos (19.729216ms)
+✔ Consolidado de clientes filtra por clientes.ver (3.874576ms)
+✔ Consolidado financiero excluye B aunque esté asignado (8.894973ms)
+✔ Cobranza consolidada excluye B aunque esté asignado (5.041629ms)
+✔ Historial compartido solo muestra operaciones con permiso financiero (16.078505ms)
+✔ clientes.ver por sí solo no expone historia ni deuda (8.75466ms)
+✔ Scopes vacíos no equivalen a acceso financiero global (4.652966ms)
+✔ Duplicados fuera de scope no devuelven ficha ni DNI (4.474074ms)
+✔ Crear cliente vincula negocio; aparece antes de la primera venta (12.842098ms)
+✔ Crear cliente sin negocio no elige scope[0] (5.195344ms)
+✔ Seguimiento exige negocio explícito (5.412734ms)
+✔ Crear cliente en negocio inválido revierte la ficha (3.139696ms)
+✔ Cliente en varios negocios no se duplica en el listado (1.442323ms)
+✔ Con deuda excluye clientes sin cuotas pendientes, incluye solo negocio autorizado (21.536289ms)
+✔ JWT vigente deja de servir al desactivar usuario (11.000064ms)
+✔ Revocar asignación elimina acceso sin renovar JWT (10.916315ms)
+✔ Empleado gestor no puede leer/modificar/desactivar administrador (23.326246ms)
+✔ Gestor no puede asignarse privilegios ni administrar empleados ajenos (13.069622ms)
+✔ Admin modifica permisos y activa/desactiva empleado (17.91408ms)
+✔ Cambio de permisos inválido no desactiva asignaciones anteriores (7.190679ms)
+✔ Venta inválida no crea registros ni descuenta stock (11.390838ms)
+✔ Venta con entrega: fallo en creditos revierte venta, stock, vínculo, deuda y cobro (16.686717ms)
+✔ Venta con entrega: fallo en cuotas revierte venta, stock, vínculo, deuda y cobro (16.967655ms)
+✔ Venta con entrega: fallo en comprobantes revierte venta, stock, vínculo, deuda y cobro (17.021869ms)
+✔ Venta con entrega: fallo en auditoria revierte venta, stock, vínculo, deuda y cobro (19.626599ms)
+✔ Pago: fallo en pagos revierte cuotas y todo movimiento (29.449769ms)
+✔ Pago: fallo en pago_aplicaciones revierte cuotas y todo movimiento (16.840155ms)
+✔ Pago: fallo en comprobantes revierte cuotas y todo movimiento (18.912617ms)
+✔ Pago: fallo en auditoria revierte cuotas y todo movimiento (16.231965ms)
+✔ Anulación: fallo en pagos conserva pago, cuota, recibo y saldo a favor (29.701047ms)
+✔ Anulación: fallo en comprobantes conserva pago, cuota, recibo y saldo a favor (25.415173ms)
+✔ Anulación: fallo en auditoria conserva pago, cuota, recibo y saldo a favor (25.617198ms)
+✔ Entrega inicial suma cobro sin descontar cuotas ni generar saldo a favor (15.431155ms)
+✔ Venta totalmente abonada queda finalizada, sin cuotas y con cobro (4.604035ms)
+✔ Entrega inicial no se anula ni altera datos: mensaje Etapa 6 (23.175825ms)
+✔ Pago normal se anula sin afectar entrega inicial (28.494573ms)
+✔ Pagos simultáneos no pierden dinero ni descuentan dos veces (52.067452ms)
+✔ Anulación simultánea solo revierte una vez (17.446746ms)
+✔ Ventas simultáneas descuentan correctamente stock compartido (17.406315ms)
+✔ cuota_id ajena no convierte un pago en saldo a favor (29.687176ms)
+✔ Dinero no entero o negativo se rechaza sin cambios (23.925791ms)
+✔ Migraciones aplicadas.
+✔ Migración conserva entregas históricas sin generar pagos retroactivos (37.144754ms)
+✔ Migraciones aplicadas.
+✔ Migraciones aplicadas.
+✔ Migración legacy conserva token, crea hash y admite nuevas invitaciones (21.108772ms)
+✔ Respuesta API usa CSP sin ejecutar scripts inline (4.956021ms)
+✔ Migraciones aplicadas.
+✔ Etapa2: admin invita a tres negocios con permisos independientes y token solo hasheado (124.823059ms)
+✔ Etapa2: consulta pública identifica invitación sin devolver secretos (25.0588ms)
+✔ Etapa2: aceptar crea empleado, bcrypt, asignaciones y sesión; no permite reutilizar enlace (321.265199ms)
+✔ Etapa2: invitación vencida rechaza consulta y aceptación sin cambios (28.509057ms)
+✔ Etapa2: invitación revocada rechaza consulta y aceptación sin cambios (18.284049ms)
+✔ Etapa2: invitación usada rechaza consulta y aceptación sin cambios (24.918908ms)
+✔ Etapa2: enlace inválido y token malformado no crean cuentas (21.659046ms)
+✔ Etapa2: revocar invalida enlace y no permite revocarlo dos veces (30.083032ms)
+✔ Etapa2: regenerar revoca todos los enlaces anteriores y nuevo enlace funciona (148.319357ms)
+✔ Etapa2: regenerar una invitación vencida o revocada crea nuevo enlace (43.646057ms)
+✔ Etapa2: dos aceptaciones simultáneas crean exactamente un usuario (232.275609ms)
+✔ Etapa2: invitaciones simultáneas dejan un solo enlace vigente para el mismo email (23.212767ms)
+✔ Etapa2: aceptar y regenerar concurrentemente no dejan invitación utilizable para una cuenta creada (215.491181ms)
+✔ Etapa2: email existente normalizado no se puede invitar ni crear de nuevo (110.636039ms)
+✔ Etapa2: email ocupado después de invitar rechaza aceptación sin consumir enlace (97.887665ms)
+✔ Etapa2: rechaza negocio inexistente al invitar, crear y editar, sin cambios (26.099499ms)
+✔ Etapa2: rechaza negocio duplicado al invitar, crear y editar, sin cambios (21.328698ms)
+✔ Etapa2: rechaza permiso desconocido al invitar, crear y editar, sin cambios (20.28477ms)
+✔ Etapa2: rechaza permiso no booleano al invitar, crear y editar, sin cambios (29.836383ms)
+✔ Etapa2: rechaza propiedad arbitraria al invitar, crear y editar, sin cambios (20.079473ms)
+✔ Etapa2: rechaza permisos array al invitar, crear y editar, sin cambios (17.492373ms)
+✔ Etapa2: revalida negocio inexistente al aceptar (101.316575ms)
+✔ Etapa2: revalida negocio duplicado al aceptar (110.71827ms)
+✔ Etapa2: revalida permiso desconocido al aceptar (118.817113ms)
+✔ Etapa2: revalida permiso no booleano al aceptar (139.395681ms)
+✔ Etapa2: revalida propiedad arbitraria al aceptar (127.936362ms)
+✔ Etapa2: revalida permisos array al aceptar (128.420011ms)
+✔ Etapa2: aceptación rechaza asignaciones vacías o JSON roto (286.520394ms)
+error: Fallo controlado
+    at /workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/node_modules/pg/lib/client.js:694:17
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async Object.run (file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/db/connection.js:18:49)
+    at async asignarNegocio (file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/repositories/usuarios.js:43:3)
+    at async file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/services/authService.js:116:33
+    at async Object.transaction (file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/db/connection.js:28:20)
+    at async aceptarInvitacion (file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/services/authService.js:109:12)
+    at async file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/routes/auth.js:7:92 {
+  length: 127,
+  severity: 'ERROR',
+  code: 'P0001',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: 'PL/pgSQL function stage2_fail() line 1 at RAISE',
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'pl_exec.c',
+  line: '3897',
+  routine: 'exec_stmt_raise'
+}
+✔ Etapa2: aceptación con error en segunda asignación revierte usuario y primera asignación (268.463537ms)
+error: Fallo controlado
+    at /workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/node_modules/pg/lib/client.js:694:17
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async Object.run (file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/db/connection.js:18:49)
+    at async file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/services/authService.js:117:7
+    at async Object.transaction (file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/db/connection.js:28:20)
+    at async aceptarInvitacion (file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/services/authService.js:109:12)
+    at async file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/routes/auth.js:7:92 {
+  length: 127,
+  severity: 'ERROR',
+  code: 'P0001',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: 'PL/pgSQL function stage2_fail() line 1 at RAISE',
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'pl_exec.c',
+  line: '3897',
+  routine: 'exec_stmt_raise'
+}
+✔ Etapa2: error al marcar invitación usada revierte usuario y todas las asignaciones (123.262477ms)
+error: Fallo controlado
+    at /workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/node_modules/pg/lib/client.js:694:17
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async Object.run (file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/db/connection.js:18:49)
+    at async asignarNegocio (file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/repositories/usuarios.js:43:3)
+    at async file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/services/usuariosService.js:60:31
+    at async Object.transaction (file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/db/connection.js:28:20)
+    at async file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/routes/usuarios.js:25:15 {
+  length: 127,
+  severity: 'ERROR',
+  code: 'P0001',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: 'PL/pgSQL function stage2_fail() line 1 at RAISE',
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'pl_exec.c',
+  line: '3897',
+  routine: 'exec_stmt_raise'
+}
+✔ Etapa2: modificación de nombre y varias asignaciones revierte totalmente si falla una (15.112843ms)
+error: Fallo controlado
+    at /workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/node_modules/pg/lib/client.js:694:17
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async Object.run (file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/db/connection.js:18:49)
+    at async asignarNegocio (file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/repositories/usuarios.js:43:3)
+    at async file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/services/usuariosService.js:42:29
+    at async Object.transaction (file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/db/connection.js:28:20)
+    at async file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/routes/usuarios.js:12:30 {
+  length: 127,
+  severity: 'ERROR',
+  code: 'P0001',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: 'PL/pgSQL function stage2_fail() line 1 at RAISE',
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'pl_exec.c',
+  line: '3897',
+  routine: 'exec_stmt_raise'
+}
+✔ Etapa2: crear empleado y asignaciones es atómico (119.18593ms)
+error: Fallo controlado
+    at /workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/node_modules/pg/lib/client.js:694:17
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async Object.run (file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/db/connection.js:18:49)
+    at async invalidarInvitacionesAnteriores (file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/repositories/invitaciones.js:38:3)
+    at async crearDentroTransaccion (file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/services/invitacionesService.js:16:3)
+    at async Object.transaction (file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/db/connection.js:28:20)
+    at async regenerarInvitacion (file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/services/invitacionesService.js:53:21)
+    at async file:///workspace/scratch/48fd77bae33d/ZILKY-ETAPA2-CORREGIDA/src/routes/invitaciones.js:16:100 {
+  length: 127,
+  severity: 'ERROR',
+  code: 'P0001',
+  detail: undefined,
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: 'PL/pgSQL function stage2_fail() line 1 at RAISE',
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'pl_exec.c',
+  line: '3897',
+  routine: 'exec_stmt_raise'
+}
+✔ Etapa2: fallo al invalidar enlace anterior revierte regeneración y mantiene enlace original (33.348548ms)
+✔ Etapa2: listado presenta los cuatro estados sin hashes ni tokens legacy (4.590105ms)
+✔ Etapa2: empleados.gestionar no permite modificar admin (12.750177ms)
+✔ Etapa2: empleados.gestionar no permite desactivar admin (7.27352ms)
+✔ Etapa2: empleados.gestionar no permite cambiar privilegios admin (11.535011ms)
+✔ Etapa2: empleados.gestionar no permite elevar su rol (7.520375ms)
+✔ Etapa2: empleados.gestionar no permite aumentar permisos propios (8.419364ms)
+✔ Etapa2: empleados.gestionar no permite asignarse otro negocio (8.159054ms)
+✔ Etapa2: manager no puede delegar permisos que no posee ni negocios fuera de scope (21.272204ms)
+✔ Etapa2: manager puede gestionar empleado bajo su scope sin administrar otros (26.052647ms)
+✔ Etapa2: empleado sin gestión no lista ni modifica empleados o invitaciones (11.380571ms)
+✔ Etapa2: credenciales de Apple no habilitan pagos en Indumentaria ni acceso a Reparaciones (174.537459ms)
+✔ Etapa2: editar asignaciones surte efecto en JWT existente y desactivar quita acceso (147.415132ms)
+✔ Etapa2: admin conserva todos los negocios y permisos sin asignaciones (66.521231ms)
+✔ Etapa2: no se acepta rol ni privilegios en aceptación pública (25.163647ms)
+✔ Etapa2: validación de email, nombre y contraseña falla sin mutaciones (39.327081ms)
+✔ Etapa2 email: transporte Resend recibe destinatario, enlace codificado, texto y HTML escapado (1.070491ms)
+✔ Etapa2 email: error del proveedor no revela su contenido (1.581528ms)
+✔ Etapa2 email: sin credenciales o URL segura no intenta enviar (0.671148ms)
+✔ Etapa2: empleado con gestión tampoco lista, revoca ni regenera invitaciones (21.964575ms)
+✔ Etapa2: fallo de validación al regenerar no cambia ni reemplaza invitación (18.917596ms)
+ℹ tests 172
+ℹ suites 0
+ℹ pass 172
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 8997.460677

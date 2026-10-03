@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { crearProducto, listProductos, getProducto } from '../repositories/productos.js';
-import { requirePermiso, requireAdmin, validarScopeNegocio, tienePermisoEnNegocio } from '../middleware/authorize.js';
+import { requirePermiso, requireAdmin, exigirPermisoNegocio, tienePermisoEnNegocio } from '../middleware/authorize.js';
 
 export const productosRouter = Router();
 
@@ -8,7 +8,7 @@ productosRouter.get('/', requirePermiso('productos.ver'), async (req, res, next)
   try {
     const { negocio_id } = req.query;
     if (!negocio_id) return res.status(400).json({ error: 'negocio_id es requerido' });
-    if (!validarScopeNegocio(req, negocio_id)) return res.status(403).json({ error: 'No tenés acceso a ese negocio' });
+    exigirPermisoNegocio(req, negocio_id, 'productos.ver');
     const productos = await listProductos(negocio_id);
     const puedeVerCosto = req.usuario.rol === 'administrador' || tienePermisoEnNegocio(req, negocio_id, 'costos.ver');
     if (!puedeVerCosto) for (const p of productos) delete p.costo_centavos;
@@ -27,7 +27,7 @@ productosRouter.get('/:id', requirePermiso('productos.ver'), async (req, res, ne
   try {
     const p = await getProducto(req.params.id);
     if (!p) return res.status(404).json({ error: 'Producto no encontrado' });
-    if (!validarScopeNegocio(req, p.negocio_id)) return res.status(403).json({ error: 'No tenés acceso a ese negocio' });
+    exigirPermisoNegocio(req, p.negocio_id, 'productos.ver');
     const puedeVerCosto = req.usuario.rol === 'administrador' || tienePermisoEnNegocio(req, p.negocio_id, 'costos.ver');
     if (!puedeVerCosto) delete p.costo_centavos;
     res.json(p);

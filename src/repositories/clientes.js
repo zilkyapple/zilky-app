@@ -5,6 +5,7 @@ import { id } from '../lib/id.js';
 // siendo una única ficha. Lo que se aísla por negocio son las OPERACIONES (ventas,
 // créditos, cuotas, pagos, comprobantes), nunca la identidad del cliente.
 export async function crearCliente(data) {
+  return db.transaction(async () => {
   if (!data.nombre || !data.apellido) {
     const e = new Error('nombre y apellido son obligatorios'); e.status = 400; throw e;
   }
@@ -18,7 +19,9 @@ export async function crearCliente(data) {
     data.fecha_nacimiento || null, data.trabajo || null, data.frecuencia_pago || null,
     data.foto_url || null, data.notas || null
   );
+  if (data.negocio_id) await vincularClienteNegocio(cId, data.negocio_id);
   return getCliente(cId);
+  });
 }
 
 function normalizarInstagram(handle) {
@@ -54,7 +57,7 @@ export async function listNegociosDeCliente(clienteId) {
 
 export async function listClientesPorNegocio(negocioId) {
   return db.prepare(`
-    SELECT cl.* FROM clientes cl
+    SELECT DISTINCT cl.* FROM clientes cl
     JOIN cliente_negocio cn ON cn.cliente_id = cl.id
     WHERE cn.negocio_id = ?
     ORDER BY cl.nombre ASC
@@ -65,7 +68,7 @@ export async function listClientesPorNegocios(negocioIds) {
   if (!negocioIds || negocioIds.length === 0) return [];
   const placeholders = negocioIds.map(() => '?').join(',');
   return db.prepare(`
-    SELECT cl.* FROM clientes cl
+    SELECT DISTINCT cl.* FROM clientes cl
     JOIN cliente_negocio cn ON cn.cliente_id = cl.id
     WHERE cn.negocio_id IN (${placeholders})
     ORDER BY cl.nombre ASC

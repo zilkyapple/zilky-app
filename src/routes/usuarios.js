@@ -5,16 +5,16 @@ import { listarEmpleados, crearEmpleado, modificarEmpleado, obtenerEmpleado } fr
 export const usuariosRouter = Router();
 
 usuariosRouter.get('/', requirePermiso('empleados.gestionar'), async (req, res, next) => {
-  try { res.json(await listarEmpleados()); } catch (err) { next(err); }
+  try { res.json(await listarEmpleados(req)); } catch (err) { next(err); }
 });
 
 usuariosRouter.post('/', requirePermiso('empleados.gestionar'), async (req, res, next) => {
-  try { res.status(201).json(await crearEmpleado(req.body)); } catch (err) { next(err); }
+  try { res.status(201).json(await crearEmpleado(req.body, req)); } catch (err) { next(err); }
 });
 
 usuariosRouter.get('/:id', requirePermiso('empleados.gestionar'), async (req, res, next) => {
   try {
-    const u = await obtenerEmpleado(req.params.id);
+    const u = await obtenerEmpleado(req.params.id, req);
     if (!u) return res.status(404).json({ error: 'Usuario no encontrado' });
     res.json(u);
   } catch (err) { next(err); }
@@ -22,7 +22,7 @@ usuariosRouter.get('/:id', requirePermiso('empleados.gestionar'), async (req, re
 
 usuariosRouter.patch('/:id', requirePermiso('empleados.gestionar'), async (req, res, next) => {
   try {
-    const u = await modificarEmpleado(req.params.id, req.body);
+    const u = await modificarEmpleado(req.params.id, req.body, req);
     if (!u) return res.status(404).json({ error: 'Usuario no encontrado' });
     res.json(u);
   } catch (err) { next(err); }

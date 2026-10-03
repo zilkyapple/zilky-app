@@ -35,11 +35,12 @@
     <div class="auth-card">
       <div class="auth-brand"><span class="brand-mark">Z</span><div><strong>Zilky</strong><div class="brand-sub">Aceptar invitación</div></div></div>
       <p id="invitacionInfo" class="auth-hint" style="margin-bottom:16px">Completá tus datos para crear tu cuenta de empleado.</p>
-      <div class="field"><label>Tu nombre</label><input id="invNombre" placeholder="Tu nombre" /></div>
-      <div class="field"><label>Contraseña</label><input id="invPassword" type="password" placeholder="Mínimo 6 caracteres" /></div>
-      <div class="field"><label>Repetir contraseña</label><input id="invPassword2" type="password" placeholder="Repetí tu contraseña" /></div>
+      <div class="field"><label>Tu nombre</label><input id="invNombre" maxlength="200" autocomplete="name" placeholder="Tu nombre" /></div>
+      <div class="field"><label>Contraseña</label><input autocomplete="new-password" id="invPassword" type="password" placeholder="Mínimo 6 caracteres" /></div>
+      <div class="field"><label>Repetir contraseña</label><input autocomplete="new-password" id="invPassword2" type="password" placeholder="Repetí tu contraseña" /></div>
       <div id="invError" class="auth-error" style="display:none"></div>
       <button class="btn btn-primary btn-block btn-lg" id="btnAceptarInvitacion">Crear cuenta y entrar</button>
+      <button class="btn btn-secondary btn-block" data-action="volver-login" style="margin-top:12px">Volver al inicio de sesión</button>
     </div>
   </div>
 
@@ -89,6 +90,7 @@
   <div id="sheetRoot"></div>
   <div id="toastRoot" class="toast-root"></div>
 
+  <script src="/vendor/purify.min.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

@@ -349,6 +349,8 @@ CREATE TABLE IF NOT EXISTS contratos (
 
 // Parches no destructivos para bases ya desplegadas
 const patches = `
+ALTER TABLE pagos ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'cuota';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_entrega_inicial_credito ON pagos(credito_id) WHERE tipo='entrega_inicial';
 ALTER TABLE negocios ADD COLUMN IF NOT EXISTS recordatorio_dias TEXT DEFAULT '[7,3,1,0]';
 ALTER TABLE negocios ADD COLUMN IF NOT EXISTS cobranza_modo_negocio TEXT DEFAULT 'revisar';
 ALTER TABLE cuotas ADD COLUMN IF NOT EXISTS fecha_saldada TEXT;
@@ -409,9 +411,8 @@ ON CONFLICT DO NOTHING;
 `;
 
 async function migrarTokensInvitaciones() {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  const client = db;
+  {
     const cols = await client.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='invitaciones'`);
     const names = new Set(cols.rows.map((r) => r.column_name));
     if (!names.has('token_hash')) await client.query('ALTER TABLE invitaciones ADD COLUMN token_hash TEXT');
@@ -426,19 +427,18 @@ async function migrarTokensInvitaciones() {
     if (missing.rows[0].n > 0) throw new Error('Hay invitaciones sin token_hash; migración detenida para no perder datos');
     await client.query('ALTER TABLE invitaciones ALTER COLUMN token_hash SET NOT NULL');
     await client.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_invitaciones_token_hash ON invitaciones(token_hash)');
-    await client.query('DROP INDEX IF EXISTS idx_invitaciones_token');
-    if (names.has('token')) await client.query('ALTER TABLE invitaciones DROP COLUMN token');
-    await client.query('COMMIT');
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally { client.release(); }
+    // Conservar columna y valores históricos. Las nuevas invitaciones usan solo hash.
+    if (names.has('token')) await client.query('ALTER TABLE invitaciones ALTER COLUMN token DROP NOT NULL');
+  }
 }
 
 export async function migrate() {
-  await db.exec(schema);
-  await migrarTokensInvitaciones();
-  await db.exec(patches);
+  await db.transaction(async()=>{
+    await db.query("SELECT pg_advisory_xact_lock(hashtextextended('zilky:migrate',0))");
+    await db.exec(schema);
+    await migrarTokensInvitaciones();
+    await db.exec(patches);
+  });
   console.log('✔ Migraciones aplicadas.');
 }
 

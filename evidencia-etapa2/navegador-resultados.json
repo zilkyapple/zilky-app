@@ -1,0 +1,43 @@
+{
+  "passed": 9,
+  "failed": 0,
+  "results": [
+    {
+      "name": "Login real de administrador y pantalla de empleados",
+      "passed": true
+    },
+    {
+      "name": "Invitar desde UI con dos negocios y permisos distintos",
+      "passed": true
+    },
+    {
+      "name": "Regeneración desde UI invalida enlace anterior",
+      "passed": true
+    },
+    {
+      "name": "Aceptación móvil, contraseña y sesión con permisos asignados",
+      "passed": true
+    },
+    {
+      "name": "Reutilizar enlace muestra error claro y formulario bloqueado",
+      "passed": true
+    },
+    {
+      "name": "Editar asignaciones en UI revoca Apple y concede productos en Indumentaria",
+      "passed": true
+    },
+    {
+      "name": "Desactivar y reactivar empleado desde UI; JWT pierde acceso al desactivar",
+      "passed": true
+    },
+    {
+      "name": "Revocar desde UI y comprobar historial con los cuatro estados",
+      "passed": true
+    },
+    {
+      "name": "Frontend escritorio y móvil sin desborde horizontal ni errores JavaScript",
+      "passed": true
+    }
+  ],
+  "javascriptErrors": []
+}

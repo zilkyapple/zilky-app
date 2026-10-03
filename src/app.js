@@ -18,7 +18,13 @@ import { cargarUsuario, requireAuth } from './middleware/authorize.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const app = express();
 
-app.use(cors());
+app.use((req,res,next)=>{
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+  res.setHeader('X-Content-Type-Options','nosniff');
+  res.setHeader('Referrer-Policy','no-referrer');
+  if(req.path.startsWith('/api'))res.setHeader('Cache-Control','no-store');
+  next();
+});
 app.use(express.json());
 
 // Cargar usuario en todas las rutas /api (puede ser null si no hay token)
@@ -40,6 +46,6 @@ app.use('/api/invitaciones', invitacionesRouter);
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(err.status || 500).json({ error: err.message || 'Error interno' });
+  if(!err.status || err.status>=500) console.error(err);
+  res.status(err.status || 500).json({ error: err.status && err.status<500 ? err.message : 'Error interno' });
 });

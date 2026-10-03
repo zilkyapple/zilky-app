@@ -1,0 +1,11 @@
+✔ Migraciones aplicadas.
+PASS Login real de administrador y pantalla de empleados
+PASS Invitar desde UI con dos negocios y permisos distintos
+PASS Regeneración desde UI invalida enlace anterior
+PASS Aceptación móvil, contraseña y sesión con permisos asignados
+PASS Reutilizar enlace muestra error claro y formulario bloqueado
+PASS Editar asignaciones en UI revoca Apple y concede productos en Indumentaria
+PASS Desactivar y reactivar empleado desde UI; JWT pierde acceso al desactivar
+PASS Revocar desde UI y comprobar historial con los cuatro estados
+PASS Frontend escritorio y móvil sin desborde horizontal ni errores JavaScript
+9/9 verificaciones E2E aprobadas

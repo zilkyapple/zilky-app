@@ -1,58 +1,38 @@
 import pg from 'pg';
 import 'dotenv/config';
-
+import { AsyncLocalStorage } from 'node:async_hooks';
 const { Pool, types } = pg;
-
-types.setTypeParser(20, (val) => parseInt(val, 10)); // bigint (SUM/COUNT) como número, no string
-
-if (!process.env.DATABASE_URL) {
-  console.error('\n✗ Falta DATABASE_URL en el .env (string de conexión a Postgres). Ver .env.example.\n');
-  process.exit(1);
-}
-
-export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL.includes('localhost') ? false : { rejectUnauthorized: false },
-});
-
-function toPgParams(sql) {
-  let i = 0;
-  return sql.replace(/\?/g, () => `$${++i}`);
-}
-
+types.setTypeParser(20, (v) => Number(v));
+if (!process.env.DATABASE_URL) throw new Error('Falta DATABASE_URL');
+const local = ['localhost', '127.0.0.1', '[::1]'].includes(new URL(process.env.DATABASE_URL).hostname);
+export const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: local ? false : { rejectUnauthorized: true } });
+const transactions = new AsyncLocalStorage();
+function paramsSql(sql) { let i=0; return sql.replace(/\?/g, () => `$${++i}`); }
 export const db = {
+  query(sql, params=[]) { return (transactions.getStore() || pool).query(sql, params); },
   prepare(sql) {
-    const pgSql = toPgParams(sql);
+    const text=paramsSql(sql);
     return {
-      async get(...params) {
-        const { rows } = await pool.query(pgSql, params);
-        return rows[0] || undefined;
-      },
-      async all(...params) {
-        const { rows } = await pool.query(pgSql, params);
-        return rows;
-      },
-      async run(...params) {
-        await pool.query(pgSql, params);
-        return { changes: 1 };
-      },
+      async get(...params) { return (await db.query(text, params)).rows[0]; },
+      async all(...params) { return (await db.query(text, params)).rows; },
+      async run(...params) { return { changes: (await db.query(text, params)).rowCount }; },
     };
   },
-  async exec(sql) {
-    await pool.query(sql);
-  },
+  async exec(sql) { await db.query(sql); },
   async transaction(fn) {
-    const client = await pool.connect();
+    const current=transactions.getStore();
+    if (current) return fn(current);
+    const client=await pool.connect();
     try {
       await client.query('BEGIN');
-      const result = await fn(client);
-      await client.query('COMMIT');
-      return result;
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
+      const result=await transactions.run(client, () => fn(client));
+      await client.query('COMMIT'); return result;
+    } catch(error) { await client.query('ROLLBACK'); throw error; }
+    finally { client.release(); }
+  },
+  // Serializa operaciones que comparten cuotas/saldo a favor, incluso entre créditos.
+  async lockClienteNegocio(clienteId, negocioId) {
+    if (!transactions.getStore()) throw new Error('El bloqueo requiere una transacción');
+    await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [JSON.stringify([clienteId, negocioId])]);
   },
 };

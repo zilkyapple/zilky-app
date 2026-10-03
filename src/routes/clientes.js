@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { db } from '../db/connection.js';
 import { crearCliente, listClientes, getCliente, buscarClientes, buscarDuplicados, actualizarSeguimiento, listClientesFinalizados, listClientesPorNegocio, listClientesPorNegocios } from '../repositories/clientes.js';
 import { listCreditosPorCliente } from '../repositories/creditos.js';
 import { listCuotasPorCredito } from '../repositories/cuotas.js';
@@ -7,7 +8,7 @@ import { estadoCuota, calcularMora } from '../lib/mora.js';
 import { getNegocio } from '../repositories/negocios.js';
 import { todayAR, diffDays } from '../lib/dates.js';
 import { perfilRiesgoCliente, historialFinancieroCliente } from '../services/dashboardService.js';
-import { requirePermiso, validarScopeNegocio, scopeNegocios } from '../middleware/authorize.js';
+import { requirePermiso, validarScopeNegocio, scopeNegocios, exigirCliente, exigirPermisoNegocio, scopePara, negocioSolicitado } from '../middleware/authorize.js';
 
 export const clientesRouter = Router();
 
@@ -16,7 +17,21 @@ export const clientesRouter = Router();
 clientesRouter.get('/', requirePermiso('clientes.ver'), async (req, res, next) => {
   try {
     const { q, negocio_id } = req.query;
-    const scope = scopeNegocios(req);
+    let scope = scopeNegocios(req, 'clientes.ver');
+    if (req.query.con_deuda === '1') {
+      const financiero=scopePara(req,'cobranzas.ver');
+      if(financiero!==null) scope=scope===null?financiero:scope.filter(id=>financiero.includes(id));
+      if(negocio_id) scope=scope===null?[negocio_id]:scope.filter(id=>id===negocio_id);
+      const {rows}=await db.query(`SELECT DISTINCT cl.* FROM clientes cl
+        JOIN cliente_negocio cn ON cn.cliente_id=cl.id
+        JOIN creditos cr ON cr.cliente_id=cl.id AND cr.negocio_id=cn.negocio_id
+        JOIN cuotas cu ON cu.credito_id=cr.id
+        WHERE cu.saldo_pendiente_centavos>0 AND cu.estado_manual IS NULL
+        AND ($1::text[] IS NULL OR cn.negocio_id=ANY($1::text[]))
+        AND ($2::text IS NULL OR concat_ws(' ',cl.nombre,cl.apellido,cl.dni,cl.telefono,cl.instagram) ILIKE $2)
+        ORDER BY cl.nombre`,[scope,q?'%'+q+'%':null]);
+      return res.json(rows);
+    }
     if (negocio_id) {
       if (!validarScopeNegocio(req, negocio_id)) return res.status(403).json({ error: 'No tenés acceso a ese negocio' });
       res.json(q ? await buscarClientes(q, negocio_id) : await listClientesPorNegocio(negocio_id));
@@ -33,7 +48,7 @@ clientesRouter.get('/', requirePermiso('clientes.ver'), async (req, res, next) =
 });
 
 // Clientes finalizados es una vista FINANCIERA, sí requiere negocio (ver historial por negocio).
-clientesRouter.get('/finalizados', requirePermiso('clientes.ver'), async (req, res, next) => {
+clientesRouter.get('/finalizados', requirePermiso('clientes.ver'), requirePermiso('cobranzas.ver'), async (req, res, next) => {
   try {
     const { negocio_id } = req.query;
     if (!negocio_id) return res.status(400).json({ error: 'negocio_id es requerido' });
@@ -46,30 +61,43 @@ clientesRouter.post('/', requirePermiso('clientes.editar'), async (req, res, nex
   try {
     const { nombre, apellido, telefono, dni } = req.body;
     if (!nombre || !apellido) return res.status(400).json({ error: 'nombre y apellido son obligatorios' });
+    const negocioId=negocioSolicitado(req);
+    if(!negocioId && req.usuario.rol!=='administrador') return res.status(400).json({error:'Seleccioná un negocio para crear el cliente'});
+    if(negocioId) exigirPermisoNegocio(req,negocioId,'clientes.editar');
     const duplicados = await buscarDuplicados({ dni, telefono });
-    if (duplicados.length && !req.body.forzar) return res.status(409).json({ error: 'Posible cliente duplicado', duplicados });
-    res.status(201).json(await crearCliente(req.body));
+    if (duplicados.length && (!req.body.forzar || req.usuario.rol!=='administrador')) return res.status(409).json({ error: 'Ya existe un posible cliente. Solicitá al administrador revisar o vincular su ficha.' });
+    res.status(201).json(await crearCliente({...req.body, negocio_id:negocioId}));
   } catch (err) { next(err); }
 });
 
 clientesRouter.patch('/:id/seguimiento', requirePermiso('clientes.editar'), async (req, res, next) => {
-  try { res.json(await actualizarSeguimiento(req.params.id, req.body)); } catch (err) { next(err); }
+  try {
+    const negocioId = negocioSolicitado(req);
+    if (!negocioId) return res.status(400).json({ error: 'negocio_id es requerido para modificar el seguimiento' });
+    exigirPermisoNegocio(req, negocioId, 'clientes.editar');
+    await exigirCliente(req, req.params.id, 'clientes.editar');
+    res.json(await actualizarSeguimiento(req.params.id, req.body));
+  } catch (err) { next(err); }
 });
 
 // Detalle: por defecto muestra operaciones del cliente filtradas al scope del usuario.
 // Con ?negocio_id=... se puede filtrar la vista a un solo negocio.
 clientesRouter.get('/:id', requirePermiso('clientes.ver'), async (req, res, next) => {
   try {
+    await exigirCliente(req,req.params.id,'clientes.ver');
     const cliente = await getCliente(req.params.id);
     if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
     const filtroNegocio = req.query.negocio_id || null;
-    const scope = scopeNegocios(req);
+    const scope = scopeNegocios(req, 'clientes.ver');
 
     if (filtroNegocio && !validarScopeNegocio(req, filtroNegocio)) {
       return res.status(403).json({ error: 'No tenés acceso a ese negocio' });
     }
 
-    const negociosPermitidos = filtroNegocio ? [filtroNegocio] : (scope === null ? null : scope);
+    const financiero=scopeNegocios(req,'dashboard_financiero.ver');
+    let negociosPermitidos=scope===null?financiero:(financiero===null?scope:scope.filter(id=>financiero.includes(id)));
+    if(filtroNegocio) negociosPermitidos=negociosPermitidos===null?[filtroNegocio]:negociosPermitidos.filter(id=>id===filtroNegocio);
+    if(negociosPermitidos!==null && !negociosPermitidos.length) return res.json({...cliente, creditos:[],pagos:[],historial:null,riesgo:null,saldosFavor:{},finanzasAutorizadas:false});
 
     let creditos = await listCreditosPorCliente(req.params.id);
     if (negociosPermitidos) creditos = creditos.filter((cr) => negociosPermitidos.includes(cr.negocio_id));
@@ -86,7 +114,7 @@ clientesRouter.get('/:id', requirePermiso('clientes.ver'), async (req, res, next
       const cuotas = cuotasRaw.map((c) => {
         const { estado, parcial } = estadoCuota(c, negocio, today);
         const mora = calcularMora(c, negocio, today);
-        if (c.saldo_pendiente_centavos > 0) {
+        if (c.saldo_pendiente_centavos > 0 && !c.estado_manual) {
           deudaTotal += c.saldo_pendiente_centavos + mora.pendiente;
           if (!proximoVencimiento || c.fecha_vencimiento < proximoVencimiento) proximoVencimiento = c.fecha_vencimiento;
         }
@@ -107,7 +135,7 @@ clientesRouter.get('/:id', requirePermiso('clientes.ver'), async (req, res, next
     if (negociosPermitidos) pagos = pagos.filter((p) => negociosPermitidos.includes(p.negocio_id));
 
     res.json({
-      ...cliente, creditos: creditosConDetalle, pagos,
+      ...cliente, finanzasAutorizadas:true, creditos: creditosConDetalle, pagos,
       deudaTotalCentavos: deudaTotal, proximoVencimiento,
       diasHastaVencimiento: proximoVencimiento ? diffDays(proximoVencimiento, today) : null,
       riesgo: await perfilRiesgoCliente(req.params.id, negociosPermitidos),

@@ -1,10 +1,10 @@
-import { db, pool } from '../db/connection.js';
+import { db } from '../db/connection.js';
 import { id } from '../lib/id.js';
 
 // Numeración única real: usa una secuencia de Postgres (nextval es atómico incluso con
 // escrituras concurrentes), formateada como ZLK-YYYYMMDD-NNNNNN.
 async function siguienteNumero(fechaISO) {
-  const { rows } = await pool.query("SELECT nextval('comprobantes_seq') AS n");
+  const { rows } = await db.query("SELECT nextval('comprobantes_seq') AS n");
   const n = rows[0].n.toString().padStart(6, '0');
   const fecha = fechaISO.slice(0, 10).replace(/-/g, '');
   return `ZLK-${fecha}-${n}`;
@@ -24,18 +24,18 @@ export async function crearComprobante(data) {
 }
 
 export async function getComprobante(cId) {
-  return db.prepare('SELECT * FROM comprobantes WHERE id = ?').get(cId);
+  return db.prepare('SELECT c.*, p.tipo AS tipo_pago FROM comprobantes c JOIN pagos p ON p.id=c.pago_id WHERE c.id = ?').get(cId);
 }
 
 export async function getComprobantePorPago(pagoId) {
-  return db.prepare('SELECT * FROM comprobantes WHERE pago_id = ?').get(pagoId);
+  return db.prepare('SELECT c.*, p.tipo AS tipo_pago FROM comprobantes c JOIN pagos p ON p.id=c.pago_id WHERE c.pago_id = ?').get(pagoId);
 }
 
 export async function listComprobantes(negocioId, { clienteId = null, limit = 50 } = {}) {
   if (clienteId) {
-    return db.prepare('SELECT * FROM comprobantes WHERE negocio_id = ? AND cliente_id = ? ORDER BY fecha_hora DESC LIMIT ?').all(negocioId, clienteId, limit);
+    return db.prepare('SELECT c.*, p.tipo AS tipo_pago FROM comprobantes c JOIN pagos p ON p.id=c.pago_id WHERE c.negocio_id = ? AND c.cliente_id = ? ORDER BY c.fecha_hora DESC LIMIT ?').all(negocioId, clienteId, limit);
   }
-  return db.prepare('SELECT * FROM comprobantes WHERE negocio_id = ? ORDER BY fecha_hora DESC LIMIT ?').all(negocioId, limit);
+  return db.prepare('SELECT c.*, p.tipo AS tipo_pago FROM comprobantes c JOIN pagos p ON p.id=c.pago_id WHERE c.negocio_id = ? ORDER BY c.fecha_hora DESC LIMIT ?').all(negocioId, limit);
 }
 
 // Nunca se edita un comprobante emitido. Anular deja el original intacto y agrega

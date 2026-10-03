@@ -1,12 +1,13 @@
 import bcrypt from 'bcryptjs';
-import { pool } from '../db/connection.js';
-import { randomUUID } from 'node:crypto';
+import { db } from '../db/connection.js';
+import { validarAsignaciones } from '../lib/asignaciones.js';
+import { asignarNegocio } from '../repositories/usuarios.js';
+import { normalizarEmail, validarNombre, validarPassword, bloquearEmail, emailDuplicado, buscarInvitacion, asignacionesInvitacion } from '../lib/invitaciones.js';
 import {
   crearUsuario,
   getUsuarioPorEmail,
   getUsuarioById
 } from '../repositories/usuarios.js';
-import { hashToken } from '../repositories/invitaciones.js';
 import { firmarToken } from '../lib/auth.js';
 
 function badRequest(msg) {
@@ -44,32 +45,12 @@ export async function registrarUsuario({ email, password, nombre }) {
 }
 
 export async function crearEmpleado({ email, password, nombre }) {
-  if (!email || !password) {
-    throw badRequest('email y password son obligatorios');
-  }
-
-  if (password.length < 6) {
-    throw badRequest('la contraseña debe tener al menos 6 caracteres');
-  }
-
-  const existente = await getUsuarioPorEmail(email);
-
-  if (existente) {
-    throw Object.assign(
-      new Error('Ya existe una cuenta con ese email'),
-      { status: 409 }
-    );
-  }
-
+  email = normalizarEmail(email); validarNombre(nombre); validarPassword(password);
   const password_hash = await bcrypt.hash(password, 10);
-
-  return crearUsuario({
-    email,
-    password_hash,
-    nombre,
-    rol: 'empleado',
-    activo: 1,
-    invitacion_completada: 1
+  return db.transaction(async () => {
+    await bloquearEmail(email);
+    if (await getUsuarioPorEmail(email)) throw emailDuplicado();
+    return crearUsuario({ email, password_hash, nombre, rol: 'empleado', activo: 1, invitacion_completada: 1 });
   });
 }
 
@@ -109,156 +90,36 @@ export async function loginUsuario({ email, password }) {
   };
 }
 
-export async function aceptarInvitacion({ token, password, nombre }) {
-  if (!token || !password) {
-    throw badRequest('token y password son obligatorios');
-  }
+export async function consultarInvitacion({ token }) {
+  const inv = await buscarInvitacion(token);
+  const asignaciones = asignacionesInvitacion(inv);
+  await validarAsignaciones(asignaciones);
+  const negocios = [];
+  for (const a of asignaciones) negocios.push(await db.prepare('SELECT id,nombre FROM negocios WHERE id=?').get(a.negocio_id));
+  return { email: inv.email, nombre: inv.nombre, expira_en: inv.expira_en, negocios };
+}
 
-  if (password.length < 6) {
-    throw badRequest('la contraseña debe tener al menos 6 caracteres');
-  }
-
-  const tokenHash = hashToken(token);
-  const passwordHash = await bcrypt.hash(password, 10);
-
-  const client = await pool.connect();
-
-  let uId;
-
+export async function aceptarInvitacion({ token, password, nombre, ...extra }) {
+  if (Object.keys(extra).length) throw badRequest('Campo no permitido');
+  validarPassword(password); validarNombre(nombre);
+  // Rechazo temprano sin costo bcrypt para enlaces inválidos; se vuelve a comprobar bajo bloqueo.
+  await buscarInvitacion(token);
+  const password_hash = await bcrypt.hash(password, 10);
   try {
-    await client.query('BEGIN');
-
-    const { rows } = await client.query(
-      'SELECT * FROM invitaciones WHERE token_hash=$1 FOR UPDATE',
-      [tokenHash]
-    );
-
-    const inv = rows[0];
-
-    if (!inv) {
-      throw Object.assign(
-        new Error('Invitación no válida'),
-        { status: 404 }
-      );
-    }
-
-    if (inv.estado !== 'pendiente') {
-      throw Object.assign(
-        new Error('Invitación ya utilizada o revocada'),
-        { status: 410 }
-      );
-    }
-
-    if (new Date(inv.expira_en) < new Date()) {
-      throw Object.assign(
-        new Error('Invitación vencida'),
-        { status: 410 }
-      );
-    }
-
-    const email = inv.email.toLowerCase().trim();
-
-    const existente = await client.query(
-      'SELECT id FROM usuarios WHERE email=$1',
-      [email]
-    );
-
-    if (existente.rows.length) {
-      throw Object.assign(
-        new Error('Ya existe una cuenta con ese email'),
-        { status: 409 }
-      );
-    }
-
-    const negocios = JSON.parse(inv.negocios || '[]');
-
-    if (!negocios.length) {
-      throw badRequest('La invitación no tiene negocios asignados');
-    }
-
-    uId = randomUUID();
-
-    await client.query(
-      `
-      INSERT INTO usuarios (
-        id,
-        email,
-        password_hash,
-        nombre,
-        rol,
-        activo,
-        invitacion_completada
-      )
-      VALUES ($1,$2,$3,$4,'empleado',1,1)
-      `,
-      [
-        uId,
-        email,
-        passwordHash,
-        nombre || inv.nombre || null
-      ]
-    );
-
-    for (const a of negocios) {
-      await client.query(
-        `
-        INSERT INTO usuario_negocio (
-          usuario_id,
-          negocio_id,
-          permisos,
-          activo
-        )
-        VALUES ($1,$2,$3,1)
-        ON CONFLICT(usuario_id,negocio_id)
-        DO UPDATE SET
-          permisos = EXCLUDED.permisos,
-          activo = 1
-        `,
-        [
-          uId,
-          a.negocio_id,
-          JSON.stringify(a.permisos || {})
-        ]
-      );
-    }
-
-    const used = await client.query(
-      `
-      UPDATE invitaciones
-      SET
-        estado='usada',
-        usada_en=$1,
-        usada_por=$2
-      WHERE id=$3
-        AND estado='pendiente'
-      RETURNING id
-      `,
-      [
-        new Date().toISOString(),
-        uId,
-        inv.id
-      ]
-    );
-
-    if (used.rowCount !== 1) {
-      throw Object.assign(
-        new Error('Invitación ya utilizada'),
-        { status: 409 }
-      );
-    }
-
-    await client.query('COMMIT');
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
+    return await db.transaction(async () => {
+      const inv = await buscarInvitacion(token, true);
+      const email = normalizarEmail(inv.email);
+      if (await getUsuarioPorEmail(email)) throw emailDuplicado();
+      const negocios = asignacionesInvitacion(inv);
+      await validarAsignaciones(negocios);
+      const usuario = await crearUsuario({ email, password_hash, nombre: nombre || inv.nombre, rol: 'empleado', activo: 1, invitacion_completada: 1 });
+      for (const a of negocios) await asignarNegocio(usuario.id, a.negocio_id, a.permisos);
+      await db.prepare("UPDATE invitaciones SET estado='usada', usada_en=?, usada_por=? WHERE id=?")
+        .run(new Date().toISOString(), usuario.id, inv.id);
+      return { usuario, token: firmarToken(usuario) };
+    });
+  } catch (e) {
+    if (e.code === '23505') throw emailDuplicado();
+    throw e;
   }
-
-  const usuario = await getUsuarioById(uId);
-
-  return {
-    usuario,
-    token: firmarToken(usuario)
-  };
 }
