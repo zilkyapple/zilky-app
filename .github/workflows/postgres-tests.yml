@@ -1,0 +1,51 @@
+name: Etapas 1 y 2 - PostgreSQL
+
+on:
+  push:
+    branches: [main, qa/etapas12-validation]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [24, 26]
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: zilky_test
+          POSTGRES_PASSWORD: disposable-ci-only
+          POSTGRES_DB: zilky_stage2_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U zilky_test -d zilky_stage2_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://zilky_test:disposable-ci-only@127.0.0.1:5432/zilky_stage2_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-fund
+      - name: Full regression suite with PostgreSQL
+        run: npm test
+      - name: Dependency security audit
+        run: npm audit --audit-level=moderate
