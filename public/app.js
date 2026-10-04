@@ -204,6 +204,22 @@ async function render() {
   const view = document.getElementById('view');
   setHTML(view, '<div class="skeleton">Cargando…</div>');
 
+  const permisosRuta = {
+    inicio: 'dashboard_financiero.ver', clientes: 'clientes.ver',
+    cobrar: 'cobranzas.ver', calendario: 'cobranzas.ver',
+    ventas: 'ventas.crear', productos: 'productos.ver',
+    comprobantes: 'comprobantes.ver', empleados: 'empleados.gestionar',
+  };
+  if (root === 'configuracion' && state.usuario?.rol !== 'administrador') {
+    setHTML(view, '<div class="empty-state"><p>Requiere administrador</p></div>');
+    return;
+  }
+  const permisoRuta = permisosRuta[root];
+  if (permisoRuta && !puede(permisoRuta, root === 'empleados' ? null : state.negocioActual)) {
+    setHTML(view, '<div class="empty-state"><p>No tenés permiso para realizar esta acción</p></div>');
+    return;
+  }
+
   try {
     if (root === 'inicio') await viewInicio(view);
     else if (root === 'clientes' && parts[1]) await viewClienteDetail(view, parts[1]);
@@ -268,13 +284,15 @@ async function viewInicio(view) {
 
 // ---------------- Vista: Clientes (global) ----------------
 async function viewClientes(view, q = '') {
+  const puedeVerCobranzas = puede('cobranzas.ver');
+  if (!puedeVerCobranzas) state.clientesTab = 'todos';
   setHTML(view, `
     <div class="section-title">Clientes</div>
     <div class="search-box">${iconSearch()}<input id="clienteSearch" placeholder="Buscar por nombre, DNI, teléfono o Instagram" value="${esc(q)}" /></div>
     <div class="tabs" id="clientesTabs">
       <button data-tab="todos" class="${esc(state.clientesTab === 'todos' ? 'active' : '')}">Todos</button>
-      <button data-tab="deuda" class="${esc(state.clientesTab === 'deuda' ? 'active' : '')}">Con deuda</button>
-      <button data-tab="finalizados" class="${esc(state.clientesTab === 'finalizados' ? 'active' : '')}">Finalizados${esc(state.negocioActual ? '' : ' (elegí negocio)')}</button>
+      ${puedeVerCobranzas ? `<button data-tab="deuda" class="${esc(state.clientesTab === 'deuda' ? 'active' : '')}">Con deuda</button>
+      <button data-tab="finalizados" class="${esc(state.clientesTab === 'finalizados' ? 'active' : '')}">Finalizados${esc(state.negocioActual ? '' : ' (elegí negocio)')}</button>` : ''}
     </div>
     <div id="clientesList"><div class="skeleton">Buscando…</div></div>
   `);
