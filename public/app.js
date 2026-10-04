@@ -345,9 +345,13 @@ async function renderClientesList(q, list = document.getElementById('clientesLis
     }
 
     if (state.clientesTab === 'finalizados') {
-      const finalizados = await api(`/clientes/finalizados?negocio_id=${state.negocioActual}`);
+      const resultado = await api(`/clientes/finalizados?negocio_id=${state.negocioActual}`);
       if (!vigente()) return;
-      setHTML(list, !finalizados.length ? `<div class="empty-state"><p>Todavía nadie terminó de pagar acá.</p></div>` : finalizados.map((c) => `
+      const busqueda = q.trim().toLowerCase();
+      const finalizados = busqueda ? resultado.filter(c =>
+        [c.nombre, c.apellido, c.dni, c.telefono, c.instagram].some(valor => String(valor || '').toLowerCase().includes(busqueda))
+      ) : resultado;
+      setHTML(list, !finalizados.length ? `<div class="empty-state"><p>${busqueda ? 'No hay clientes finalizados que coincidan.' : 'Todavía nadie terminó de pagar acá.'}</p></div>` : finalizados.map((c) => `
         <div class="list-item" data-action="ver-cliente" data-id="${esc(c.id)}">
           <span class="avatar">${esc(iniciales(c.nombre, c.apellido))}</span>
           <div class="list-item-body">
@@ -1210,11 +1214,13 @@ function abrirMenuRapido() {
 
 function abrirCrearCliente() {
   if(!state.negocioActual) return toast('Seleccioná el negocio donde vas a crear el cliente',true);
-  closeSheet();
-  setTimeout(() => openSheet(`
+  if(!puede('clientes.editar')) return toast('No tenés permiso para crear clientes en este negocio',true);
+  const negocioId = state.negocioActual;
+  const sesion = getToken();
+  openSheet(`
     <div class="sheet-handle"></div>
     <div class="sheet-title">Cliente nuevo</div>
-    <div class="sheet-sub">Se vinculará al negocio seleccionado.</div>
+    <div class="sheet-sub">Se vinculará a ${esc(negocioNombre(negocioId))}.</div>
     <div class="field-row">
       <div class="field"><label>Nombre *</label><input id="ncNombre" /></div>
       <div class="field"><label>Apellido *</label><input id="ncApellido" /></div>
@@ -1228,28 +1234,37 @@ function abrirCrearCliente() {
       <button class="btn btn-secondary" data-action="cerrar-sheet">Cancelar</button>
       <button class="btn btn-primary" id="btnGuardarCliente">Guardar</button>
     </div>
-  `), 210);
-  setTimeout(() => {
-    document.getElementById('btnGuardarCliente')?.addEventListener('click', async () => {
-      const nombre = document.getElementById('ncNombre').value.trim();
-      const apellido = document.getElementById('ncApellido').value.trim();
+  `);
+  const sheet = document.getElementById('activeSheet');
+  const button = sheet.querySelector('#btnGuardarCliente');
+  const vigente = () => sheet.isConnected && document.getElementById('activeSheet') === sheet
+    && document.getElementById('sheetBackdrop').classList.contains('open')
+    && state.negocioActual === negocioId && getToken() === sesion;
+  button.addEventListener('click', async () => {
+      if (button.disabled) return;
+      if (!vigente()) return toast('El contexto cambió. Abrí nuevamente Cliente nuevo.', true);
+      if (!puede('clientes.editar', negocioId)) return toast('No tenés permiso para crear clientes en este negocio', true);
+      const nombre = sheet.querySelector('#ncNombre').value.trim();
+      const apellido = sheet.querySelector('#ncApellido').value.trim();
       if (!nombre || !apellido) return toast('Nombre y apellido son obligatorios', true);
+      button.disabled = true;
       try {
         const c = await api('/clientes', {
           method: 'POST',
           body: JSON.stringify({
-            nombre, apellido,
-            ...(state.negocioActual ? {negocio_id:state.negocioActual}:{}),
-            telefono: document.getElementById('ncTelefono').value,
-            dni: document.getElementById('ncDni').value,
-            instagram: document.getElementById('ncInstagram').value,
+            nombre, apellido, negocio_id: negocioId,
+            telefono: sheet.querySelector('#ncTelefono').value,
+            dni: sheet.querySelector('#ncDni').value,
+            instagram: sheet.querySelector('#ncInstagram').value,
           }),
         });
+        if (!vigente()) return;
         closeSheet(); toast('Cliente creado ✓');
         location.hash = `#/clientes/${c.id}`;
-      } catch (err) { toast(err.message, true); }
-    });
-  }, 250);
+      } catch (err) {
+        if (vigente()) { button.disabled = false; toast(err.message, true); }
+      }
+  });
 }
 
 function abrirCrearProducto() {
