@@ -27,7 +27,7 @@ function puede(permiso, negocioId=state.negocioActual) {
 function aplicarPermisosUI(root) {
   const admin=state.usuario?.rol==='administrador';
   const links={'#/productos':'productos.ver','#/comprobantes':'comprobantes.ver','#/ventas/nueva':'ventas.crear','#/clientes':'clientes.ver','#/cobrar':'cobranzas.ver','#/calendario':'cobranzas.ver'};
-  root.querySelectorAll('a[href]').forEach(a=>{const href=a.getAttribute('href');if(links[href])a.hidden=!puede(links[href]);if(href==='#/configuracion')a.hidden=!admin;if(href==='#/empleados')a.hidden=!puede('empleados.gestionar',null);});
+  root.querySelectorAll('a[href]').forEach(a=>{const href=a.getAttribute('href');if(links[href])a.hidden=!puede(links[href]);if(href?.startsWith('#/ventas/nueva/'))a.hidden=!puede('ventas.crear');if(href==='#/configuracion')a.hidden=!admin;if(href==='#/empleados')a.hidden=!puede('empleados.gestionar',null);});
   const actions={'registrar-pago':'pagos.registrar','editar-seguimiento':'clientes.editar','crear-cliente-inline':'clientes.editar','nueva-venta':'ventas.crear','ir-cobrar':'cobranzas.ver','anular-comprobante':'comprobantes.anular'};
   root.querySelectorAll('[data-action]').forEach(el=>{const action=el.dataset.action;if(actions[action])el.hidden=!puede(actions[action],el.dataset.negocio||state.negocioActual);if(['abrir-crear-negocio','crear-producto'].includes(action))el.hidden=!admin;});
 }
@@ -37,6 +37,12 @@ const setToken = (t) => localStorage.setItem(TOKEN_KEY, t);
 const clearToken = () => localStorage.removeItem(TOKEN_KEY);
 
 function showAuthScreen() {
+  state.usuario = null; state.negocios = []; state.negocioActual = null;
+  document.getElementById('negocioNombre').textContent = 'Todos los negocios';
+  document.getElementById('brandMark').textContent = 'Z';
+  aplicarClaseNegocio();
+  setHTML(document.getElementById('view'), '');
+  closeSheet();
   document.getElementById('authScreen').style.display = 'flex';
   document.getElementById('root').style.display = 'none';
 }
@@ -54,13 +60,22 @@ async function api(path, opts = {}) {
   });
   let body = null;
   try { body = await res.json(); } catch { /* sin body */ }
-  if (res.status === 401 && path !== '/auth/login' && path !== '/auth/registro') {
+  if (res.status === 401 && token === getToken() && path !== '/auth/login' && path !== '/auth/registro') {
     clearToken();
     showAuthScreen();
   }
   if (!res.ok) throw new Error(body?.error || `Error ${res.status}`);
   return body;
 }
+
+// Otra pestaña puede iniciar sesión con otra cuenta. Retirar de inmediato
+// los datos anteriores y recargar permisos conserva la sesión compartida.
+window.addEventListener('storage', async (event) => {
+  if (event.storageArea !== localStorage || (event.key !== TOKEN_KEY && event.key !== null)) return;
+  if (event.oldValue === event.newValue) return;
+  showAuthScreen();
+  if (getToken()) await arrancarApp();
+});
 
 // ---------------- Formato ----------------
 const formatARS = (centavos) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format((centavos || 0) / 100);
@@ -201,7 +216,10 @@ async function render() {
   const root = parts[0] || 'inicio';
   document.querySelectorAll('.nav-item').forEach((a) => a.classList.toggle('active', a.dataset.route === root));
 
-  const view = document.getElementById('view');
+  // Cada navegación tiene su propio contenedor: una respuesta tardía no
+  // puede escribir datos del negocio anterior en la pantalla vigente.
+  const view = document.createElement('div');
+  document.getElementById('view').replaceChildren(view);
   setHTML(view, '<div class="skeleton">Cargando…</div>');
 
   const permisosRuta = {
@@ -226,7 +244,7 @@ async function render() {
     else if (root === 'clientes') await viewClientes(view);
     else if (root === 'cobrar') await viewCobrar(view);
     else if (root === 'calendario') await viewCalendario(view);
-    else if (root === 'ventas') await viewVentaNueva(view, parts[1] || null);
+    else if (root === 'ventas') await viewVentaNueva(view, parts[1] === 'nueva' ? parts[2] || null : parts[1] || null);
     else if (root === 'productos') await viewProductos(view);
     else if (root === 'comprobantes') await viewComprobantes(view);
     else if (root === 'configuracion') await viewConfiguracion(view);
@@ -242,6 +260,7 @@ const notFound = () => '<div class="empty-state"><p>No encontrado.</p></div>';
 // ---------------- Vista: Inicio (dashboard) ----------------
 async function viewInicio(view) {
   const r = await api(`/dashboard/resumen${state.negocioActual ? `?negocio_id=${state.negocioActual}` : ''}`);
+  if (!view.isConnected) return;
   setHTML(view, `
     <div class="section-title">Resumen ${esc(state.negocioActual ? '· ' + negocioNombre(state.negocioActual) : 'general')}</div>
     <div class="kpi-grid">
@@ -300,69 +319,92 @@ async function viewClientes(view, q = '') {
   input.focus();
   input.setSelectionRange(input.value.length, input.value.length);
   let t;
-  input.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => renderClientesList(input.value.trim()), 220); });
+  const list = view.querySelector('#clientesList');
+  input.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => renderClientesList(input.value.trim(), list), 220); });
   document.getElementById('clientesTabs').addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
     state.clientesTab = b.dataset.tab;
     document.querySelectorAll('#clientesTabs button').forEach((x) => x.classList.remove('active'));
     b.classList.add('active');
-    renderClientesList(input.value.trim());
+    renderClientesList(input.value.trim(), list);
   });
-  await renderClientesList(q);
+  await renderClientesList(q, list);
 }
 
-async function renderClientesList(q) {
-  const list = document.getElementById('clientesList');
+const solicitudesClientes = new WeakMap();
+async function renderClientesList(q, list = document.getElementById('clientesList')) {
+  if (!list?.isConnected) return;
+  const solicitud = {};
+  solicitudesClientes.set(list, solicitud);
+  const vigente = () => list.isConnected && solicitudesClientes.get(list) === solicitud;
+  setHTML(list, '<div class="skeleton">Buscando…</div>');
+  try {
+    if (state.clientesTab === 'finalizados' && !state.negocioActual) {
+      setHTML(list, `<div class="empty-state"><p>Elegí un negocio arriba para ver esta lista.</p></div>`);
+      return;
+    }
 
-  if (state.clientesTab === 'finalizados' && !state.negocioActual) {
-    setHTML(list, `<div class="empty-state"><p>Elegí un negocio arriba para ver esta lista.</p></div>`);
-    return;
-  }
+    if (state.clientesTab === 'finalizados') {
+      const finalizados = await api(`/clientes/finalizados?negocio_id=${state.negocioActual}`);
+      if (!vigente()) return;
+      setHTML(list, !finalizados.length ? `<div class="empty-state"><p>Todavía nadie terminó de pagar acá.</p></div>` : finalizados.map((c) => `
+        <div class="list-item" data-action="ver-cliente" data-id="${esc(c.id)}">
+          <span class="avatar">${esc(iniciales(c.nombre, c.apellido))}</span>
+          <div class="list-item-body">
+            <div class="list-item-title">${esc(c.nombre)} ${esc(c.apellido || '')}</div>
+            <div class="list-item-sub">${esc(c.total_compras)} compra(s) · última: ${esc(fmtFecha(c.ultima_compra))}</div>
+          </div>
+          <span class="chev">${iconChevron()}</span>
+        </div>
+      `).join(''));
+      return;
+    }
 
-  if (state.clientesTab === 'finalizados') {
-    const finalizados = await api(`/clientes/finalizados?negocio_id=${state.negocioActual}`);
-    setHTML(list, !finalizados.length ? `<div class="empty-state"><p>Todavía nadie terminó de pagar acá.</p></div>` : finalizados.map((c) => `
+    const params=new URLSearchParams();
+    if(q)params.set('q',q);
+    if(state.negocioActual)params.set('negocio_id',state.negocioActual);
+    if(state.clientesTab==='deuda')params.set('con_deuda','1');
+    const filtrados=await api(`/clientes?${params}`);
+    if (!vigente()) return;
+
+    if (!filtrados.length) {
+      setHTML(list, `<div class="empty-state">${iconClientes(40)}<p>No hay clientes${esc(q ? ' que coincidan' : ' todavía')}.</p></div>`);
+      return;
+    }
+    setHTML(list, filtrados.map((c) => `
       <div class="list-item" data-action="ver-cliente" data-id="${esc(c.id)}">
         <span class="avatar">${esc(iniciales(c.nombre, c.apellido))}</span>
         <div class="list-item-body">
           <div class="list-item-title">${esc(c.nombre)} ${esc(c.apellido || '')}</div>
-          <div class="list-item-sub">${esc(c.total_compras)} compra(s) · última: ${esc(fmtFecha(c.ultima_compra))}</div>
+          <div class="list-item-sub">${esc(c.telefono ? '📞 ' + c.telefono : '')}${esc(c.instagram ? ' · ' + c.instagram : '')}</div>
         </div>
         <span class="chev">${iconChevron()}</span>
       </div>
     `).join(''));
-    return;
+  } catch (err) {
+    if (vigente()) setHTML(list, `<div class="empty-state"><p>${esc(err.message)}</p></div>`);
   }
-
-  const params=new URLSearchParams();
-  if(q)params.set('q',q);
-  if(state.negocioActual)params.set('negocio_id',state.negocioActual);
-  if(state.clientesTab==='deuda')params.set('con_deuda','1');
-  const filtrados=await api(`/clientes?${params}`);
-
-  if (!filtrados.length) {
-    setHTML(list, `<div class="empty-state">${iconClientes(40)}<p>No hay clientes${esc(q ? ' que coincidan' : ' todavía')}.</p></div>`);
-    return;
-  }
-  setHTML(list, filtrados.map((c) => `
-    <div class="list-item" data-action="ver-cliente" data-id="${esc(c.id)}">
-      <span class="avatar">${esc(iniciales(c.nombre, c.apellido))}</span>
-      <div class="list-item-body">
-        <div class="list-item-title">${esc(c.nombre)} ${esc(c.apellido || '')}</div>
-        <div class="list-item-sub">${esc(c.telefono ? '📞 ' + c.telefono : '')}${esc(c.instagram ? ' · ' + c.instagram : '')}</div>
-      </div>
-      <span class="chev">${iconChevron()}</span>
-    </div>
-  `).join(''));
 }
 
 // ---------------- Vista: Detalle de cliente ----------------
+function accionesClienteHtml(c) {
+  return `
+    <div class="quick-actions" style="margin-top:14px">
+      <a class="btn btn-secondary" href="${esc(waLink(c.telefono, mensajeSaludo(c)))}" target="_blank">${iconWhatsapp()}WhatsApp</a>
+      <a class="btn btn-secondary" href="tel:${esc(c.telefono || '')}">${iconLlamar()}Llamar</a>
+      <a class="btn btn-secondary" href="#/ventas/nueva/${esc(c.id)}">${iconVenta()}Nueva venta</a>
+      <button class="btn btn-secondary" data-action="editar-seguimiento" data-id="${esc(c.id)}">${iconNota()}Seguimiento</button>
+    </div>
+  `;
+}
+
 async function viewClienteDetail(view, id) {
   const filtro = state.negocioActual ? `?negocio_id=${state.negocioActual}` : '';
   const c = await api(`/clientes/${id}${filtro}`);
+  if (!view.isConnected) return;
   const riesgoClass = { bajo: 'riesgo-bajo', medio: 'riesgo-medio', alto: 'riesgo-alto', critico: 'riesgo-critico' }[c.riesgo?.nivel] || 'riesgo-bajo';
   const h = c.historial;
-  if(!h){setHTML(view, `<div class="profile-header"><div><div class="profile-name">${esc(c.nombre)} ${esc(c.apellido)}</div><div class="profile-sub">${esc(c.telefono || '')} ${esc(c.instagram || '')}</div></div></div><p>No tenés permiso para ver el historial financiero de este cliente.</p>`);return;}
+  if(!h){setHTML(view, `<div class="profile-header"><div><div class="profile-name">${esc(c.nombre)} ${esc(c.apellido)}</div><div class="profile-sub">${esc(c.telefono || '')} ${esc(c.instagram || '')}</div></div></div>${accionesClienteHtml(c)}<p>No tenés permiso para ver el historial financiero de este cliente.</p>`);return;}
 
   setHTML(view, `
     <div class="profile-header">
@@ -384,12 +426,7 @@ async function viewClienteDetail(view, id) {
       </div>
     </div>
 
-    <div class="quick-actions" style="margin-top:14px">
-      <a class="btn btn-secondary" href="${esc(waLink(c.telefono, mensajeSaludo(c)))}" target="_blank">${iconWhatsapp()}WhatsApp</a>
-      <a class="btn btn-secondary" href="tel:${esc(c.telefono || '')}">${iconLlamar()}Llamar</a>
-      <a class="btn btn-secondary" href="#/ventas/nueva/${esc(c.id)}">${iconVenta()}Nueva venta</a>
-      <button class="btn btn-secondary" data-action="editar-seguimiento" data-id="${esc(c.id)}">${iconNota()}Seguimiento</button>
-    </div>
+    ${accionesClienteHtml(c)}
 
     <div class="section-title">Historial financiero</div>
     <div class="card">
@@ -520,7 +557,9 @@ async function abrirRegistrarPago(creditoId, montoSugerido = null) {
 // ---------------- Vista: Cobrar ----------------
 async function viewCobrar(view) {
   const b = await api(`/dashboard/cobranza?ventana_dias=${state.cobranzaVentana}${state.negocioActual ? `&negocio_id=${state.negocioActual}` : ''}`);
+  if (!view.isConnected) return;
   const recordatorios = await api(`/dashboard/recordatorios${state.negocioActual ? `?negocio_id=${state.negocioActual}` : ''}`);
+  if (!view.isConnected) return;
 
   setHTML(view, `
     ${recordatorios.length ? `
@@ -591,6 +630,7 @@ async function viewCalendario(view) {
     return;
   }
   const dias = await api(`/dashboard/calendario?negocio_id=${state.negocioActual}&mes=${state.calMes}`);
+  if (!view.isConnected) return;
   const porFecha = Object.fromEntries(dias.map((d) => [d.fecha, d]));
   const [y, m] = state.calMes.split('-').map(Number);
   const primerDia = new Date(Date.UTC(y, m - 1, 1));
@@ -651,17 +691,21 @@ async function abrirDiaCalendario(fecha) {
 // ---------------- Vista: Nueva venta ----------------
 async function viewVentaNueva(view, clientePreId) {
   if (!state.negocios.length) { setHTML(view, `<div class="empty-state"><p>Primero creá un negocio (arriba, "Cambiar" → "Crear negocio nuevo").</p></div>`); return; }
-  const negocioSel = state.negocioActual || state.negocios[0].id;
+  const negociosVenta = state.negocios.filter(n => puede('ventas.crear', n.id));
+  const negocioSel = state.negocioActual || negociosVenta[0]?.id;
+  if (!negocioSel || !negociosVenta.some(n => n.id === negocioSel)) { setHTML(view, '<div class="empty-state"><p>No tenés permiso para vender en este negocio.</p></div>'); return; }
   let clientePre = null;
-  if (clientePreId) { try { clientePre = await api(`/clientes/${clientePreId}`); } catch { /* ignora */ } }
-  const productos = await api(`/productos?negocio_id=${negocioSel}`);
+  if (clientePreId) { try { clientePre = await api(`/clientes/${encodeURIComponent(clientePreId)}?negocio_id=${encodeURIComponent(negocioSel)}`); } catch { /* La búsqueda permite elegir otro cliente autorizado. */ } }
+  if (!view.isConnected) return;
+  const productos = puede('productos.ver', negocioSel) ? await api(`/productos?negocio_id=${encodeURIComponent(negocioSel)}`) : [];
+  if (!view.isConnected) return;
 
   setHTML(view, `
     <div class="section-title">Nueva venta</div>
     <div class="card">
       <div class="field">
         <label>Negocio</label>
-        <select id="vNegocio">${state.negocios.map((n) => `<option value="${esc(n.id)}" ${esc(n.id === negocioSel ? 'selected' : '')}>${esc(n.nombre)}</option>`).join('')}</select>
+        <select id="vNegocio">${negociosVenta.map((n) => `<option value="${esc(n.id)}" ${esc(n.id === negocioSel ? 'selected' : '')}>${esc(n.nombre)}</option>`).join('')}</select>
       </div>
       <div class="field">
         <label>Cliente</label>
@@ -707,20 +751,29 @@ async function viewVentaNueva(view, clientePreId) {
   });
   document.getElementById('vNegocio').addEventListener('change', e => setNegocio(e.target.value));
 
-  let tBuscar;
-  document.getElementById('vClienteBuscar').addEventListener('input', (e) => {
+  let tBuscar, busquedaActual = 0;
+  const clienteBuscar = view.querySelector('#vClienteBuscar');
+  const clienteResultados = view.querySelector('#vClienteResultados');
+  clienteBuscar.addEventListener('input', (e) => {
     clearTimeout(tBuscar);
-    const q = e.target.value.trim();
-    document.getElementById('vClienteId').value = '';
-    if (q.length < 2) { setHTML(document.getElementById('vClienteResultados'), ''); return; }
+    const q = e.target.value.trim(), busqueda = ++busquedaActual;
+    view.querySelector('#vClienteId').value = '';
+    setHTML(clienteResultados, '');
+    if (q.length < 2) return;
     tBuscar = setTimeout(async () => {
-      const res = await api(`/clientes?q=${encodeURIComponent(q)}`);
-      setHTML(document.getElementById('vClienteResultados'), res.slice(0, 5).map((c) => `
-        <div class="list-item" style="margin-top:6px" data-action="elegir-cliente-venta" data-id="${esc(c.id)}" data-nombre="${esc(c.nombre)} ${esc(c.apellido || '')}">
-          <span class="avatar">${esc(iniciales(c.nombre, c.apellido))}</span>
-          <div class="list-item-body"><div class="list-item-title">${esc(c.nombre)} ${esc(c.apellido || '')}</div><div class="list-item-sub">${esc(c.telefono || '')}</div></div>
-        </div>
-      `).join('') || `<div class="field-hint">Sin resultados. <span data-action="crear-cliente-inline" style="color:var(--accent);cursor:pointer">Crear cliente nuevo →</span></div>`);
+      if (!view.isConnected) return;
+      try {
+        const res = await api(`/clientes?q=${encodeURIComponent(q)}&negocio_id=${encodeURIComponent(negocioSel)}`);
+        if (!view.isConnected || busqueda !== busquedaActual) return;
+        setHTML(clienteResultados, res.slice(0, 5).map((c) => `
+          <div class="list-item" style="margin-top:6px" data-action="elegir-cliente-venta" data-id="${esc(c.id)}" data-nombre="${esc(c.nombre)} ${esc(c.apellido || '')}">
+            <span class="avatar">${esc(iniciales(c.nombre, c.apellido))}</span>
+            <div class="list-item-body"><div class="list-item-title">${esc(c.nombre)} ${esc(c.apellido || '')}</div><div class="list-item-sub">${esc(c.telefono || '')}</div></div>
+          </div>
+        `).join('') || `<div class="field-hint">Sin resultados. <span data-action="crear-cliente-inline" style="color:var(--accent);cursor:pointer">Crear cliente nuevo →</span></div>`);
+      } catch (err) {
+        if (view.isConnected && busqueda === busquedaActual) setHTML(clienteResultados, `<div class="field-hint">${esc(err.message)}</div>`);
+      }
     }, 220);
   });
 
@@ -781,6 +834,7 @@ async function submitVenta() {
 async function viewProductos(view) {
   if (!state.negocioActual) { setHTML(view, `<div class="empty-state"><p>Elegí un negocio arriba para ver su catálogo.</p></div>`); return; }
   const productos = await api(`/productos?negocio_id=${state.negocioActual}`);
+  if (!view.isConnected) return;
   setHTML(view, `
     <div class="section-title">Productos · ${esc(negocioNombre(state.negocioActual))}</div>
     ${productos.length === 0 ? '<div class="empty-state"><p>Sin productos cargados.</p></div>' : productos.map((p) => `
@@ -800,6 +854,7 @@ async function viewProductos(view) {
 async function viewComprobantes(view) {
   if (!state.negocioActual) { setHTML(view, `<div class="empty-state"><p>Elegí un negocio arriba para ver sus comprobantes.</p></div>`); return; }
   const comprobantes = await api(`/comprobantes?negocio_id=${state.negocioActual}`);
+  if (!view.isConnected) return;
   setHTML(view, `
     <div class="section-title">Comprobantes · ${esc(negocioNombre(state.negocioActual))}</div>
     ${comprobantes.length === 0 ? '<div class="empty-state"><p>Todavía no hay comprobantes.</p></div>' : comprobantes.map((c) => `
@@ -843,6 +898,7 @@ function abrirAnularComprobante(comprobanteId) {
 async function viewConfiguracion(view) {
   if (!state.negocioActual) { setHTML(view, `<div class="empty-state"><p>Elegí un negocio arriba para configurarlo.</p></div>`); return; }
   const n = await api(`/negocios/${state.negocioActual}`);
+  if (!view.isConnected) return;
   const reglas = JSON.parse(n.recordatorio_dias || '[]');
   const opcionesRecordatorio = [7, 5, 3, 2, 1, 0];
 
@@ -922,6 +978,7 @@ function resumenAsignaciones(asignaciones, negocioMap) {
 async function viewEmpleados(view) {
   const admin = state.usuario?.rol === 'administrador';
   const [usuarios, invitaciones, negocios] = await Promise.all([api('/usuarios'), admin ? api('/invitaciones') : [], api('/negocios')]);
+  if (!view.isConnected) return;
   const negocioMap = Object.fromEntries(negocios.map(n => [n.id, n]));
   const empleados = usuarios.filter(u => u.rol !== 'administrador');
   let html = `<div class="section-title">Empleados y permisos</div><div class="card"><div class="section-title">Empleados</div><p>Los permisos se aplican por negocio. Abrí un negocio para consultar sus permisos.</p>`;
@@ -1239,7 +1296,14 @@ function wireAuthScreen() {
 }
 
 async function arrancarApp() {
-  try { state.usuario=await api('/auth/yo'); state.negocios = await api('/negocios'); } catch { return; }
+  const token = getToken();
+  try {
+    const usuario = await api('/auth/yo');
+    if (token !== getToken()) return;
+    const negocios = await api('/negocios');
+    if (token !== getToken()) return;
+    state.usuario = usuario; state.negocios = negocios;
+  } catch { return; }
   if(state.negocioActual && !state.negocios.some(n=>n.id===state.negocioActual))state.negocioActual=null;
   document.querySelectorAll('.nav-item').forEach(a=>{ const p={inicio:'dashboard_financiero.ver',clientes:'clientes.ver',cobrar:'cobranzas.ver',calendario:'cobranzas.ver'}[a.dataset.route];a.hidden=!!p&&!puede(p,null); });
   if(!location.hash || location.hash==='#/inicio') { if(!puede('dashboard_financiero.ver',null)) location.hash=puede('clientes.ver',null)?'#/clientes':puede('cobranzas.ver',null)?'#/cobrar':'#/mas'; }
