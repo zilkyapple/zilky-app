@@ -1202,7 +1202,7 @@ function abrirMenuRapido() {
     <div class="quick-sheet-grid">
       <div class="quick-sheet-item" data-action="crear-cliente-inline">${iconClientes()}Cliente nuevo</div>
       <div class="quick-sheet-item" data-action="nueva-venta">${iconVenta()}Nueva venta</div>
-      <div class="quick-sheet-item" data-action="ir-cobrar">${iconCobrar()}Registrar pago</div>
+      <div class="quick-sheet-item" data-action="ir-cobrar">${iconCobrar()}Ver cobranzas</div>
       <div class="quick-sheet-item" data-action="crear-producto">${iconProductos()}Producto nuevo</div>
     </div>
   `);
