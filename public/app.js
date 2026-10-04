@@ -533,10 +533,13 @@ async function abrirRegistrarPago(creditoId, montoSugerido = null) {
       <button class="btn btn-primary" id="btnConfirmarPago">Confirmar</button>
     </div>
   `);
-  document.getElementById('btnConfirmarPago').addEventListener('click', async () => {
+  document.getElementById('btnConfirmarPago').addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    if (button.disabled) return;
     const monto = toCentavos(document.getElementById('pagoMonto').value);
     if (!monto || monto <= 0) return toast('Ingresá un monto válido', true);
     const fecha = document.getElementById('pagoFecha').value || todayISO();
+    button.disabled = true;
     try {
       const r = await api('/pagos', {
         method: 'POST',
@@ -550,7 +553,7 @@ async function abrirRegistrarPago(creditoId, montoSugerido = null) {
       closeSheet();
       toast(`Pago registrado ✓ Comprobante ${r.comprobante.numero}`);
       render();
-    } catch (err) { toast(err.message, true); }
+    } catch (err) { button.disabled = false; toast(err.message, true); }
   });
 }
 
@@ -796,6 +799,8 @@ function renderCamposModalidad(modalidad) {
 }
 
 async function submitVenta() {
+  const button = document.getElementById('btnCrearVenta');
+  if (!button || button.disabled) return;
   const negocio_id = document.getElementById('vNegocio').value;
   const cliente_id = document.getElementById('vClienteId').value;
   if (!cliente_id) return toast('Elegí un cliente de la lista', true);
@@ -822,12 +827,13 @@ async function submitVenta() {
     if (f) body.plan.fecha_limite = f;
   }
 
+  button.disabled = true;
   try {
     const r = await api('/ventas', { method: 'POST', body: JSON.stringify(body) });
     if (r.advertencias?.length) toast(r.advertencias.join(' '));
     else toast('Venta creada ✓');
     location.hash = `#/clientes/${cliente_id}`;
-  } catch (err) { toast(err.message, true); }
+  } catch (err) { button.disabled = false; toast(err.message, true); }
 }
 
 // ---------------- Vista: Productos ----------------
