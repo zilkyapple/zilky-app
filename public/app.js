@@ -478,9 +478,22 @@ function creditoCardHtml(cr) {
   `;
 }
 
-function abrirEditarSeguimiento(clienteId) {
-  if (!state.negocioActual) return toast('Seleccioná el negocio del seguimiento', true);
-  openSheet(`
+async function abrirEditarSeguimiento(clienteId) {
+  const negocioId = state.negocioActual;
+  if (!negocioId) return toast('Seleccioná el negocio del seguimiento', true);
+  openSheet('<div class="sheet-title">Seguimiento comercial</div><p>Cargando…</p>');
+  const sheet = document.getElementById('activeSheet');
+  const vigente = () => sheet.isConnected && document.getElementById('activeSheet') === sheet
+    && document.getElementById('sheetBackdrop').classList.contains('open') && state.negocioActual === negocioId;
+  let cliente;
+  try {
+    cliente = await api(`/clientes/${clienteId}?negocio_id=${encodeURIComponent(negocioId)}`);
+  } catch (err) {
+    if (vigente()) setHTML(sheet, `<div class="sheet-title">Seguimiento comercial</div><p>${esc(err.message)}</p><button class="btn btn-secondary" data-action="cerrar-sheet">Cancelar</button>`);
+    return;
+  }
+  if (!vigente()) return;
+  setHTML(sheet, `
     <div class="sheet-handle"></div>
     <div class="sheet-title">Seguimiento comercial</div>
     <div class="field">
@@ -498,18 +511,26 @@ function abrirEditarSeguimiento(clienteId) {
       <button class="btn btn-primary" id="btnGuardarSeguimiento">Guardar</button>
     </div>
   `);
-  document.getElementById('btnGuardarSeguimiento').addEventListener('click', async () => {
+  sheet.querySelector('#segEstado').value = cliente.seguimiento_estado || '';
+  sheet.querySelector('#segNota').value = cliente.seguimiento_nota || '';
+  sheet.querySelector('#btnGuardarSeguimiento').addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    if (!vigente() || button.disabled) return;
+    button.disabled = true;
     try {
-      await api(`/clientes/${clienteId}/seguimiento?negocio_id=${encodeURIComponent(state.negocioActual)}`, {
+      await api(`/clientes/${clienteId}/seguimiento?negocio_id=${encodeURIComponent(negocioId)}`, {
         method: 'PATCH',
         body: JSON.stringify({
-          seguimiento_estado: document.getElementById('segEstado').value || null,
-          seguimiento_nota: document.getElementById('segNota').value || null,
+          seguimiento_estado: sheet.querySelector('#segEstado').value || null,
+          seguimiento_nota: sheet.querySelector('#segNota').value || null,
           seguimiento_fecha: todayISO(),
         }),
       });
-      closeSheet(); toast('Guardado ✓'); render();
-    } catch (err) { toast(err.message, true); }
+      if (vigente()) { closeSheet(); toast('Guardado ✓'); render(); }
+    } catch (err) {
+      button.disabled = false;
+      if (vigente()) toast(err.message, true);
+    }
   });
 }
 
