@@ -92,9 +92,19 @@ export async function crearVenta(input) {
       throw badRequest('plan.cantidad_cuotas, plan.valor_cuota_centavos y plan.fecha_primera_cuota son obligatorios para modalidad "cuotas"');
     }
     const usarMeses = intervalo_dias === 30;
+    // Solo compensar la division redondeada al centavo, no otros valores pactados.
+    const diferencia = saldoFinanciado - cantidad_cuotas * valor_cuota_centavos;
+    const ajustarRedondeo = valor_cuota_centavos === Math.round(saldoFinanciado / cantidad_cuotas)
+      && valor_cuota_centavos + diferencia > 0;
+    const ultimaCuota = ajustarRedondeo ? valor_cuota_centavos + diferencia : valor_cuota_centavos;
+    if (ultimaCuota !== valor_cuota_centavos) {
+      const importe = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(ultimaCuota / 100);
+      advertencias.push(`Ultima cuota ajustada por redondeo a ${importe}.`);
+    }
     for (let i = 0; i < cantidad_cuotas; i++) {
       const vencimiento = usarMeses ? addMonths(fecha_primera_cuota, i) : addDays(fecha_primera_cuota, i * intervalo_dias);
-      await crearCuota({ credito_id: credito.id, numero: i + 1, monto_centavos: valor_cuota_centavos, fecha_vencimiento: vencimiento });
+      const montoCuota = i === cantidad_cuotas - 1 ? ultimaCuota : valor_cuota_centavos;
+      await crearCuota({ credito_id: credito.id, numero: i + 1, monto_centavos: montoCuota, fecha_vencimiento: vencimiento });
     }
   } else {
     const fechaLimite = plan.fecha_limite || addDays(fecha, plan.plazo_dias || 30);

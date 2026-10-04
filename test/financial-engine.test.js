@@ -252,4 +252,80 @@ test('13. Los dashboards calculan lo COBRADO con pagos reales, no con ventas cre
   assert.equal(resumen.cobradoHoyCentavos, 300_000);
 });
 
+test('Redondeo: ultima cuota absorbe el centavo faltante sin duplicar la entrega', async () => {
+  const negocio = await crearNegocio({ nombre: 'Redondeo QA' });
+  const venta = await crearVenta({
+    negocio_id: negocio.id, cliente_id: cliente.id, modalidad: 'cuotas',
+    monto_total_centavos: 120000, entrega_inicial_centavos: 10100,
+    plan: { cantidad_cuotas: 3, valor_cuota_centavos: 36633, fecha_primera_cuota: '2099-01-01' },
+  });
+  assert.deepEqual(venta.cuotas.map(c => c.monto_centavos), [36633, 36633, 36634]);
+  assert.equal(venta.credito.saldo_financiado_centavos, 109900);
+  const resumen = await resumenGeneral(negocio.id);
+  assert.equal(resumen.saldoPendienteTotalCentavos, 109900);
+  assert.equal(resumen.cobradoHoyCentavos, 10100);
+  assert.match(venta.advertencias.join(' '), /redondeo/);
+});
+
+test('Redondeo: ultima cuota resta el exceso acumulado de centavos', async () => {
+  const venta = await crearVenta({
+    negocio_id: negApple.id, cliente_id: cliente.id, modalidad: 'cuotas',
+    monto_total_centavos: 100000,
+    plan: { cantidad_cuotas: 6, valor_cuota_centavos: 16667, fecha_primera_cuota: '2099-01-01' },
+  });
+  assert.deepEqual(venta.cuotas.map(c => c.monto_centavos), [16667, 16667, 16667, 16667, 16667, 16665]);
+  assert.equal(venta.cuotas.reduce((s, c) => s + c.saldo_pendiente_centavos, 0), 100000);
+});
+
+test('Redondeo: conserva planes exactos y valores pactados distintos de la division redondeada', async () => {
+  for (const [valor, total] of [[40000, 120000], [42000, 126000], [39000, 117000]]) {
+    const venta = await crearVenta({
+      negocio_id: negApple.id, cliente_id: cliente.id, modalidad: 'cuotas',
+      monto_total_centavos: 120000,
+      plan: { cantidad_cuotas: 3, valor_cuota_centavos: valor, fecha_primera_cuota: '2099-01-01' },
+    });
+    assert.equal(venta.cuotas.reduce((s, c) => s + c.monto_centavos, 0), total);
+    assert.deepEqual(venta.advertencias, []);
+  }
+});
+
+test('Redondeo: no convierte la ultima cuota en cero o negativa', async () => {
+  const venta = await crearVenta({
+    negocio_id: negApple.id, cliente_id: cliente.id, modalidad: 'cuotas',
+    monto_total_centavos: 5,
+    plan: { cantidad_cuotas: 10, valor_cuota_centavos: 1, fecha_primera_cuota: '2099-01-01' },
+  });
+  assert.deepEqual(venta.cuotas.map(c => c.monto_centavos), Array(10).fill(1));
+  assert.deepEqual(venta.advertencias, []);
+});
+
+test('Redondeo: pago completo y anulacion conservan el centavo de la ultima cuota', async () => {
+  const negocio = await crearNegocio({ nombre: 'Redondeo cobro' });
+  const venta = await crearVenta({
+    negocio_id: negocio.id, cliente_id: cliente.id, modalidad: 'cuotas',
+    monto_total_centavos: 109900,
+    plan: { cantidad_cuotas: 3, valor_cuota_centavos: 36633, fecha_primera_cuota: '2099-01-01' },
+  });
+  const pago = await registrarPago({ credito_id: venta.credito.id, monto_centavos: 109900 });
+  assert.equal(pago.remanente, 0);
+  assert.equal((await resumenGeneral(negocio.id)).saldoPendienteTotalCentavos, 0);
+  assert.equal((await getCredito(venta.credito.id)).estado, 'finalizado');
+  await anularComprobante(pago.comprobante.id, { motivo: 'QA regresion redondeo', usuarioId: null });
+  assert.deepEqual((await listCuotasPorCredito(venta.credito.id)).map(c => c.saldo_pendiente_centavos), [36633, 36633, 36634]);
+  assert.equal((await resumenGeneral(negocio.id)).saldoPendienteTotalCentavos, 109900);
+});
+
+test('Redondeo: crear otra venta no reescribe un credito historico con diferencia', async () => {
+  const input = {
+    negocio_id: negApple.id, cliente_id: cliente.id, modalidad: 'cuotas', monto_total_centavos: 109900,
+    plan: { cantidad_cuotas: 3, valor_cuota_centavos: 36633, fecha_primera_cuota: '2099-01-01' },
+  };
+  const anterior = await crearVenta(input);
+  // Reproduce una fila previa a esta correccion, exclusivamente en la base descartable de tests.
+  await pool.query('UPDATE cuotas SET monto_centavos=36633, saldo_pendiente_centavos=36633 WHERE credito_id=$1', [anterior.credito.id]);
+  const antes = await listCuotasPorCredito(anterior.credito.id);
+  await crearVenta(input);
+  assert.deepEqual(await listCuotasPorCredito(anterior.credito.id), antes);
+});
+
 test.after(async () => { await pool.end(); });
