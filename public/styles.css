@@ -215,6 +215,14 @@ a { color: inherit; text-decoration: none; }
 .list-item-body details { font-size:13px; margin-top:8px; overflow-wrap:anywhere; }
 .list-item-body details p { line-height:1.6; }
 button:disabled { opacity:.55; cursor:wait; }
+.client-section { margin:16px 0; padding:16px; border:1px solid var(--border); border-radius:var(--radius-sm); overflow-wrap:anywhere; }
+.client-section summary { cursor:pointer; font-weight:700; font-size:14px; }
+.client-section[open] summary { margin-bottom:14px; }
+.client-section summary:focus-visible { outline:2px solid var(--accent); outline-offset:4px; }
+.client-data { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:14px; margin:0; }
+.client-data dt { color:var(--text-muted); font-size:12px; }
+.client-data dd { margin:4px 0 0; font-size:14px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.client-section p { white-space:pre-wrap; }
 @media(max-width:480px) { .list-item:has(.employee-actions) { flex-wrap:wrap; } .employee-actions { flex-direction:row; flex-wrap:wrap; } }
 @media(max-width:480px) {
   .list-item:has(.employee-actions) .list-item-body { flex-basis:100%; }

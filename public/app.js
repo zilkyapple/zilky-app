@@ -246,7 +246,7 @@ async function render() {
     else if (root === 'calendario') await viewCalendario(view);
     else if (root === 'ventas') await viewVentaNueva(view, parts[1] === 'nueva' ? parts[2] || null : parts[1] || null);
     else if (root === 'productos') await viewProductos(view);
-    else if (root === 'comprobantes') await viewComprobantes(view);
+    else if (root === 'comprobantes') await viewComprobantes(view, parts[1] === 'cliente' ? parts[2] || null : null);
     else if (root === 'configuracion') await viewConfiguracion(view);
     else if (root === 'empleados') await viewEmpleados(view);
     else if (root === 'mas') await viewMas(view);
@@ -398,7 +398,29 @@ function accionesClienteHtml(c) {
       <a class="btn btn-secondary" href="tel:${esc(c.telefono || '')}">${iconLlamar()}Llamar</a>
       <a class="btn btn-secondary" href="#/ventas/nueva/${esc(c.id)}">${iconVenta()}Nueva venta</a>
       <button class="btn btn-secondary" data-action="editar-seguimiento" data-id="${esc(c.id)}">${iconNota()}Seguimiento</button>
+      ${state.negocioActual && puede('comprobantes.ver') && puede('clientes.ver') ? `<a class="btn btn-secondary" href="#/comprobantes/cliente/${esc(c.id)}">${iconNota()}Comprobantes</a>` : ''}
     </div>
+  `;
+}
+
+function datosClienteHtml(c) {
+  const datos = [
+    ['DNI', c.dni], ['Teléfono', c.telefono], ['WhatsApp', c.whatsapp],
+    ['Instagram', c.instagram], ['Dirección', c.direccion], ['Ciudad', c.ciudad],
+    ['Provincia', c.provincia], ['Nacimiento', c.fecha_nacimiento ? fmtFecha(c.fecha_nacimiento) : ''],
+    ['Trabajo', c.trabajo], ['Frecuencia de pago', c.frecuencia_pago], ['Notas', c.notas],
+  ].filter(([, valor]) => valor !== null && valor !== undefined && String(valor).trim());
+  const estados = { contactado: 'Contactado', no_interesado: 'No interesado', volver_a_contactar: 'Volver a contactar' };
+  return `
+    <details class="client-section" open>
+      <summary>Datos personales</summary>
+      ${datos.length ? `<dl class="client-data">${datos.map(([nombre, valor]) => `<div><dt>${esc(nombre)}</dt><dd>${esc(valor)}</dd></div>`).join('')}</dl>` : '<p class="field-hint">Sin datos adicionales registrados.</p>'}
+    </details>
+    <details class="client-section">
+      <summary>Seguimiento comercial${c.seguimiento_estado ? ` · ${esc(estados[c.seguimiento_estado] || c.seguimiento_estado)}` : ''}</summary>
+      <p>${esc(c.seguimiento_nota || 'Sin nota de seguimiento.')}</p>
+      ${c.seguimiento_fecha ? `<p class="field-hint">Última actualización: ${esc(fmtFecha(c.seguimiento_fecha))}</p>` : ''}
+    </details>
   `;
 }
 
@@ -408,21 +430,25 @@ async function viewClienteDetail(view, id) {
   if (!view.isConnected) return;
   const riesgoClass = { bajo: 'riesgo-bajo', medio: 'riesgo-medio', alto: 'riesgo-alto', critico: 'riesgo-critico' }[c.riesgo?.nivel] || 'riesgo-bajo';
   const h = c.historial;
-  if(!h){setHTML(view, `<div class="profile-header"><div><div class="profile-name">${esc(c.nombre)} ${esc(c.apellido)}</div><div class="profile-sub">${esc(c.telefono || '')} ${esc(c.instagram || '')}</div></div></div>${accionesClienteHtml(c)}<p>No tenés permiso para ver el historial financiero de este cliente.</p>`);return;}
-
-  setHTML(view, `
+  const cabecera = `
+    <a class="btn btn-ghost" href="#/clientes">${iconChevronLeft()}Volver a clientes</a>
     <div class="profile-header">
       <span class="avatar">${esc(iniciales(c.nombre, c.apellido))}</span>
       <div><div class="profile-name">${esc(c.nombre)} ${esc(c.apellido || '')}</div><div class="profile-sub">${esc(c.telefono || 'Sin teléfono')} ${esc(c.instagram ? '· ' + c.instagram : '')}</div></div>
     </div>
-
+    <p class="field-hint">Ficha del cliente · ${esc(state.negocioActual ? negocioNombre(state.negocioActual) : 'Negocios autorizados')}</p>
     <div class="tabs" style="margin-top:14px">
-      <button data-action="ver-cliente-negocio" data-id="" class="${esc(!state.negocioActual ? 'active' : '')}">Todos los negocios</button>
-      ${state.negocios.map((n) => `<button data-action="ver-cliente-negocio" data-id="${esc(n.id)}" data-cid="${esc(c.id)}" class="${esc(state.negocioActual === n.id ? 'active' : '')}">${esc(n.nombre)}</button>`).join('')}
+      <button data-action="ver-cliente-negocio" data-id="" class="${esc(!state.negocioActual ? 'active' : '')}">Todos los autorizados</button>
+      ${state.negocios.filter(n => puede('clientes.ver', n.id)).map((n) => `<button data-action="ver-cliente-negocio" data-id="${esc(n.id)}" data-cid="${esc(c.id)}" class="${esc(state.negocioActual === n.id ? 'active' : '')}">${esc(n.nombre)}</button>`).join('')}
     </div>
+    ${accionesClienteHtml(c)}
+    ${datosClienteHtml(c)}
+  `;
+  if(!h){setHTML(view, `${cabecera}<p>No tenés permiso para ver el historial financiero de este cliente.</p>`);return;}
 
+  setHTML(view, `${cabecera}
     <div class="debt-hero">
-      <div class="lbl">Deuda ${esc(state.negocioActual ? 'en ' + negocioNombre(state.negocioActual) : 'total (todos los negocios)')}</div>
+      <div class="lbl">Deuda ${esc(state.negocioActual ? 'en ' + negocioNombre(state.negocioActual) : 'en los negocios autorizados')}</div>
       <div class="amt">${esc(formatARS(c.deudaTotalCentavos))}</div>
       <div class="meta">
         ${c.proximoVencimiento ? `Próximo vencimiento: ${fmtFecha(c.proximoVencimiento)} (${c.diasHastaVencimiento >= 0 ? `en ${c.diasHastaVencimiento} días` : `hace ${-c.diasHastaVencimiento} días`})` : 'Sin obligaciones pendientes'}
@@ -430,9 +456,8 @@ async function viewClienteDetail(view, id) {
       </div>
     </div>
 
-    ${accionesClienteHtml(c)}
-
-    <div class="section-title">Historial financiero</div>
+    <details class="client-section">
+    <summary>Historial financiero</summary>
     <div class="card">
       <div class="cuota-row"><div class="cn">Compras</div><div class="amt">${esc(h.cantidadCompras)}</div></div>
       <div class="cuota-row"><div class="cn">Cuotas pagadas a tiempo / tarde</div><div class="amt">${esc(h.cuotasPagadasATiempo)} / ${esc(h.cuotasPagadasTarde)}</div></div>
@@ -441,14 +466,18 @@ async function viewClienteDetail(view, id) {
       <div class="cuota-row"><div class="cn">Compras finalizadas</div><div class="amt">${esc(h.comprasFinalizadas)}</div></div>
       <div class="cuota-row"><div class="cn">Última compra / último pago</div><div class="amt" style="font-size:12px">${esc(fmtFecha(h.fechaUltimaCompra))} · ${esc(fmtFecha(h.fechaUltimoPago))}</div></div>
     </div>
+    </details>
 
-    <div class="section-title">Créditos</div>
+    <details class="client-section" open>
+    <summary>Financiaciones y cuotas (${esc(c.creditos.length)})</summary>
     ${c.creditos.length === 0 ? `<div class="empty-state"><p>Todavía no compró nada${esc(state.negocioActual ? ' en ' + negocioNombre(state.negocioActual) : '')}.</p></div>` : c.creditos.map((cr) => creditoCardHtml(cr)).join('')}
+    </details>
 
-    <div class="section-title">Historial de pagos</div>
+    <details class="client-section">
+    <summary>Historial de pagos (${esc(c.pagos.length)})</summary>
     ${c.pagos.length === 0 ? `<div class="empty-state"><p>Sin pagos registrados.</p></div>` : `
       <div class="card">
-        ${c.pagos.slice(0, 12).map((p) => `
+        ${c.pagos.map((p) => `
           <div class="hist-row">
             <div><div class="hd">${esc(p.tipo==='entrega_inicial'?'Entrega inicial · ':'Pago de cuota · ')}${esc(p.medio_pago)}${p.anulado ? ' · <span style="color:var(--danger)">ANULADO</span>' : ''}</div><div class="hm">${esc(fmtFecha(p.fecha_hora))} ${esc(p.fecha_hora.slice(11, 16))}</div></div>
             <div class="amt" style="${esc(p.anulado ? 'color:var(--text-faint);text-decoration:line-through' : '')}">+${esc(formatARS(p.monto_centavos))}</div>
@@ -456,6 +485,7 @@ async function viewClienteDetail(view, id) {
         `).join('')}
       </div>
     `}
+    </details>
   `);
 }
 
@@ -882,11 +912,15 @@ async function viewProductos(view) {
 }
 
 // ---------------- Vista: Comprobantes ----------------
-async function viewComprobantes(view) {
+async function viewComprobantes(view, clienteId = null) {
   if (!state.negocioActual) { setHTML(view, `<div class="empty-state"><p>Elegí un negocio arriba para ver sus comprobantes.</p></div>`); return; }
-  const comprobantes = await api(`/comprobantes?negocio_id=${state.negocioActual}`);
+  if (clienteId && (!puede('clientes.ver') || !puede('comprobantes.ver'))) {
+    setHTML(view, '<div class="empty-state"><p>No tenés permiso para ver los comprobantes de este cliente en este negocio.</p></div>'); return;
+  }
+  const comprobantes = await api(`/comprobantes?negocio_id=${encodeURIComponent(state.negocioActual)}${clienteId ? `&cliente_id=${encodeURIComponent(clienteId)}` : ''}`);
   if (!view.isConnected) return;
   setHTML(view, `
+    ${clienteId ? `<a class="btn btn-ghost" href="#/clientes/${esc(clienteId)}">${iconChevronLeft()}Volver a la ficha</a><p class="field-hint">Solo comprobantes de este cliente en el negocio seleccionado.</p>` : ''}
     <div class="section-title">Comprobantes · ${esc(negocioNombre(state.negocioActual))}</div>
     ${comprobantes.length === 0 ? '<div class="empty-state"><p>Todavía no hay comprobantes.</p></div>' : comprobantes.map((c) => `
       <div class="list-item" style="cursor:default">
