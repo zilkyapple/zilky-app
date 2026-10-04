@@ -84,6 +84,30 @@ general del backend ni garantiza deduplicar solicitudes HTTP arbitrarias.
 No hay migraciones, cambios de dependencias, cambios en permisos backend,
 credenciales, cálculos financieros, roles ni datos históricos.
 
+## Ficha central: consulta implementada con reglas existentes
+
+La parte de consulta y organización no depende de resolver nuevas facultades de
+edición. Se implementó sobre los contratos ya validados:
+
+- Cabecera y contexto de negocio visibles; regreso a la lista y selector limitado
+  a negocios con `clientes.ver`.
+- Secciones plegables y accesibles para datos personales existentes, seguimiento
+  comercial, historial financiero, financiaciones/cuotas e historial de pagos.
+- Datos y notas escapados; estado explícito cuando faltan datos. No se agrega
+  edición de identidad global ni se cambia el alcance del seguimiento comercial.
+- Historial de pagos completo recibido del backend, sin el corte anterior de 12;
+  se conservan entrega inicial, pagos anulados y montos del motor existente.
+- Acceso desde la ficha a comprobantes filtrados por cliente y negocio. Requiere
+  `clientes.ver` y `comprobantes.ver` en el mismo negocio; la vista global exige
+  elegir negocio. No concede anulación ni permiso financiero por consultar.
+- La ficha sin historial financiero sigue mostrando la denegación aprobada y no
+  precarga operaciones restringidas. Contratos y comunicaciones quedan reservados
+  a sus etapas; no se agregan botones sin función.
+
+El modelo y endpoints existentes sostienen esas relaciones; no requieren
+migración. La separación de secciones permite incorporar las etapas posteriores
+sin cambiar la identidad del cliente ni duplicar movimientos.
+
 ## Pruebas preparadas
 
 `test/frontend-clients.test.js` agrega 17 casos de interacción: doble envío,
@@ -98,6 +122,16 @@ existente incorpora automáticamente este archivo en `npm test`.
 La regresión completa usa PostgreSQL 17 descartable con Node 24 y 26. Se ejecuta
 por los cambios presentes, no para repetir manualmente el cierre de 1/2. El
 informe de ejecución identifica sus resultados y el commit desplegado.
+
+`test/frontend-client-file.test.js` agrega 12 pruebas de la ficha: lectura sin
+finanzas, escape de datos/notas, negocios autorizados, permisos separados y
+mixtos, vista global, estados vacíos, historial mayor a 12, filtro de comprobantes,
+acceso directo denegado y separación entre lectura y anulación.
+
+`test/client-file.test.js` añade 3 pruebas HTTP reales sobre PostgreSQL descartable:
+filtro simultáneo cliente/negocio con otro cliente en el mismo negocio y una
+identidad compartida en otro; denegación de comprobantes del otro negocio; y
+separación entre lectura, historial financiero y anulación sin mutaciones.
 
 Para completar la reorganización, la matriz deberá comprobar administrador,
 cliente de solo lectura, vendedor, cobrador, lector de comprobantes y permisos
