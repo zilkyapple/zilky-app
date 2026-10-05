@@ -1,5 +1,6 @@
 import { db } from '../db/connection.js';
 import { id } from '../lib/id.js';
+import { badRequest } from '../lib/validation.js';
 
 export async function crearNegocio(data) {
   const negId = id();
@@ -32,11 +33,12 @@ export async function listNegocios() {
 }
 
 export async function actualizarNegocio(negId, data) {
+  if(data.seguimiento_equipos!==undefined && ![0,1].includes(data.seguimiento_equipos)) throw badRequest('seguimiento_equipos debe ser 0 o 1');
   const actual = await getNegocio(negId);
   if (!actual) return null;
   const merged = { ...actual, ...data };
   await db.prepare(`
-    UPDATE negocios SET nombre=?, color=?, logo_url=?, dias_gracia=?, mora_tipo=?, mora_valor=?, mora_periodo=?, mora_base=?, mora_acumulativa=?, orden_aplicacion_pago=?, recordatorio_dias=?
+    UPDATE negocios SET nombre=?, color=?, logo_url=?, dias_gracia=?, mora_tipo=?, mora_valor=?, mora_periodo=?, mora_base=?, mora_acumulativa=?, orden_aplicacion_pago=?, recordatorio_dias=?, seguimiento_equipos=?
     WHERE id=?
   `).run(
     merged.nombre, merged.color, merged.logo_url, merged.dias_gracia, merged.mora_tipo,
@@ -44,6 +46,7 @@ export async function actualizarNegocio(negId, data) {
     merged.mora_acumulativa ? 1 : 0,
     typeof merged.orden_aplicacion_pago === 'string' ? merged.orden_aplicacion_pago : JSON.stringify(merged.orden_aplicacion_pago),
     typeof merged.recordatorio_dias === 'string' ? merged.recordatorio_dias : JSON.stringify(merged.recordatorio_dias),
+    merged.seguimiento_equipos,
     negId
   );
   return getNegocio(negId);
