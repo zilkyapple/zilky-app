@@ -349,6 +349,21 @@ CREATE TABLE IF NOT EXISTS contratos (
 
 // Parches no destructivos para bases ya desplegadas
 const patches = `
+ALTER TABLE negocios ADD COLUMN IF NOT EXISTS seguimiento_equipos INTEGER NOT NULL DEFAULT 0 CHECK (seguimiento_equipos IN (0,1));
+CREATE TABLE IF NOT EXISTS credito_incidencias (
+  id TEXT PRIMARY KEY,
+  secuencia BIGSERIAL UNIQUE,
+  credito_id TEXT NOT NULL REFERENCES creditos(id),
+  tipo TEXT NOT NULL CHECK (tipo IN ('al_dia','atrasada','regularizada','finalizada_correctamente','cancelada_anticipadamente','equipo_entregado','equipo_retirado','pago_anulado')),
+  fecha TEXT NOT NULL,
+  motivo TEXT,
+  usuario_id TEXT,
+  pago_id TEXT REFERENCES pagos(id),
+  clave TEXT NOT NULL,
+  registrado_en TEXT NOT NULL DEFAULT (NOW()::text),
+  UNIQUE (credito_id,clave)
+);
+CREATE INDEX IF NOT EXISTS idx_credito_incidencias_credito ON credito_incidencias(credito_id,secuencia);
 ALTER TABLE pagos ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'cuota';
 CREATE UNIQUE INDEX IF NOT EXISTS idx_entrega_inicial_credito ON pagos(credito_id) WHERE tipo='entrega_inicial';
 ALTER TABLE negocios ADD COLUMN IF NOT EXISTS recordatorio_dias TEXT DEFAULT '[7,3,1,0]';
