@@ -20,7 +20,7 @@ await vincularClienteNegocio(cliente.id, b.id);
 const otro = await crearCliente({ nombre: 'Otro', apellido: 'QA', negocio_id: a.id });
 const lector = await crearUsuario({ email: 'ficha@qa.invalid', password_hash: 'unused', rol: 'empleado' });
 await asignarNegocio(lector.id, a.id, { 'clientes.ver': true, 'comprobantes.ver': true });
-await asignarNegocio(lector.id, b.id, { 'clientes.ver': true });
+await asignarNegocio(lector.id, b.id, { 'comprobantes.ver': true });
 const recibos = [];
 for (const [negocio, c] of [[a, cliente], [b, cliente], [a, otro]]) {
   const venta = await crearVenta({ negocio_id: negocio.id, cliente_id: c.id, modalidad: 'unico', monto_total_centavos: 1000, entrega_inicial_centavos: 100, plan: { fecha_limite: '2099-01-01' } });
@@ -48,10 +48,11 @@ test('Ficha PostgreSQL: cliente compartido no concede comprobantes de otro negoc
   assert.ok(!JSON.stringify(r.body).includes(recibos[1].pago));
 });
 
-test('Ficha PostgreSQL: leer comprobantes no concede historial financiero ni anulación', async () => {
+test('Ficha PostgreSQL: lectura individual incluye finanzas sin conceder dashboard ni anulación', async () => {
   const detail = await request(`/clientes/${cliente.id}?negocio_id=${a.id}`);
-  assert.equal(detail.status, 200); assert.equal(detail.body.historial, null);
-  assert.deepEqual(detail.body.pagos, []); assert.equal(detail.body.deudaTotalCentavos, undefined);
+  assert.equal(detail.status, 200); assert.equal(detail.body.historial.cantidadCompras, 1);
+  assert.equal(detail.body.pagos.length, 2); assert.equal(detail.body.deudaTotalCentavos, 700);
+  assert.equal((await request('/dashboard/resumen')).status, 403);
   const denied = await request(`/comprobantes/${recibos[0].pago}/anular`, { method: 'POST', body: JSON.stringify({ motivo: 'No autorizado QA' }) });
   assert.equal(denied.status, 403);
   const receipt = await request(`/comprobantes/${recibos[0].pago}`);
