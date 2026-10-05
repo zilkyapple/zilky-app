@@ -188,6 +188,24 @@ for(const admin of [false,true])test('Etapa3 UI: calendario diario '+(admin?'con
   const b=browser({admin,permisos:{'cobranzas.ver':true,'dashboard_financiero.ver':true},respuesta:[{cliente_id:'c',cliente_nombre:'Cliente',numero:1,total_cuotas:1,saldo_pendiente_centavos:12300,estado:'proxima',credito_id:'cr',negocio_id:'qa'}]});
   try {await b.w.abrirDiaCalendario('2026-10-04');const sub=b.w.document.querySelector('.sheet-sub').textContent;assert.equal(sub.includes('por cobrar'),admin);assert.match(b.w.document.querySelector('.list-item-amount').textContent,/123/);}finally{b.w.close();}
 });
+for (const admin of [false, true]) test('Etapa3 UI: abrir cliente desde calendario cierra el panel para '+(admin?'administrador':'empleado'), async () => {
+  const cuota = { cliente_id:'cliente-calendario', cliente_nombre:'Cliente calendario', numero:1, total_cuotas:6, saldo_pendiente_centavos:16667, estado:'proxima', credito_id:'cr', negocio_id:'qa' };
+  const b = browser({ admin, permisos:{'cobranzas.ver':true}, respuesta:[cuota] });
+  try {
+    await b.w.abrirDiaCalendario('2026-10-21');
+    const panel = b.w.document.getElementById('activeSheet');
+    assert.equal(panel.classList.contains('open'), true);
+    assert.equal(b.w.document.getElementById('sheetBackdrop').classList.contains('open'), true);
+    b.w.fetch = async () => ({ ok:true, status:200, json:async()=>({...cliente,id:cuota.cliente_id}) });
+    panel.querySelector('.list-item-title').click();
+    assert.equal(b.w.location.hash, '#/clientes/cliente-calendario');
+    assert.equal(panel.classList.contains('open'), false, 'El detalle no debe tapar la ficha de destino');
+    assert.equal(b.w.document.getElementById('sheetBackdrop').classList.contains('open'), false, 'La ficha debe quedar interactuable');
+    await b.w.render();
+    assert.match(b.view.textContent, /Datos personales/);
+    assert.equal(b.w.qaState.negocioActual, 'qa');
+  } finally { b.w.close(); }
+});
 test('Etapa3 UI: opción de equipos depende de configuración, no del nombre del negocio',async()=>{
   const b=browser({admin:true,respuesta:operativo});
   try {
