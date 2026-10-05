@@ -1,4 +1,5 @@
 import {db} from '../db/connection.js';
+import { agregarIncidencia } from './incidenciasService.js';
 import {auditar} from '../lib/audit.js';
 import { nowAR } from '../lib/dates.js';
 import { getComprobante, anularComprobanteRow, listComprobantes } from '../repositories/comprobantes.js';
@@ -61,6 +62,7 @@ export async function anularComprobante(comprobanteId, { motivo, usuarioId }) {
     const credito = await getCredito(pago.credito_id);
     const negocio = await getNegocio(credito.negocio_id);
     await recalcularEstadoCredito(credito.id, negocio, fecha.slice(0, 10));
+    await agregarIncidencia({creditoId:credito.id,tipo:'pago_anulado',fecha:fecha.slice(0,10),clave:`anulacion:${pago.id}`,pagoId:pago.id,usuarioId,motivo});
   }
 
   await auditar('pago',pago.id,'anular',pago,await getPago(pago.id),usuarioId,motivo);

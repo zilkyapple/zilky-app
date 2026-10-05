@@ -24,6 +24,7 @@ async function cuotasEnriquecidas(negocioId = null) {
     FROM cuotas cu
     JOIN creditos cr ON cr.id = cu.credito_id
     JOIN clientes cl ON cl.id = cr.cliente_id
+    JOIN cliente_negocio cn ON cn.cliente_id=cr.cliente_id AND cn.negocio_id=cr.negocio_id
     WHERE cu.saldo_pendiente_centavos > 0 AND cu.estado_manual IS NULL
     ${filterSql}
   `;
@@ -107,15 +108,15 @@ export async function listaCobranza(negocioId = null, { ventanaDias = 7 } = {}) 
   return { hoy, proximas, vencidas, todas, ventanaDias };
 }
 
-export async function calendarioMes(negocioId, mesISO) {
+export async function calendarioMes(negocioId, mesISO, { incluirMontos = true } = {}) {
   const cuotas = await cuotasEnriquecidas(negocioId);
   const delMes = cuotas.filter((c) => c.fecha_vencimiento.slice(0, 7) === mesISO);
   const porDia = {};
   for (const c of delMes) {
     const dia = c.fecha_vencimiento;
-    if (!porDia[dia]) porDia[dia] = { fecha: dia, cantidad: 0, montoCentavos: 0 };
+    if (!porDia[dia]) porDia[dia] = { fecha: dia, cantidad: 0, ...(incluirMontos ? { montoCentavos: 0 } : {}) };
     porDia[dia].cantidad += 1;
-    porDia[dia].montoCentavos += c.saldo_pendiente_centavos;
+    if (incluirMontos) porDia[dia].montoCentavos += c.saldo_pendiente_centavos;
   }
   return Object.values(porDia).sort((a, b) => (a.fecha < b.fecha ? -1 : 1));
 }

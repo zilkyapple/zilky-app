@@ -1,4 +1,5 @@
 import {db} from '../db/connection.js';
+import { registrarHistoriaPago } from './incidenciasService.js';
 import {integer,dateISO} from '../lib/validation.js';
 import {auditar} from '../lib/audit.js';
 import { nowAR, diffDays } from '../lib/dates.js';
@@ -31,6 +32,7 @@ export async function registrarPago(input) {
   const today = fecha_hora.slice(0, 10);
 
   const todasLasCuotas = await listCuotasPorCredito(credito_id);
+  const cuotasAntesDelPago = todasLasCuotas.map(c=>({...c}));
   const cuotasPendientes = todasLasCuotas.filter((c) => c.saldo_pendiente_centavos > 0 && !c.estado_manual);
   if(cuota_id && !cuotasPendientes.some(c=>c.id===cuota_id)) throw badRequest('La cuota indicada no está pendiente en este crédito');
   const saldoAnterior = cuotasPendientes.reduce((acc, c) => acc + c.saldo_pendiente_centavos, 0);
@@ -86,6 +88,7 @@ export async function registrarPago(input) {
   });
 
   const estadoCredito = await recalcularEstadoCredito(credito_id, negocio, today);
+  await registrarHistoriaPago({credito,antes:cuotasAntesDelPago,despues:await listCuotasPorCredito(credito_id),fecha:today,pagoId:pago.id,usuarioId:usuario_id});
 
   await auditar('pago',pago.id,'crear',null,pago,usuario_id);
   return { pago, comprobante, aplicaciones, remanente, saldoAnterior, saldoPosterior, estadoCredito };
