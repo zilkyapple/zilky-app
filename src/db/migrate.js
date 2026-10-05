@@ -349,6 +349,41 @@ CREATE TABLE IF NOT EXISTS contratos (
 
 // Parches no destructivos para bases ya desplegadas
 const patches = `
+ALTER TABLE cliente_negocio_cobranza ADD COLUMN IF NOT EXISTS gestion_especial INTEGER NOT NULL DEFAULT 0 CHECK (gestion_especial IN (0,1));
+ALTER TABLE cliente_negocio_cobranza ADD COLUMN IF NOT EXISTS proximo_contacto TEXT;
+CREATE TABLE IF NOT EXISTS cobranza_gestion_eventos (
+  id TEXT PRIMARY KEY,
+  secuencia BIGSERIAL UNIQUE,
+  cliente_id TEXT NOT NULL REFERENCES clientes(id),
+  negocio_id TEXT NOT NULL REFERENCES negocios(id),
+  accion TEXT NOT NULL CHECK (accion IN ('entrada','salida','seguimiento')),
+  fecha TEXT NOT NULL,
+  usuario_id TEXT NOT NULL,
+  usuario_nombre TEXT NOT NULL,
+  deuda_centavos BIGINT NOT NULL CHECK (deuda_centavos >= 0),
+  capital_centavos BIGINT NOT NULL CHECK (capital_centavos >= 0),
+  mora_centavos BIGINT NOT NULL CHECK (mora_centavos >= 0),
+  nota TEXT NOT NULL,
+  proximo_contacto TEXT,
+  solicitud_id TEXT NOT NULL,
+  UNIQUE (cliente_id,negocio_id,solicitud_id)
+);
+CREATE INDEX IF NOT EXISTS idx_cobranza_gestion_cliente ON cobranza_gestion_eventos(cliente_id,negocio_id,secuencia);
+ALTER TABLE negocios ADD COLUMN IF NOT EXISTS seguimiento_equipos INTEGER NOT NULL DEFAULT 0 CHECK (seguimiento_equipos IN (0,1));
+CREATE TABLE IF NOT EXISTS credito_incidencias (
+  id TEXT PRIMARY KEY,
+  secuencia BIGSERIAL UNIQUE,
+  credito_id TEXT NOT NULL REFERENCES creditos(id),
+  tipo TEXT NOT NULL CHECK (tipo IN ('al_dia','atrasada','regularizada','finalizada_correctamente','cancelada_anticipadamente','equipo_entregado','equipo_retirado','pago_anulado')),
+  fecha TEXT NOT NULL,
+  motivo TEXT,
+  usuario_id TEXT,
+  pago_id TEXT REFERENCES pagos(id),
+  clave TEXT NOT NULL,
+  registrado_en TEXT NOT NULL DEFAULT (NOW()::text),
+  UNIQUE (credito_id,clave)
+);
+CREATE INDEX IF NOT EXISTS idx_credito_incidencias_credito ON credito_incidencias(credito_id,secuencia);
 ALTER TABLE pagos ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'cuota';
 CREATE UNIQUE INDEX IF NOT EXISTS idx_entrega_inicial_credito ON pagos(credito_id) WHERE tipo='entrega_inicial';
 ALTER TABLE negocios ADD COLUMN IF NOT EXISTS recordatorio_dias TEXT DEFAULT '[7,3,1,0]';

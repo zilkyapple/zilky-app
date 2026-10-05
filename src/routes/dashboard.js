@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { resumenGeneral, listaCobranza, recordatoriosDeHoy, calendarioMes, calendarioDia } from '../services/dashboardService.js';
-import { requirePermiso, validarScopeNegocio, scopeNegocios } from '../middleware/authorize.js';
+import { requireAdmin, requirePermiso, validarScopeNegocio, scopeNegocios, scopeClientesOperativos } from '../middleware/authorize.js';
 
 export const dashboardRouter = Router();
 
-dashboardRouter.get('/resumen', requirePermiso('dashboard_financiero.ver'), async (req, res, next) => {
+dashboardRouter.get('/resumen', requireAdmin, async (req, res, next) => {
   try {
     const { negocio_id } = req.query;
     const scope = scopeNegocios(req, 'dashboard_financiero.ver');
@@ -34,7 +34,7 @@ dashboardRouter.get('/resumen', requirePermiso('dashboard_financiero.ver'), asyn
 dashboardRouter.get('/cobranza', requirePermiso('cobranzas.ver'), async (req, res, next) => {
   try {
     const { negocio_id } = req.query;
-    const scope = scopeNegocios(req, 'cobranzas.ver');
+    const scope = scopeClientesOperativos(req);
     const ventana = req.query.ventana_dias ? Number(req.query.ventana_dias) : 7;
     if (negocio_id) {
       if (!validarScopeNegocio(req, negocio_id)) return res.status(403).json({ error: 'No tenés acceso a ese negocio' });
@@ -43,7 +43,7 @@ dashboardRouter.get('/cobranza', requirePermiso('cobranzas.ver'), async (req, re
       if (scope === null) {
         res.json(await listaCobranza(null, { ventanaDias: ventana }));
       } else if (scope.length === 0) {
-        res.json({ hoy: [], proximas: [], vencidas: [], todas: [], ventanaDias: ventana });
+        res.json({ hoy: [], proximas: [], vencidas: [], especial: [], todas: [], ventanaDias: ventana });
       } else {
         res.json(await listaCobranza(scope, { ventanaDias: ventana }));
       }
@@ -54,7 +54,7 @@ dashboardRouter.get('/cobranza', requirePermiso('cobranzas.ver'), async (req, re
 dashboardRouter.get('/recordatorios', requirePermiso('cobranzas.ver'), async (req, res, next) => {
   try {
     const { negocio_id } = req.query;
-    const scope = scopeNegocios(req, 'cobranzas.ver');
+    const scope = scopeClientesOperativos(req);
     if (negocio_id) {
       if (!validarScopeNegocio(req, negocio_id)) return res.status(403).json({ error: 'No tenés acceso a ese negocio' });
       res.json(await recordatoriosDeHoy(negocio_id));
@@ -74,8 +74,9 @@ dashboardRouter.get('/calendario', requirePermiso('cobranzas.ver'), async (req, 
   try {
     const { negocio_id, mes } = req.query;
     if (!negocio_id || !mes) return res.status(400).json({ error: 'negocio_id y mes (YYYY-MM) son requeridos' });
+    scopeClientesOperativos(req);
     if (!validarScopeNegocio(req, negocio_id)) return res.status(403).json({ error: 'No tenés acceso a ese negocio' });
-    res.json(await calendarioMes(negocio_id, mes));
+    res.json(await calendarioMes(negocio_id, mes, { incluirMontos: req.usuario.rol === 'administrador' }));
   } catch (err) { next(err); }
 });
 
@@ -83,6 +84,7 @@ dashboardRouter.get('/calendario/dia', requirePermiso('cobranzas.ver'), async (r
   try {
     const { negocio_id, fecha } = req.query;
     if (!negocio_id || !fecha) return res.status(400).json({ error: 'negocio_id y fecha (YYYY-MM-DD) son requeridos' });
+    scopeClientesOperativos(req);
     if (!validarScopeNegocio(req, negocio_id)) return res.status(403).json({ error: 'No tenés acceso a ese negocio' });
     res.json(await calendarioDia(negocio_id, fecha));
   } catch (err) { next(err); }

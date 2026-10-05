@@ -19,11 +19,14 @@ async function cuotasEnriquecidas(negocioId = null) {
   const { sql: filterSql, params: filterParams } = buildNegocioFilter(negocioId);
   const sql = `
     SELECT cu.*, cr.negocio_id, cr.cliente_id, cr.modalidad, cr.venta_id,
+           COALESCE(cc.gestion_especial,0) AS gestion_especial, cc.proximo_contacto,
            cl.nombre AS cliente_nombre, cl.apellido AS cliente_apellido, cl.telefono AS cliente_telefono,
            (SELECT COUNT(*) FROM cuotas c2 WHERE c2.credito_id = cu.credito_id) AS total_cuotas
     FROM cuotas cu
     JOIN creditos cr ON cr.id = cu.credito_id
     JOIN clientes cl ON cl.id = cr.cliente_id
+    JOIN cliente_negocio cn ON cn.cliente_id=cr.cliente_id AND cn.negocio_id=cr.negocio_id
+    LEFT JOIN cliente_negocio_cobranza cc ON cc.cliente_id=cr.cliente_id AND cc.negocio_id=cr.negocio_id
     WHERE cu.saldo_pendiente_centavos > 0 AND cu.estado_manual IS NULL
     ${filterSql}
   `;
@@ -100,29 +103,38 @@ export async function resumenGeneral(negocioId = null) {
 
 export async function listaCobranza(negocioId = null, { ventanaDias = 7 } = {}) {
   const cuotas = await cuotasEnriquecidas(negocioId);
-  const hoy = cuotas.filter((c) => c.diasHasta === 0);
-  const proximas = cuotas.filter((c) => c.diasHasta > 0 && c.diasHasta <= ventanaDias);
-  const vencidas = cuotas.filter((c) => c.diasHasta < 0).sort((a, b) => b.diasAtraso - a.diasAtraso);
+  const normales=cuotas.filter(c=>c.gestion_especial!==1);
+  const hoy = normales.filter((c) => c.diasHasta === 0);
+  const proximas = normales.filter((c) => c.diasHasta > 0 && c.diasHasta <= ventanaDias);
+  const vencidas = normales.filter((c) => c.diasHasta < 0).sort((a, b) => b.diasAtraso - a.diasAtraso);
   const todas = [...cuotas].sort((a, b) => (a.fecha_vencimiento < b.fecha_vencimiento ? -1 : 1));
-  return { hoy, proximas, vencidas, todas, ventanaDias };
+  const agrupados=new Map();
+  for(const c of cuotas.filter(c=>c.gestion_especial===1)) {
+    const key=JSON.stringify([c.cliente_id,c.negocio_id]);
+    if(!agrupados.has(key))agrupados.set(key,{cliente_id:c.cliente_id,negocio_id:c.negocio_id,cliente_nombre:c.cliente_nombre,
+      cliente_apellido:c.cliente_apellido,cliente_telefono:c.cliente_telefono,proximo_contacto:c.proximo_contacto,deudaCentavos:0,cuotas:0});
+    const g=agrupados.get(key);g.deudaCentavos+=c.saldo_pendiente_centavos+c.moraPendiente;g.cuotas++;
+  }
+  const especial=[...agrupados.values()].sort((a,b)=>(a.proximo_contacto||'').localeCompare(b.proximo_contacto||''));
+  return { hoy, proximas, vencidas, especial, todas, ventanaDias };
 }
 
-export async function calendarioMes(negocioId, mesISO) {
+export async function calendarioMes(negocioId, mesISO, { incluirMontos = true } = {}) {
   const cuotas = await cuotasEnriquecidas(negocioId);
-  const delMes = cuotas.filter((c) => c.fecha_vencimiento.slice(0, 7) === mesISO);
+  const delMes = cuotas.filter((c) => c.gestion_especial!==1 && c.fecha_vencimiento.slice(0, 7) === mesISO);
   const porDia = {};
   for (const c of delMes) {
     const dia = c.fecha_vencimiento;
-    if (!porDia[dia]) porDia[dia] = { fecha: dia, cantidad: 0, montoCentavos: 0 };
+    if (!porDia[dia]) porDia[dia] = { fecha: dia, cantidad: 0, ...(incluirMontos ? { montoCentavos: 0 } : {}) };
     porDia[dia].cantidad += 1;
-    porDia[dia].montoCentavos += c.saldo_pendiente_centavos;
+    if (incluirMontos) porDia[dia].montoCentavos += c.saldo_pendiente_centavos;
   }
   return Object.values(porDia).sort((a, b) => (a.fecha < b.fecha ? -1 : 1));
 }
 
 export async function calendarioDia(negocioId, fechaISO) {
   const cuotas = await cuotasEnriquecidas(negocioId);
-  return cuotas.filter((c) => c.fecha_vencimiento === fechaISO);
+  return cuotas.filter((c) => c.gestion_especial!==1 && c.fecha_vencimiento === fechaISO);
 }
 
 export async function recordatoriosDeHoy(negocioId = null) {
@@ -130,6 +142,7 @@ export async function recordatoriosDeHoy(negocioId = null) {
   const negocioCache = {};
   const out = [];
   for (const c of cuotas) {
+    if(c.gestion_especial===1)continue;
     if (!['proxima', 'vence_hoy'].includes(c.estado)) continue;
     if (!negocioCache[c.negocio_id]) negocioCache[c.negocio_id] = await getNegocio(c.negocio_id);
     let reglas = [];
