@@ -89,7 +89,13 @@ const fmtFecha = (iso) => {
   return `${d}/${m}/${y}`;
 };
 const iniciales = (n = '', a = '') => `${(n[0] || '').toUpperCase()}${(a[0] || '').toUpperCase()}` || '?';
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => {
+  // La fecha operativa debe coincidir con todayAR() del backend, aun de noche.
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date()).reduce((acc, p) => ({ ...acc, [p.type]: p.value }), {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
+};
 
 const ESTADO_LABEL = {
   proxima: 'Próxima', activa: 'Activa', vence_hoy: 'Vence hoy', gracia: 'En gracia',
