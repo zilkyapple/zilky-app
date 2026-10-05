@@ -450,6 +450,7 @@ async function viewClienteDetail(view, id) {
   if(!h){setHTML(view, `${cabecera}<p>No tenés permiso para ver el historial financiero de este cliente.</p>`);return;}
 
   setHTML(view, `${cabecera}
+    ${gestionCobranzaHtml(c)}
     <div class="debt-hero">
       <div class="lbl">Deuda ${esc(state.negocioActual ? 'en ' + negocioNombre(state.negocioActual) : 'en los negocios autorizados')}</div>
       <div class="amt">${esc(formatARS(c.deudaTotalCentavos))}</div>
@@ -491,6 +492,80 @@ async function viewClienteDetail(view, id) {
     `}
     </details>
   `);
+}
+
+function gestionCobranzaHtml(c) {
+  const gestiones=c.gestionCobranza||[];
+  if(!gestiones.length)return '';
+  const admin=state.usuario?.rol==='administrador';
+  return `<details class="client-section" ${gestiones.some(g=>g.gestion_especial===1)?'open':''}>
+    <summary>Gestión de cobranza y antecedentes</summary>
+    ${gestiones.map(g=>`<div class="card"><strong>${esc(negocioNombre(g.negocio_id))} · ${g.gestion_especial===1?'Gestión especial':'Cobranza normal'}</strong>
+      ${g.proximo_contacto?`<p>Próximo seguimiento: ${esc(fmtFecha(g.proximo_contacto))}</p>`:''}
+      <p class="field-hint">La clasificación es manual. No elimina deuda ni bloquea pagos. Los antecedentes se conservan.</p>
+      ${admin?`<button class="btn btn-secondary" data-action="gestion-cliente" data-id="${esc(c.id)}" data-negocio="${esc(g.negocio_id)}" data-tipo="${g.gestion_especial===1?'salida':'entrada'}">${g.gestion_especial===1?'Volver a cobranza normal':'Pasar a Gestión especial'}</button>`:''}
+      ${g.gestion_especial===1 && puede('cobranzas.ver',g.negocio_id)?`<button class="btn btn-secondary" data-action="mensaje-especial" data-id="${esc(c.id)}" data-negocio="${esc(g.negocio_id)}">Preparar mensaje</button>`:''}
+      ${g.gestion_especial===1 && puede('clientes.editar',g.negocio_id)&&puede('cobranzas.ver',g.negocio_id)?`<button class="btn btn-secondary" data-action="gestion-cliente" data-id="${esc(c.id)}" data-negocio="${esc(g.negocio_id)}" data-tipo="seguimiento">Registrar seguimiento</button>`:''}
+      ${(g.historial||[]).length?`<ol>${g.historial.map(e=>`<li><strong>${esc({entrada:'Ingresó a Gestión especial',salida:'Volvió a cobranza normal',seguimiento:'Seguimiento registrado'}[e.accion]||e.accion)}</strong> · ${esc(fmtFecha(e.fecha))} ${esc(e.fecha?.slice(11,16))}
+        <p>Por: ${esc(e.usuario_nombre)} · Deuda en ese momento: ${esc(formatARS(e.deuda_centavos))}</p><p>${esc(e.nota)}</p>${e.proximo_contacto?`<p>Próximo contacto previsto: ${esc(fmtFecha(e.proximo_contacto))}</p>`:''}</li>`).join('')}</ol>`:'<p>Sin antecedentes de Gestión especial.</p>'}
+    </div>`).join('')}
+  </details>`;
+}
+function proximoMesISO() {
+  const [y,m,d]=todayISO().split('-').map(Number),ultimo=new Date(Date.UTC(y,m+1,0)).getUTCDate();
+  return new Date(Date.UTC(y,m,Math.min(d,ultimo))).toISOString().slice(0,10);
+}
+function abrirGestionCliente(clienteId,negocioId,accion) {
+  const permitido=()=>accion==='seguimiento'?puede('clientes.editar',negocioId)&&puede('cobranzas.ver',negocioId):state.usuario?.rol==='administrador';
+  if(!permitido())return toast('No tenés permiso para esta acción',true);
+  if(state.negocioActual!==negocioId)return toast('Seleccioná el negocio de esta cuenta',true);
+  const token=getToken(),solicitudId=crypto.randomUUID();
+  const titulo={entrada:'Pasar a Gestión especial',salida:'Volver a cobranza normal',seguimiento:'Registrar seguimiento'}[accion];
+  if(!titulo)return;
+  openSheet(`<div class="sheet-title">${esc(titulo)}</div><p>La deuda y los pagos se conservan. Este cambio quedará en el historial del cliente dentro de este negocio.</p>
+    <div class="field"><label for="gestionNota">${accion==='seguimiento'?'Resultado del seguimiento':'Motivo'}</label><textarea id="gestionNota" maxlength="2000"></textarea></div>
+    ${accion!=='salida'?`<div class="field"><label for="gestionFecha">Próximo contacto</label><input id="gestionFecha" type="date" min="${esc(todayISO())}" value="${esc(proximoMesISO())}"></div><p class="field-hint">Fecha sugerida mensual, editable. No se envían mensajes automáticamente.</p>`:''}
+    <div class="sheet-actions"><button class="btn btn-secondary" data-action="cerrar-sheet">Cancelar</button><button id="gestionGuardar" class="btn btn-primary">Guardar</button></div>`);
+  const sheet=document.getElementById('activeSheet');
+  const vigente=()=>sheet.isConnected&&document.getElementById('activeSheet')===sheet&&document.getElementById('sheetBackdrop').classList.contains('open')&&state.negocioActual===negocioId&&getToken()===token&&permitido();
+  let enviado=null;
+  sheet.querySelector('#gestionGuardar').addEventListener('click',async(e)=>{
+    const button=e.currentTarget;if(button.disabled||!vigente())return;
+    const nota=sheet.querySelector('#gestionNota').value.trim(),fecha=sheet.querySelector('#gestionFecha')?.value||null;
+    if(!nota || (accion!=='salida'&&!fecha))return toast('Completá motivo y próximo contacto',true);
+    enviado||={accion,nota,proximo_contacto:fecha,solicitud_id:solicitudId};
+    button.disabled=true;sheet.querySelectorAll('input,textarea').forEach(el=>el.disabled=true);
+    try {
+      await api(`/clientes/${encodeURIComponent(clienteId)}/gestion-especial${accion==='seguimiento'?'/seguimiento':''}?negocio_id=${encodeURIComponent(negocioId)}`,{method:'POST',body:JSON.stringify(enviado)});
+      if(vigente()){closeSheet();toast('Gestión guardada en el historial');render();}
+    }catch(err){if(vigente()){button.disabled=false;toast(err.message+' · Podés reintentar sin duplicar.',true);}}
+  });
+}
+function gestionEspecialListHtml(items) {
+  return `<p class="field-hint">Cuentas seleccionadas manualmente. Conservan su deuda y también aparecen en Todas. Abrí la ficha para registrar pagos o volver a cobranza normal.</p>
+    ${!items.length?'<div class="empty-state"><p>No hay cuentas con deuda en Gestión especial.</p></div>':items.map(c=>`<div class="list-item" data-action="ver-cliente" data-id="${esc(c.cliente_id)}">
+      <div class="list-item-body"><div class="list-item-title">${esc(c.cliente_nombre)} ${esc(c.cliente_apellido||'')}</div><div class="list-item-sub">${esc(negocioNombre(c.negocio_id))} · ${esc(c.cuotas)} cuota(s) pendiente(s)</div>
+        <div class="field-hint">${c.proximo_contacto?`Seguimiento: ${esc(fmtFecha(c.proximo_contacto))}${c.proximo_contacto<=todayISO()?' · Para revisar':''}`:'Sin próximo contacto'}</div></div>
+      <div class="list-item-trail"><div class="list-item-amount">${esc(formatARS(c.deudaCentavos))}</div><button class="btn btn-secondary" data-action="mensaje-especial" data-id="${esc(c.cliente_id)}" data-negocio="${esc(c.negocio_id)}" data-stop-propagation="true">Preparar mensaje</button></div></div>`).join('')}`;
+}
+async function abrirMensajeEspecial(clienteId,negocioId) {
+  if(!puede('cobranzas.ver',negocioId))return toast('No tenés permiso de cobranzas',true);
+  const token=getToken(),negocioActual=state.negocioActual;
+  openSheet('<div class="sheet-title">Mensaje de seguimiento</div><p>Cargando…</p>');
+  const sheet=document.getElementById('activeSheet');
+  const vigente=()=>sheet.isConnected&&document.getElementById('activeSheet')===sheet&&document.getElementById('sheetBackdrop').classList.contains('open')&&getToken()===token&&state.negocioActual===negocioActual&&puede('cobranzas.ver',negocioId);
+  try {
+    const c=await api(`/clientes/${encodeURIComponent(clienteId)}?negocio_id=${encodeURIComponent(negocioId)}`);
+    if(!vigente())return;
+    if(!(c.gestionCobranza||[]).some(g=>g.negocio_id===negocioId&&g.gestion_especial===1))return setHTML(sheet,'<p>Esta cuenta ya no está en Gestión especial. Actualizá la vista.</p>');
+    const mensaje=`Hola ${c.nombre}, te contactamos de ${negocioNombre(negocioId)} por el saldo pendiente de ${formatARS(c.deudaTotalCentavos)}. ¿Podés indicarnos cuándo podrías realizar un pago? Gracias.`;
+    setHTML(sheet,`<div class="sheet-title">Mensaje de seguimiento</div><p>Revisá y editá el texto antes de abrir WhatsApp. No se envía ni se marca como enviado desde Zilky.</p><div class="field"><label for="gestionMensaje">Mensaje</label><textarea id="gestionMensaje" maxlength="4000">${esc(mensaje)}</textarea></div>
+      ${c.whatsapp||c.telefono?'<a id="gestionWhatsapp" class="btn btn-primary" target="_blank" rel="noopener noreferrer">Abrir en WhatsApp</a>':'<p>Este cliente no tiene teléfono registrado. Podés copiar el texto.</p>'}
+      <button class="btn btn-secondary" data-action="cerrar-sheet">Cerrar</button>`);
+    const actualizar=()=>{const a=sheet.querySelector('#gestionWhatsapp');if(a)a.setAttribute('href',waLink(c.whatsapp||c.telefono,sheet.querySelector('#gestionMensaje').value));};
+    sheet.querySelector('#gestionMensaje').addEventListener('input',actualizar);actualizar();
+    sheet.querySelector('#gestionWhatsapp')?.addEventListener('click',e=>{if(!vigente())e.preventDefault();});
+  }catch(err){if(vigente())setHTML(sheet,`<p>${esc(err.message)}</p><button class="btn btn-secondary" data-action="cerrar-sheet">Cerrar</button>`);}
 }
 
 function creditoCardHtml(cr) {
@@ -690,6 +765,7 @@ async function viewCobrar(view) {
       <button data-tab="hoy" class="${esc(state.cobranzaTab === 'hoy' ? 'active' : '')}">Hoy (${esc(b.hoy.length)})</button>
       <button data-tab="proximas" class="${esc(state.cobranzaTab === 'proximas' ? 'active' : '')}">Próximas (${esc(b.proximas.length)})</button>
       <button data-tab="vencidas" class="${esc(state.cobranzaTab === 'vencidas' ? 'active' : '')}">Vencidas (${esc(b.vencidas.length)})</button>
+      <button data-tab="especial" class="${esc(state.cobranzaTab === 'especial' ? 'active' : '')}">Gestión especial (${esc((b.especial||[]).length)})</button>
       <button data-tab="todas" class="${esc(state.cobranzaTab === 'todas' ? 'active' : '')}">Todas (${esc(b.todas.length)})</button>
     </div>
     ${state.cobranzaTab === 'proximas' ? `
@@ -697,7 +773,7 @@ async function viewCobrar(view) {
         ${[3, 5, 7].map((d) => `<button data-ventana="${esc(d)}" class="${esc(state.cobranzaVentana === d ? 'active' : '')}">Próximos ${esc(d)} días</button>`).join('')}
       </div>
     ` : ''}
-    <div id="cobranzaList">${cobranzaListHtml(b[state.cobranzaTab])}</div>
+    <div id="cobranzaList">${state.cobranzaTab==='especial'?gestionEspecialListHtml(b.especial||[]):cobranzaListHtml(b[state.cobranzaTab])}</div>
   `);
 
   document.getElementById('cobranzaTabs').addEventListener('click', (e) => {
@@ -720,7 +796,7 @@ function cobranzaListHtml(items) {
         <div class="list-item-sub">
           ${!state.negocioActual ? `<span class="cred-negocio-tag">${esc(negocioNombre(c.negocio_id))}</span>` : ''}
           <span class="badge badge-${esc(c.estado)}">${esc(ESTADO_LABEL[c.estado] || c.estado)}</span>
-          Cuota ${esc(c.numero)}/${esc(c.total_cuotas)} ${c.diasAtraso > 0 ? `· ${c.diasAtraso}d de atraso` : `· vence ${fmtFecha(c.fecha_vencimiento)}`}
+          ${c.gestion_especial===1?'<span class="badge">Gestión especial</span>':''} Cuota ${esc(c.numero)}/${esc(c.total_cuotas)} ${c.diasAtraso > 0 ? `· ${c.diasAtraso}d de atraso` : `· vence ${fmtFecha(c.fecha_vencimiento)}`}
         </div>
       </div>
       <div class="list-item-trail">
@@ -1266,6 +1342,8 @@ document.addEventListener('click', async (e) => {
   else if (action === 'registrar-pago') abrirRegistrarPago(credito, monto ? Number(monto) : null);
   else if (action === 'ver-cliente-negocio') { setNegocio(id || null); const parts = parseHash(); if (parts[1]) render(); }
   else if (action === 'editar-seguimiento') abrirEditarSeguimiento(id);
+  else if (action === 'gestion-cliente') abrirGestionCliente(id,el.dataset.negocio,el.dataset.tipo);
+  else if (action === 'mensaje-especial') abrirMensajeEspecial(id,el.dataset.negocio);
   else if (action === 'incidencia-equipo') abrirIncidenciaEquipo(id,credito,el.dataset.negocio);
   else if (action === 'anular-comprobante') abrirAnularComprobante(id);
   else if (action === 'cal-mes') {
