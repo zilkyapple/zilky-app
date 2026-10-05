@@ -2,6 +2,63 @@
 
 Fecha: 4 de octubre de 2026. Base estable: `f0c4ffb5d2cfce39c958db5fa509b1c48c81836a`.
 
+## Ampliación explícita del usuario — 04/10/2026, 20:42–20:48 ART
+
+Esta definición reemplaza las restricciones anteriores de finanzas individuales
+que se describen históricamente más abajo. No reabre por suposición otras reglas.
+
+- `clientes.ver` permite consultar operaciones, producto adquirido, entrega,
+  financiación, cuotas, deuda, vencimientos, atrasos, pagos y comprobantes de ese
+  cliente en los negocios autorizados. No requiere dashboard financiero.
+- Dashboard/resumen y listado general de comprobantes son exclusivos del
+  administrador, incluso ante permisos antiguos de empleado. El empleado consulta
+  comprobantes de un cliente y negocio explícitos. La anulación sigue requiriendo
+  su permiso separado; la lectura no concede escritura.
+- Cobranzas y calendario requieren clientes.ver + cobranzas.ver en el mismo
+  negocio. Ofrecen los detalles operativos individuales; no entregan acumulados
+  monetarios por día/negocio ni los calculan para mostrarlos en la UI del empleado.
+- La aplicación no ofrece un endpoint alternativo de totales. Autorizar importes
+  individuales implica que una persona podría sumarlos por su cuenta: no se puede
+  garantizar impedir esa inferencia matemática sin quitar los datos operativos
+  expresamente solicitados. No se presenta esa imposibilidad como garantía.
+- Ropa puede operar con entrega inicial y un único saldo a plazo; productos
+  financiados pueden usar varias cuotas. Se reutilizan las modalidades existentes,
+  sin reglas basadas en nombres de negocios ni obligación de usar múltiples cuotas.
+- Cada negocio puede habilitar `seguimiento_equipos`; empieza desactivado y solo
+  el administrador puede configurarlo. El historial de pagos/cumplimiento sirve
+  en todos los negocios. La ficha muestra porcentaje de cuotas pagadas a tiempo
+  del cliente, con denominador cuotas pagadas; no inventa un índice global de
+  personas cumplidoras ni una ventana temporal para ese indicador.
+
+### Registro histórico e integridad
+
+Migración aditiva: negocios.seguimiento_equipos + credito_incidencias. La migración
+es repetible; no elimina datos ni reconstruye hechos históricos desconocidos.
+
+Venta: registra al día o finalización al contado. Pago: conserva la aparición de
+atraso observada antes de aplicarlo, regularización y finalización. Si se cancela
+todo antes del último vencimiento, registra cancelación anticipada; de lo contrario,
+finalización correcta. Anulación: agrega pago anulado y conserva todos los eventos.
+El atraso actual se calcula desde cuotas/vencimientos; no hay un cron nuevo ni se
+afirma haber registrado eventos durante intervalos históricos sin observaciones.
+El historial anterior de atrasos pagados sigue visible desde las cuotas existentes.
+
+Las incidencias de entrega voluntaria/retiro por falta de pago registran fecha,
+motivo, autor y fecha de registro. Son anexos a la operación, de solo agregado,
+con idempotencia por solicitud y auditoría transaccional. El administrador registra
+estos hechos; los empleados autorizados los consultan. Deshabilitar equipos no
+borra los hechos guardados. Los eventos no alteran cuotas, pagos, deuda ni stock.
+
+El mensaje del usuario quedó cortado después de «fecha; motivo;». Sigue pendiente
+recibir su continuación, especialmente si entrega/retiro debe tener consecuencias
+financieras o de inventario, si debe registrar otros campos y si el empleado debe
+poder registrarlo. Esas consecuencias no se presuponen ni se ejecutan.
+
+Pruebas: ampliación HTTP/PostgreSQL en test/stage3.test.js, UI en
+test/frontend-client-file.test.js y regresiones de atomicidad de incidencias en
+test/stage1.test.js. Solo se sustituyen expectativas que contradicen la corrección
+explícita de permisos. El resto de Etapas 1/2 debe seguir pasando sin cambios.
+
 Este documento distingue requisitos confirmados, comportamiento existente y
 decisiones ausentes. No declara implementada la reorganización completa ni
 reabre las Etapas 1 y 2.
