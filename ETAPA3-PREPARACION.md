@@ -1,3 +1,14 @@
+# Ampliación confirmada: Gestión especial (04/10/2026, 21:13–21:14 ART)
+
+- La clasificación es **manual**, por cliente y negocio. No hay umbral de atraso ni proceso que envíe personas automáticamente a esta sección.
+- El administrador puede pasar a Gestión especial y volver a cobranza normal. El empleado puede consultar antecedentes; registrar seguimiento requiere clientes.ver, clientes.editar y cobranzas.ver en el mismo negocio. No se delega la reclasificación sin una regla expresa.
+- Cobrar conserva Hoy, Próximas, Vencidas, Gestión especial y Todas. Gestión especial agrupa por persona/negocio; Todas conserva las cuotas identificadas. Se excluye de recordatorios y calendario de gestión diaria, nunca del saldo financiero del administrador ni de la ficha.
+- Entradas, salidas y seguimientos se conservan con fecha, responsable, motivo/resultado, deuda/capital/mora del momento y próxima fecha de contacto. No se borran después de pagar o volver a normal. La deuda original del evento es una fotografía, no el saldo actual.
+- Los pagos y anulaciones mantienen su flujo normal. Registrar una clasificación no cambia pagos, cuotas, mora ni stock. Saldar una cuenta quita sus obligaciones de las listas pendientes; su antecedente sigue en la ficha y la clasificación solo cambia por decisión manual.
+- Seguimiento mensual sugerido con fecha editable. Mensaje personalizado editable que abre WhatsApp; no envía automáticamente ni declara que un mensaje se envió. El usuario registra manualmente el resultado del contacto.
+- Identificador de solicitud y bloqueo transaccional evitan duplicar eventos en reintentos/doble envío. Clasificación, historial y auditoría se confirman juntos.
+- Esta sección muestra hechos y notas registrados; no crea listas negras, decisiones automáticas de crédito ni nuevas reglas de financiación.
+
 # Etapa 3 — requisitos recuperados y preparación
 
 Fecha: 4 de octubre de 2026. Base estable: `f0c4ffb5d2cfce39c958db5fa509b1c48c81836a`.
