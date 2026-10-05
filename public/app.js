@@ -1340,7 +1340,7 @@ document.addEventListener('click', async (e) => {
   if(action==='nueva-venta'){closeSheet();location.hash='#/ventas/nueva';return;}
   if(action==='ir-cobrar'){closeSheet();location.hash='#/cobrar';return;}
   if(action==='crear-producto'){closeSheet();abrirCrearProducto();return;}
-  if (action === 'ver-cliente') location.hash = `#/clientes/${id}`;
+  if (action === 'ver-cliente') { closeSheet(); location.hash = `#/clientes/${id}`; }
   else if (action === 'elegir-negocio') { setNegocio(id || null); closeSheet(); }
   else if (action === 'ir-negocio') { setNegocio(id); location.hash = '#/inicio'; }
   else if (action === 'abrir-crear-negocio') abrirCrearNegocio();
