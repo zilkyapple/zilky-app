@@ -12,9 +12,16 @@ const cliente = {
   seguimiento_estado: 'volver_a_contactar', seguimiento_nota: '<script>malicioso()</script>',
   seguimiento_fecha: '2026-10-04', historial: null, creditos: [], pagos: [],
 };
-function browser({ permisos = {}, admin = false, respuesta = cliente, recibos = [] } = {}) {
+function browser({ permisos = {}, admin = false, respuesta = cliente, recibos = [], ahora } = {}) {
   const dom = new JSDOM(page, { url: 'https://zilky.test/#/clientes/cliente-qa', runScripts: 'outside-only' });
   const w = dom.window, calls = [];
+  if (ahora) {
+    const OriginalDate = w.Date;
+    w.Date = class extends OriginalDate {
+      constructor(...args) { super(...(args.length ? args : [ahora])); }
+      static now() { return new OriginalDate(ahora).getTime(); }
+    };
+  }
   w.requestAnimationFrame = fn => { fn(0); return 1; };
   w.fetch = async (url) => { calls.push(url); return { ok: true, status: 200, json: async () => url.startsWith('/api/comprobantes?') ? recibos : respuesta }; };
   w.eval(purifier); w.eval(source + '\nwindow.qaState = state;');
@@ -215,6 +222,24 @@ test('Etapa3 UI: cambiar negocio o sesión invalida formulario de incidencia',()
 });
 
 const gestion={negocio_id:'qa',gestion_especial:1,proximo_contacto:'2026-11-04',historial:[{accion:'entrada',fecha:'2026-10-04T21:00:00-03:00',usuario_nombre:'Admin <QA>',deuda_centavos:10000,nota:'No pagó <script>alert(1)</script>',proximo_contacto:'2026-11-04'}]};
+for (const [ahora, hoy, proximo] of [
+  ['2026-10-05T01:15:00Z', '2026-10-04', '2026-11-04'],
+  ['2026-10-05T03:00:00Z', '2026-10-05', '2026-11-05'],
+  ['2026-02-01T01:15:00Z', '2026-01-31', '2026-02-28'],
+  ['2028-02-01T01:15:00Z', '2028-01-31', '2028-02-29'],
+]) {
+  test('Fechas operativas: Gestión especial usa hoy argentino y próximo mes válido en ' + ahora, () => {
+    const b = browser({ admin: true, ahora });
+    try {
+      b.w.abrirGestionCliente('cliente-qa', 'qa', 'entrada');
+      const fecha = b.w.document.getElementById('gestionFecha');
+      assert.equal(fecha.min, hoy, 'No adelantar la fecha argentina al cambiar el día UTC');
+      assert.equal(fecha.value, proximo, 'Conservar el día o limitar al último del mes siguiente');
+      b.w.abrirIncidenciaEquipo('cliente-qa', 'credito-qa', 'qa');
+      assert.equal(b.w.document.getElementById('incFecha').value, hoy);
+    } finally { b.w.close(); }
+  });
+}
 test('Gestión especial: empleado ve antecedente sin poder reclasificar',async()=>{
   const b=browser({permisos:{'cobranzas.ver':true},respuesta:{...cliente,historial:{},gestionCobranza:[gestion]}});
   try{await b.w.render();assert.match(b.view.textContent,/Ingresó a Gestión especial/);assert.match(b.view.textContent,/Admin <QA>/);assert.equal(b.view.querySelector('[data-action="gestion-cliente"]'),null);assert.equal(b.view.querySelector('script'),null);assert.ok(b.view.querySelector('[data-action="mensaje-especial"]'));}finally{b.w.close();}
