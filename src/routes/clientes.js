@@ -9,6 +9,7 @@ import { getNegocio } from '../repositories/negocios.js';
 import { todayAR, diffDays } from '../lib/dates.js';
 import { perfilRiesgoCliente, historialFinancieroCliente } from '../services/dashboardService.js';
 import { listIncidencias, registrarIncidenciaEquipo } from '../services/incidenciasService.js';
+import { gestionCliente, registrarGestion } from '../services/gestionCobranzaService.js';
 import { requireAdmin, requirePermiso, validarScopeNegocio, scopeNegocios, exigirCliente, exigirPermisoNegocio, scopePara, negocioSolicitado } from '../middleware/authorize.js';
 
 export const clientesRouter = Router();
@@ -79,6 +80,25 @@ clientesRouter.patch('/:id/seguimiento', requirePermiso('clientes.editar'), asyn
     await exigirCliente(req, req.params.id, 'clientes.editar');
     res.json(await actualizarSeguimiento(req.params.id, req.body));
   } catch (err) { next(err); }
+});
+
+clientesRouter.post('/:id/gestion-especial', requireAdmin, async(req,res,next)=>{
+  try {
+    const negocioId=negocioSolicitado(req);
+    if(!negocioId)return res.status(400).json({error:'negocio_id es requerido'});
+    if(!['entrada','salida'].includes(req.body.accion))return res.status(400).json({error:'Acción inválida'});
+    res.json(await registrarGestion({clienteId:req.params.id,negocioId,accion:req.body.accion,nota:req.body.nota,
+      proximoContacto:req.body.proximo_contacto,solicitudId:req.body.solicitud_id,usuario:req.usuario}));
+  }catch(e){next(e);}
+});
+clientesRouter.post('/:id/gestion-especial/seguimiento', requirePermiso('clientes.editar'), requirePermiso('cobranzas.ver'), async(req,res,next)=>{
+  try {
+    const negocioId=negocioSolicitado(req);
+    if(!negocioId)return res.status(400).json({error:'negocio_id es requerido'});
+    await exigirCliente(req,req.params.id,'clientes.ver');
+    res.json(await registrarGestion({clienteId:req.params.id,negocioId,accion:'seguimiento',nota:req.body.nota,
+      proximoContacto:req.body.proximo_contacto,solicitudId:req.body.solicitud_id,usuario:req.usuario}));
+  }catch(e){next(e);}
 });
 
 // Detalle: por defecto muestra operaciones del cliente filtradas al scope del usuario.
@@ -159,6 +179,7 @@ clientesRouter.get('/:id', requirePermiso('clientes.ver'), async (req, res, next
       diasHastaVencimiento: proximoVencimiento ? diffDays(proximoVencimiento, today) : null,
       riesgo: await perfilRiesgoCliente(req.params.id, negociosPermitidos),
       historial: await historialFinancieroCliente(req.params.id, negociosPermitidos),
+      gestionCobranza: await gestionCliente(req.params.id, negociosPermitidos),
       saldosFavor,
     });
   } catch (err) { next(err); }

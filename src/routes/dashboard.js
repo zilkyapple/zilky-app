@@ -43,7 +43,7 @@ dashboardRouter.get('/cobranza', requirePermiso('cobranzas.ver'), async (req, re
       if (scope === null) {
         res.json(await listaCobranza(null, { ventanaDias: ventana }));
       } else if (scope.length === 0) {
-        res.json({ hoy: [], proximas: [], vencidas: [], todas: [], ventanaDias: ventana });
+        res.json({ hoy: [], proximas: [], vencidas: [], especial: [], todas: [], ventanaDias: ventana });
       } else {
         res.json(await listaCobranza(scope, { ventanaDias: ventana }));
       }
