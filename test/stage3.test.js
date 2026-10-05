@@ -219,5 +219,10 @@ test('Gestión especial: cancelar toda deuda preserva antecedente, no genera nue
 });
 test('Gestión especial: migración repetible no modifica historial ni pagos',async()=>{
   const before=(await especialFicha()).body;await migrate();const after=(await especialFicha()).body;
-  assert.deepEqual(after.gestionCobranza,before.gestionCobranza);assert.deepEqual(after.pagos,before.pagos);
+  assert.deepEqual(after.gestionCobranza,before.gestionCobranza);
+  // La migración legacy aprobada completa la organización de movimientos nuevos.
+  // Verificar ese único cambio explícito, conservando todos los campos financieros.
+  assert.deepEqual(after.pagos,before.pagos.map(p=>({...p,organizacion_id:p.organizacion_id??'default'})));
+  await migrate();const repetida=(await especialFicha()).body;
+  assert.deepEqual(repetida.gestionCobranza,after.gestionCobranza);assert.deepEqual(repetida.pagos,after.pagos);
 });
