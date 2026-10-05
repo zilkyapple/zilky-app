@@ -29,6 +29,9 @@ export function negocioSolicitado(req) {
 export function scopeNegocios(req, permiso) {
   if (!req.usuario) return [];
   if(req.usuario.rol==='administrador') return null;
+  // Etapa 3: las finanzas consolidadas son exclusivas del administrador,
+  // incluso si una asignación antigua conserva este permiso.
+  if (permiso === 'dashboard_financiero.ver') return [];
   return [...new Set(req.usuario.negocios.filter(n=>n.activo===1 && (!permiso || parsePermisos(n.permisos)[permiso]===true)).map(n=>n.negocio_id))];
 }
 export function tienePermisoEnNegocio(req, negocioId, permiso) {
@@ -54,6 +57,11 @@ export function scopePara(req, permiso) {
   const solicitado=negocioSolicitado(req);
   if(solicitado) { exigirPermisoNegocio(req,solicitado,permiso); return [solicitado]; }
   return scopeNegocios(req,permiso);
+}
+export function scopeClientesOperativos(req) {
+  const cobranza = scopePara(req, 'cobranzas.ver');
+  const clientes = scopePara(req, 'clientes.ver');
+  return cobranza === null ? clientes : clientes === null ? cobranza : cobranza.filter(id => clientes.includes(id));
 }
 export async function exigirCliente(req, clienteId, permiso) {
   const scope=scopePara(req,permiso);
