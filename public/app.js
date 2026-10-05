@@ -22,7 +22,10 @@ function setHTML(element, html) {
 }
 function puede(permiso, negocioId=state.negocioActual) {
   if(state.usuario?.rol==='administrador')return true;
-  return (state.usuario?.negocios||[]).some(n=>n.activo===1 && (!negocioId||n.negocio_id===negocioId) && parseJsonSeguro(n.permisos)[permiso]===true);
+  if (['dashboard_financiero.ver', 'comprobantes.ver'].includes(permiso)) return false;
+  return (state.usuario?.negocios||[]).some(n=>n.activo===1 && (!negocioId||n.negocio_id===negocioId)
+    && parseJsonSeguro(n.permisos)[permiso]===true
+    && (permiso!=='cobranzas.ver' || parseJsonSeguro(n.permisos)['clientes.ver']===true));
 }
 function aplicarPermisosUI(root) {
   const admin=state.usuario?.rol==='administrador';
@@ -232,7 +235,7 @@ async function render() {
     setHTML(view, '<div class="empty-state"><p>Requiere administrador</p></div>');
     return;
   }
-  const permisoRuta = permisosRuta[root];
+  const permisoRuta = root === 'comprobantes' && parts[1] === 'cliente' && parts[2] ? 'clientes.ver' : permisosRuta[root];
   if (permisoRuta && !puede(permisoRuta, root === 'empleados' ? null : state.negocioActual)) {
     setHTML(view, '<div class="empty-state"><p>No tenés permiso para realizar esta acción</p></div>');
     return;
@@ -398,7 +401,7 @@ function accionesClienteHtml(c) {
       <a class="btn btn-secondary" href="tel:${esc(c.telefono || '')}">${iconLlamar()}Llamar</a>
       <a class="btn btn-secondary" href="#/ventas/nueva/${esc(c.id)}">${iconVenta()}Nueva venta</a>
       <button class="btn btn-secondary" data-action="editar-seguimiento" data-id="${esc(c.id)}">${iconNota()}Seguimiento</button>
-      ${state.negocioActual && puede('comprobantes.ver') && puede('clientes.ver') ? `<a class="btn btn-secondary" href="#/comprobantes/cliente/${esc(c.id)}">${iconNota()}Comprobantes</a>` : ''}
+      ${state.negocioActual && puede('clientes.ver') ? `<a class="btn btn-secondary" href="#/comprobantes/cliente/${esc(c.id)}">${iconNota()}Comprobantes</a>` : ''}
     </div>
   `;
 }
@@ -461,6 +464,7 @@ async function viewClienteDetail(view, id) {
     <div class="card">
       <div class="cuota-row"><div class="cn">Compras</div><div class="amt">${esc(h.cantidadCompras)}</div></div>
       <div class="cuota-row"><div class="cn">Cuotas pagadas a tiempo / tarde</div><div class="amt">${esc(h.cuotasPagadasATiempo)} / ${esc(h.cuotasPagadasTarde)}</div></div>
+      ${h.cuotasPagadas > 0 ? `<div class="cuota-row"><div class="cn">Cuotas pagadas a tiempo (%)</div><div class="amt">${esc(Math.round(100*h.cuotasPagadasATiempo/h.cuotasPagadas))}%</div></div>` : ''}
       <div class="cuota-row"><div class="cn">Atraso promedio / máximo</div><div class="amt">${esc(h.atrasoPromedioDias)}d / ${esc(h.atrasoMaximoDias)}d</div></div>
       <div class="cuota-row"><div class="cn">Total cobrado histórico</div><div class="amt">${esc(formatARS(h.totalCobradoCentavos))}</div></div>
       <div class="cuota-row"><div class="cn">Compras finalizadas</div><div class="amt">${esc(h.comprasFinalizadas)}</div></div>
@@ -491,7 +495,10 @@ async function viewClienteDetail(view, id) {
 
 function creditoCardHtml(cr) {
   const negocio = state.negocios.find((n) => n.id === cr.negocio_id);
-  const pendiente = cr.cuotas.some((c) => c.saldo_pendiente_centavos > 0);
+  const pendientes = cr.cuotas.filter(c => c.saldo_pendiente_centavos > 0 && !c.estado_manual);
+  const pendiente = pendientes.length > 0;
+  const estadoOperacion = !pendiente ? cr.estado : pendientes.some(c => c.diasAtraso > 0) ? 'atrasada' : 'al_dia';
+  const atrasos = cr.cuotas.filter(c => c.diasAtraso > 0 || c.dias_atraso_al_pagar > 0);
   return `
     <div class="card credito-card">
       <div class="credito-top">
@@ -499,17 +506,61 @@ function creditoCardHtml(cr) {
           <div class="credito-modalidad"><span class="cred-negocio-tag">${esc(negocio?.nombre || '')}</span> · ${esc({ libre: 'Pago libre', cuotas: 'Cuotas mensuales', unico: 'Pago único' }[cr.modalidad] || cr.modalidad)}</div>
           <div style="font-weight:700;margin-top:6px">${esc(formatARS(cr.saldo_financiado_centavos))} financiados</div>
         </div>
-        <span class="badge badge-${esc(cr.estado === 'finalizado' ? 'pagada' : cr.estado === 'en_mora' ? 'mora' : cr.estado === 'en_gracia' ? 'gracia' : 'activa')}">${esc(cr.estado.replace('_', ' '))}</span>
+        <span class="badge badge-${esc(cr.estado === 'finalizado' ? 'pagada' : estadoOperacion === 'atrasada' ? 'mora' : 'activa')}">${esc(estadoOperacion.replaceAll('_', ' '))}</span>
       </div>
+      <div class="field-hint">Compra: ${esc(fmtFecha(cr.fecha_inicio))} · Total: ${esc(formatARS(cr.monto_total_centavos))} · Entrega inicial: ${esc(formatARS(cr.entrega_inicial_centavos))}</div>
+      ${(cr.items || []).length ? `<ul>${cr.items.map(it => `<li>${esc(it.descripcion || it.producto_nombre || 'Producto')} · Cantidad: ${esc(it.cantidad)}${it.producto_variante ? ` · ${esc(it.producto_variante)}` : ''}${it.producto_imei ? ` · IMEI: ${esc(it.producto_imei)}` : ''}</li>`).join('')}</ul>` : '<p class="field-hint">Sin detalle de producto registrado.</p>'}
+      <p class="field-hint">Cuotas pagadas: ${esc(cr.cuotas.filter(c => c.saldo_pendiente_centavos <= 0 && !c.estado_manual).length)}/${esc(cr.cuotas.length)} · Saldo pendiente: ${esc(formatARS(pendientes.reduce((s,c) => s+c.saldo_pendiente_centavos+(c.moraPendiente || 0),0)))}</p>
       ${cr.cuotas.map((cu) => `
         <div class="cuota-row">
-          <div class="cn">Cuota ${esc(cu.numero)}/${esc(cr.cuotas.length)} · vence ${esc(fmtFecha(cu.fecha_vencimiento))}</div>
+          <div class="cn">Cuota ${esc(cu.numero)}/${esc(cr.cuotas.length)} · vence ${esc(fmtFecha(cu.fecha_vencimiento))}
+            <div class="field-hint">Valor: ${esc(formatARS(cu.monto_centavos))}${cu.saldo_pendiente_centavos > 0 && !cu.estado_manual && Number.isFinite(cu.diasHasta) ? ` · ${cu.diasHasta < 0 ? `${esc(-cu.diasHasta)} días de atraso` : cu.diasHasta === 0 ? 'Vence hoy' : `Vence en ${esc(cu.diasHasta)} días`}` : cu.fecha_saldada ? ` · Pagada: ${esc(fmtFecha(cu.fecha_saldada))}` : ''}${cu.moraPendiente > 0 ? ` · Mora pendiente: ${esc(formatARS(cu.moraPendiente))}` : ''}</div>
+          </div>
           <div class="cr"><span class="amt">${esc(formatARS(cu.saldo_pendiente_centavos))}</span><span class="badge badge-${esc(cu.estado)}">${esc(ESTADO_LABEL[cu.estado] || cu.estado)}</span></div>
         </div>
       `).join('')}
+      ${atrasos.length ? `<details><summary>Historial de atrasos (${esc(atrasos.length)})</summary>${atrasos.map(c => `<p>Cuota ${esc(c.numero)} · Vencimiento: ${esc(fmtFecha(c.fecha_vencimiento))} · ${c.saldo_pendiente_centavos <= 0 ? `Regularizada el ${esc(fmtFecha(c.fecha_saldada))} tras ${esc(c.dias_atraso_al_pagar)} días de atraso` : `${esc(c.diasAtraso)} días de atraso actual`}</p>`).join('')}</details>` : ''}
+      ${incidenciasHtml(cr)}
       ${pendiente ? `<button class="btn btn-primary btn-block" style="margin-top:12px" data-action="registrar-pago" data-negocio="${esc(cr.negocio_id)}" data-credito="${esc(cr.id)}">${iconCobrar()}Registrar pago</button>` : ''}
     </div>
   `;
+}
+
+function incidenciasHtml(cr) {
+  const nombres={al_dia:'Al día',atrasada:'Atrasada',regularizada:'Regularizada',finalizada_correctamente:'Finalizada correctamente',cancelada_anticipadamente:'Cancelada anticipadamente',equipo_entregado:'Equipo entregado voluntariamente',equipo_retirado:'Equipo retirado por falta de pago',pago_anulado:'Pago anulado'};
+  return `<details><summary>Historial de incidencias (${esc((cr.incidencias||[]).length)})</summary>
+    ${(cr.incidencias||[]).length ? `<ol>${cr.incidencias.map(e=>`<li><strong>${esc(nombres[e.tipo]||e.tipo)}</strong> · ${esc(fmtFecha(e.fecha))}${e.motivo?`<p>${esc(e.motivo)}</p>`:''}</li>`).join('')}</ol>` : '<p class="field-hint">Sin incidencias registradas. No se reconstruyen hechos que no fueron guardados.</p>'}
+    ${cr.seguimientoEquipos && state.usuario?.rol==='administrador' ? `<button class="btn btn-secondary" data-action="incidencia-equipo" data-credito="${esc(cr.id)}" data-id="${esc(cr.cliente_id)}" data-negocio="${esc(cr.negocio_id)}">Registrar entrega o retiro de equipo</button>` : ''}
+  </details>`;
+}
+
+function abrirIncidenciaEquipo(clienteId,creditoId,negocioId) {
+  if(state.usuario?.rol!=='administrador')return toast('Requiere administrador',true);
+  if(state.negocioActual!==negocioId)return toast('Seleccioná el negocio de esta operación',true);
+  const token=getToken(),solicitudId=crypto.randomUUID();
+  openSheet(`<div class="sheet-title">Entrega o retiro de equipo</div>
+    <p class="sheet-sub">Registra el hecho en el historial. No modifica deuda, cuotas ni stock.</p>
+    <div class="field"><label for="incTipo">Hecho</label><select id="incTipo"><option value="equipo_entregado">Entrega voluntaria del cliente</option><option value="equipo_retirado">Retiro por falta de pago</option></select></div>
+    <div class="field"><label for="incFecha">Fecha</label><input id="incFecha" type="date" value="${esc(todayISO())}" /></div>
+    <div class="field"><label for="incMotivo">Motivo</label><textarea id="incMotivo" maxlength="2000"></textarea></div>
+    <div class="sheet-actions"><button class="btn btn-secondary" data-action="cerrar-sheet">Cancelar</button><button id="incGuardar" class="btn btn-primary">Guardar incidencia</button></div>`);
+  const sheet=document.getElementById('activeSheet');
+  const vigente=()=>sheet.isConnected && document.getElementById('activeSheet')===sheet && document.getElementById('sheetBackdrop').classList.contains('open') && state.negocioActual===negocioId && getToken()===token && state.usuario?.rol==='administrador';
+  let enviado=null;
+  sheet.querySelector('#incGuardar').addEventListener('click',async(event)=>{
+    const button=event.currentTarget;
+    if(button.disabled || !vigente())return;
+    const motivo=sheet.querySelector('#incMotivo').value.trim(),fecha=sheet.querySelector('#incFecha').value;
+    if(!motivo||!fecha)return toast('Completá fecha y motivo',true);
+    // En una respuesta incierta se reintenta exactamente el mismo hecho y clave.
+    enviado ||= {tipo:sheet.querySelector('#incTipo').value,fecha,motivo,solicitud_id:solicitudId};
+    button.disabled=true;
+    sheet.querySelectorAll('input,textarea,select').forEach(el=>el.disabled=true);
+    try {
+      await api(`/clientes/${encodeURIComponent(clienteId)}/creditos/${encodeURIComponent(creditoId)}/incidencias?negocio_id=${encodeURIComponent(negocioId)}`,{method:'POST',body:JSON.stringify(enviado)});
+      if(vigente()){closeSheet();toast('Incidencia registrada');render();}
+    } catch(error) { if(vigente()){button.disabled=false;toast(error.message+' · Podés reintentar o cancelar.',true);} }
+  });
 }
 
 async function abrirEditarSeguimiento(clienteId) {
@@ -732,7 +783,7 @@ async function abrirDiaCalendario(fecha) {
   openSheet(`
     <div class="sheet-handle"></div>
     <div class="sheet-title">${esc(fmtFecha(fecha))}</div>
-    <div class="sheet-sub">${esc(cuotas.length)} vencimiento(s) · ${esc(formatARS(total))} por cobrar</div>
+    <div class="sheet-sub">${esc(cuotas.length)} vencimiento(s)${puede('dashboard_financiero.ver') ? ` · ${esc(formatARS(total))} por cobrar` : ''}</div>
     ${cuotas.map((c) => `
       <div class="list-item" data-action="ver-cliente" data-id="${esc(c.cliente_id)}">
         <span class="avatar">${esc(iniciales(c.cliente_nombre, c.cliente_apellido))}</span>
@@ -914,7 +965,7 @@ async function viewProductos(view) {
 // ---------------- Vista: Comprobantes ----------------
 async function viewComprobantes(view, clienteId = null) {
   if (!state.negocioActual) { setHTML(view, `<div class="empty-state"><p>Elegí un negocio arriba para ver sus comprobantes.</p></div>`); return; }
-  if (clienteId && (!puede('clientes.ver') || !puede('comprobantes.ver'))) {
+  if ((clienteId && !puede('clientes.ver')) || (!clienteId && state.usuario?.rol !== 'administrador')) {
     setHTML(view, '<div class="empty-state"><p>No tenés permiso para ver los comprobantes de este cliente en este negocio.</p></div>'); return;
   }
   const comprobantes = await api(`/comprobantes?negocio_id=${encodeURIComponent(state.negocioActual)}${clienteId ? `&cliente_id=${encodeURIComponent(clienteId)}` : ''}`);
@@ -984,6 +1035,7 @@ async function viewConfiguracion(view) {
       </div>
     </div>
     <div class="section-title">Recordatorios de WhatsApp</div>
+    <div class="card"><label><input id="cfEquipos" type="checkbox" ${n.seguimiento_equipos===1?'checked':''} /> Registrar entregas y retiros de equipos</label><p class="field-hint">Activá esta opción solo en los negocios que necesiten seguimiento de equipos. Las modalidades de pago se eligen en cada venta.</p></div>
     <div class="field-hint" style="margin-bottom:10px">Elegí con cuántos días de anticipación aparece el cliente en la lista de "para recordar hoy".</div>
     <div>
       ${opcionesRecordatorio.map((d) => `
@@ -1011,6 +1063,7 @@ async function viewConfiguracion(view) {
           mora_valor: Number(document.getElementById('cfMoraValor').value),
           mora_periodo: document.getElementById('cfMoraPeriodo').value,
           recordatorio_dias: Array.from(reglasActuales).sort((a, b) => b - a),
+          seguimiento_equipos: document.getElementById('cfEquipos').checked ? 1 : 0,
         }),
       });
       toast('Configuración guardada ✓');
@@ -1035,7 +1088,7 @@ async function viewMas(view) {
 }
 
 // ---------------- Empleados y permisos ----------------
-const PERMISOS_EMPLEADO = ['clientes.ver','clientes.editar','ventas.crear','pagos.registrar','productos.ver','cobranzas.ver','dashboard_financiero.ver','costos.ver','comprobantes.ver','comprobantes.anular','empleados.gestionar'];
+const PERMISOS_EMPLEADO = ['clientes.ver','clientes.editar','ventas.crear','pagos.registrar','productos.ver','cobranzas.ver','costos.ver','comprobantes.anular','empleados.gestionar'];
 function parseJsonSeguro(v, fallback = {}) { if (v && typeof v === 'object') return v; try { return JSON.parse(v || ''); } catch { return fallback; } }
 function resumenAsignaciones(asignaciones, negocioMap) {
   return asignaciones.filter(a => a.activo !== 0).map(a => `<details><summary>${esc(negocioMap[a.negocio_id]?.nombre || a.negocio_id)}</summary><p>${esc(Object.entries(parseJsonSeguro(a.permisos)).filter(([,v])=>v===true).map(([p])=>p).join(' · ') || 'Sin permisos habilitados')}</p></details>`).join('') || 'Sin negocios asignados';
@@ -1213,6 +1266,7 @@ document.addEventListener('click', async (e) => {
   else if (action === 'registrar-pago') abrirRegistrarPago(credito, monto ? Number(monto) : null);
   else if (action === 'ver-cliente-negocio') { setNegocio(id || null); const parts = parseHash(); if (parts[1]) render(); }
   else if (action === 'editar-seguimiento') abrirEditarSeguimiento(id);
+  else if (action === 'incidencia-equipo') abrirIncidenciaEquipo(id,credito,el.dataset.negocio);
   else if (action === 'anular-comprobante') abrirAnularComprobante(id);
   else if (action === 'cal-mes') {
     const [y, m] = state.calMes.split('-').map(Number);
