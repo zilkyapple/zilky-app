@@ -287,3 +287,135 @@ test('Gestión especial: mensaje editable genera enlace manual y no registra env
   const b=browser({permisos:{'cobranzas.ver':true},respuesta:{...cliente,telefono:'5493510000000',deudaTotalCentavos:7500,gestionCobranza:[gestion]}});
   try{await b.w.abrirMensajeEspecial('cliente-qa','qa');const d=b.w.document;assert.match(d.getElementById('gestionMensaje').value,/QA/);assert.match(d.getElementById('activeSheet').textContent,/No se envía ni se marca como enviado/);d.getElementById('gestionMensaje').value='Texto personalizado & QA';d.getElementById('gestionMensaje').dispatchEvent(new b.w.Event('input'));assert.match(d.getElementById('gestionWhatsapp').href,/Texto%20personalizado%20%26%20QA/);assert.deepEqual(b.calls,['/api/clientes/cliente-qa?negocio_id=qa']);}finally{b.w.close();}
 });
+
+test('WhatsApp: reclama únicamente el exigible con el texto y los tres renglones solicitados',()=>{
+  const b=browser();
+  try {
+    const texto=b.w.mensajeSaludo({nombre:'Bruno',deudaTotalCentavos:63293900,saldoExigibleCentavos:14000000,cuotasVencidas:1,cuotasVencenHoy:0,proximoVencimiento:'2026-10-13',diasHastaVencimiento:6});
+    assert.equal(texto,'Bruno, cómo estás?\nTenés un saldo pendiente de $140.000, correspondiente a tu cuota vencida.\nMantenenos al tanto.');
+    assert.doesNotMatch(texto,/632\.939|¿/);
+    assert.match(b.w.mensajeSaludo({nombre:'Bruno',saldoExigibleCentavos:14850000,cuotasVencidas:1}),/148\.500/);
+  } finally {b.w.close();}
+});
+test('WhatsApp: no inventa deuda exigible si solo recibe el saldo total o hay cuotas futuras',()=>{
+  const b=browser();
+  try {
+    assert.equal(b.w.mensajeSaludo({nombre:'Bruno',deudaTotalCentavos:63293900}),'Bruno, cómo estás?');
+    const texto=b.w.mensajeSaludo({nombre:'Bruno',deudaTotalCentavos:63293900,saldoExigibleCentavos:0,proximoVencimiento:'2026-10-13',diasHastaVencimiento:6});
+    assert.match(texto,/13\/10\/2026/);assert.doesNotMatch(texto,/saldo pendiente|632\.939/);
+    assert.match(b.w.mensajeSaludo({nombre:'Bruno',saldoExigibleCentavos:100,cuotasVencidas:2}),/tus cuotas vencidas/);
+    assert.match(b.w.mensajeRecordatorio({cliente_nombre:'Bruno',diasAntes:0,saldo_pendiente_centavos:14000000}),/tu cuota con vencimiento hoy/);
+  } finally {b.w.close();}
+});
+test('Ficha: separa cuota vencida de próximo vencimiento; jamás etiqueta pasado como próximo',()=>{
+  const b=browser();
+  try {
+    const html=b.w.vencimientosClienteHtml({vencimientoVencido:'2026-09-13',diasAtrasoVencimiento:24,proximoVencimiento:'2026-10-13',diasHastaVencimiento:6});
+    assert.match(html,/Cuota vencida: 13\/09\/2026 · 24 días de atraso/);
+    assert.match(html,/Próximo vencimiento: 13\/10\/2026/);
+    const legacy=b.w.vencimientosClienteHtml({proximoVencimiento:'2026-09-13',diasHastaVencimiento:-24});
+    assert.doesNotMatch(legacy,/Próximo vencimiento/);assert.match(legacy,/Cuota vencida/);
+  } finally {b.w.close();}
+});
+test('Editar cliente: carga campos seguros, exige motivo y protege doble envío',async()=>{
+  const b=browser({permisos:{'clientes.editar':true}}),writes=[];
+  let finish;
+  b.w.fetch=async(url,opts={})=>{
+    if(opts.method==='PATCH') {writes.push({url,body:JSON.parse(opts.body)});return new Promise(r=>finish=r);}
+    return {ok:true,status:200,json:async()=>({datos:{nombre:'Bruno',apellido:'QA',notas:'<script>no()</script>'},version:'original'})};
+  };
+  try {
+    await b.w.abrirEditarCliente('cliente-qa');
+    const d=b.w.document,button=d.getElementById('ec_guardar');
+    assert.equal(d.querySelector('#activeSheet script'),null);assert.equal(d.getElementById('ec_notas').value,'<script>no()</script>');
+    button.click();assert.equal(writes.length,0);
+    d.getElementById('ec_nombre').value='Bruno corregido';d.getElementById('ec_motivo').value='Error de tipeo';
+    button.click();button.click();assert.equal(writes.length,1);
+    assert.equal(writes[0].body.version,'original');assert.equal(writes[0].body.datos.nombre,'Bruno corregido');
+    finish({ok:false,status:409,json:async()=>({error:'La ficha cambió'})});await new Promise(r=>setTimeout(r,0));
+    assert.equal(button.disabled,false);
+    b.w.qaState.negocioActual='otro';button.click();assert.equal(writes.length,1);
+  } finally {b.w.close();}
+});
+test('Editar cliente: lectura sin permiso no carga el formulario',async()=>{
+  const b=browser();try {await b.w.abrirEditarCliente('cliente-qa');assert.equal(b.calls.length,0);assert.equal(b.w.document.getElementById('ec_guardar'),null);} finally {b.w.close();}
+});
+
+test('Editar cliente: un error de validación permite corregir y reenviar los datos',async()=>{
+  const b=browser({permisos:{'clientes.editar':true}}),writes=[];
+  b.w.fetch=async(url,o={})=>o.method==='PATCH'?(writes.push(JSON.parse(o.body)),{ok:false,status:400,json:async()=>({error:'Fecha inválida'})}):{ok:true,status:200,json:async()=>({datos:{nombre:'Bruno'},version:'v1'})};
+  try {
+    await b.w.abrirEditarCliente('cliente-qa');const d=b.w.document;
+    d.getElementById('ec_motivo').value='Corregir QA';d.getElementById('ec_guardar').click();await new Promise(r=>setTimeout(r,0));
+    assert.equal(d.getElementById('ec_nombre').disabled,false);
+    d.getElementById('ec_nombre').value='Bruno corregido';d.getElementById('ec_guardar').click();await new Promise(r=>setTimeout(r,0));
+    assert.equal(writes.length,2);assert.equal(writes[1].datos.nombre,'Bruno corregido');
+  } finally {b.w.close();}
+});
+test('Eliminar cliente: solo administrador; la lectura/edición de clientes no habilita borrado',async()=>{
+  const b=browser({permisos:{'clientes.editar':true}});
+  try {await b.w.render();assert.equal(b.view.querySelector('[data-action="eliminar-cliente"]'),null);const n=b.calls.length;await b.w.abrirEliminarCliente('cliente-qa');assert.equal(b.calls.length,n);} finally {b.w.close();}
+});
+test('Eliminar cliente: muestra actividad, escapa el nombre y no ofrece borrado con historial',async()=>{
+  const b=browser({admin:true,respuesta:{nombre:'<script>no()</script>',negocios:2,actividad:{operaciones:1,pagos:2,comprobantes:2},permitido:false,seguimiento:false}});
+  try {
+    await b.w.abrirEliminarCliente('cliente-qa');const d=b.w.document;
+    assert.equal(d.querySelector('#activeSheet script'),null);assert.match(d.getElementById('activeSheet').textContent,/No se puede eliminar/);
+    assert.match(d.getElementById('activeSheet').textContent,/Comprobantes: 2/);assert.equal(d.getElementById('el_guardar'),null);
+  } finally {b.w.close();}
+});
+test('Eliminar cliente: confirmación escrita, motivo, doble envío y reintento idéntico',async()=>{
+  const b=browser({admin:true}),writes=[];let finish;
+  b.w.fetch=async(url,o={})=>{
+    if(o.method==='DELETE'){writes.push({url,body:JSON.parse(o.body)});return new Promise(r=>finish=r);}
+    return {ok:true,status:200,json:async()=>({nombre:'Error QA',negocios:1,actividad:{},permitido:true,version:'v1'})};
+  };
+  try {
+    await b.w.abrirEliminarCliente('cliente-qa');const d=b.w.document,button=d.getElementById('el_guardar');
+    assert.equal(button.disabled,true);
+    const input=(id,value)=>{d.getElementById(id).value=value;d.getElementById(id).dispatchEvent(new b.w.Event('input'));};
+    input('el_motivo','Creado por error QA');input('el_confirmacion','eliminar');assert.equal(button.disabled,true);
+    input('el_confirmacion','ELIMINAR');button.click();button.click();assert.equal(writes.length,1);
+    finish({ok:false,status:502,json:async()=>({error:'Respuesta incierta'})});await new Promise(r=>setTimeout(r,0));
+    button.click();assert.equal(writes.length,2);assert.deepEqual(writes[1],writes[0]);
+    finish({ok:false,status:409,json:async()=>({error:'Apareció una venta'})});await new Promise(r=>setTimeout(r,0));
+    assert.equal(button.disabled,true);
+  } finally {b.w.close();}
+});
+test('Eliminar cliente: cambio de negocio durante la consulta descarta la confirmación',async()=>{
+  const b=browser({admin:true});let finish;
+  b.w.fetch=()=>new Promise(r=>finish=r);
+  try {const pending=b.w.abrirEliminarCliente('cliente-qa');b.w.qaState.negocioActual='otro';finish({ok:true,status:200,json:async()=>({nombre:'Error QA',negocios:1,actividad:{},permitido:true,version:'v1'})});await pending;assert.equal(b.w.document.getElementById('el_guardar'),null);} finally {b.w.close();}
+});
+
+test('Mora: muestra generada, cobrada y perdonada; empleado no puede condonar',()=>{
+  for(const admin of [false,true]) {
+    const b=browser({admin});
+    try {
+      const html=b.w.creditoCardHtml({id:'cr',cliente_id:'cliente-qa',negocio_id:'qa',modalidad:'unico',estado:'activo',cuotas:[{id:'cu',numero:1,monto_centavos:14000000,saldo_pendiente_centavos:0,fecha_vencimiento:'2026-10-01',moraGenerada:850000,moraPendiente:350000,moraCobrada:200000,moraPerdonada:300000}]});
+      b.w.setHTML(b.view,html);
+      assert.match(b.view.textContent,/Mora generada/);assert.match(b.view.textContent,/Cobrada/);assert.match(b.view.textContent,/Perdonada/);
+      assert.equal(!!b.view.querySelector('[data-action="perdonar-mora"]'),admin);
+      assert.ok(b.view.querySelector('[data-action="registrar-pago"]'));
+    }finally{b.w.close();}
+  }
+});
+
+test('Financiación UI: carga el plan editable y confirma pagos antes de enviar corrección',async()=>{
+  const b=browser({admin:true});
+  try {
+    const v={version:'a'.repeat(64),credito:{id:'cr',negocio_id:'qa',monto_total_centavos:400000,entrega_inicial_centavos:100000,fecha_inicio:'2026-10-01'},cuotas:[{id:'q',monto_centavos:300000,fecha_vencimiento:'2026-11-01'}],pagos:[{id:'p'}]};
+    let payload;
+    b.w.fetch=async(url,opts={})=>{if(opts.method==='PATCH'){payload=JSON.parse(opts.body);return {ok:false,status:400,json:async()=>({error:'QA validación'})};}return {ok:true,status:200,json:async()=>v};};
+    await b.w.abrirCorreccionFinanciacion('cr','qa');
+    const d=b.w.document;
+    assert.equal(d.querySelector('#corTotal').value,'4000');assert.equal(d.querySelectorAll('#corCuotas > div').length,1);
+    d.querySelector('#corAgregar').click();assert.equal(d.querySelectorAll('#corCuotas > div').length,2);
+    d.querySelectorAll('.corQuitar')[1].click();
+    d.querySelector('#corMotivo').value='Corregir QA';d.querySelector('#corConfirmar').checked=true;
+    d.querySelector('#corGuardar').click();
+    await new Promise(r=>setTimeout(r,10));
+    assert.equal(payload.confirmar_correccion_pagos,true);assert.equal(payload.datos.cuotas[0].id,'q');assert.equal(payload.datos.monto_total_centavos,400000);
+    assert.equal(d.querySelector('#corGuardar').disabled,false);
+  }finally{b.w.close();}
+});

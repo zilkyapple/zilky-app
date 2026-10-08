@@ -10,6 +10,10 @@ import { todayAR, diffDays } from '../lib/dates.js';
 import { perfilRiesgoCliente, historialFinancieroCliente } from '../services/dashboardService.js';
 import { listIncidencias, registrarIncidenciaEquipo } from '../services/incidenciasService.js';
 import { gestionCliente, registrarGestion } from '../services/gestionCobranzaService.js';
+import { editarDatosCliente, puedeEditarIdentidad } from '../services/clientDataService.js';
+import { datosBasicos, versionDatos } from '../lib/clientData.js';
+import { resumenVencimientos } from '../lib/vencimientos.js';
+import { resumenEliminacion, eliminarClienteSinActividad } from '../services/clientDeletionService.js';
 import { requireAdmin, requirePermiso, validarScopeNegocio, scopeNegocios, exigirCliente, exigirPermisoNegocio, scopePara, negocioSolicitado } from '../middleware/authorize.js';
 
 export const clientesRouter = Router();
@@ -70,6 +74,37 @@ clientesRouter.post('/', requirePermiso('clientes.editar'), async (req, res, nex
     if (duplicados.length && (!req.body.forzar || req.usuario.rol!=='administrador')) return res.status(409).json({ error: 'Ya existe un posible cliente. Solicitá al administrador revisar o vincular su ficha.' });
     res.status(201).json(await crearCliente({...req.body, negocio_id:negocioId}));
   } catch (err) { next(err); }
+});
+
+clientesRouter.get('/:id/datos', requirePermiso('clientes.ver'), requirePermiso('clientes.editar'), async (req,res,next) => {
+  try {
+    await exigirCliente(req, req.params.id, 'clientes.ver');
+    if (!await puedeEditarIdentidad(req, req.params.id)) return res.status(403).json({error:'La ficha es compartida. Un administrador debe corregir sus datos.'});
+    const c = await getCliente(req.params.id);
+    if (!c) return res.status(404).json({error:'Cliente no encontrado'});
+    res.json({datos:datosBasicos(c), version:versionDatos(c)});
+  } catch(e) {next(e);}
+});
+clientesRouter.patch('/:id/datos', requirePermiso('clientes.ver'), requirePermiso('clientes.editar'), async(req,res,next) => {
+  try {
+    await exigirCliente(req, req.params.id, 'clientes.ver');
+    res.json(await editarDatosCliente(req));
+  } catch(e) {next(e);}
+});
+
+clientesRouter.get('/:id/eliminacion', requireAdmin, async(req,res,next) => {
+  try {
+    await exigirCliente(req,req.params.id,'clientes.ver');
+    const r = await resumenEliminacion(req.params.id);
+    res.json({nombre:[r.cliente.nombre,r.cliente.apellido].filter(Boolean).join(' '),
+      negocios:r.negocios.length,actividad:r.actividad,seguimiento:r.seguimiento,permitido:r.permitido,version:r.version});
+  } catch(e) {next(e);}
+});
+clientesRouter.delete('/:id', requireAdmin, async(req,res,next) => {
+  try {
+    res.json(await eliminarClienteSinActividad({clienteId:req.params.id,version:req.body.version,confirmacion:req.body.confirmacion,
+      motivo:req.body.motivo,solicitudId:req.body.solicitud_id,usuarioId:req.usuarioId}));
+  } catch(e) {next(e);}
 });
 
 clientesRouter.patch('/:id/seguimiento', requirePermiso('clientes.editar'), async (req, res, next) => {
@@ -135,7 +170,6 @@ clientesRouter.get('/:id', requirePermiso('clientes.ver'), async (req, res, next
 
     const today = todayAR();
     let deudaTotal = 0;
-    let proximoVencimiento = null;
     const negociosInvolucrados = new Set();
     const creditosConDetalle = [];
     for (const cr of creditos) {
@@ -145,11 +179,10 @@ clientesRouter.get('/:id', requirePermiso('clientes.ver'), async (req, res, next
       const cuotas = cuotasRaw.map((c) => {
         const { estado, parcial } = estadoCuota(c, negocio, today);
         const mora = calcularMora(c, negocio, today);
-        if (c.saldo_pendiente_centavos > 0 && !c.estado_manual) {
+        if (!c.estado_manual) {
           deudaTotal += c.saldo_pendiente_centavos + mora.pendiente;
-          if (!proximoVencimiento || c.fecha_vencimiento < proximoVencimiento) proximoVencimiento = c.fecha_vencimiento;
         }
-        return { ...c, estado, parcial, moraPendiente: mora.pendiente,
+        return { ...c, estado, parcial, moraPendiente: mora.pendiente, moraGenerada: mora.acumulada, moraCobrada: mora.pagada, moraPerdonada: mora.perdonada,
           diasHasta: diffDays(c.fecha_vencimiento, today),
           diasAtraso: c.saldo_pendiente_centavos > 0 && !c.estado_manual ? Math.max(0, diffDays(today, c.fecha_vencimiento)) : 0 };
       });
@@ -159,6 +192,10 @@ clientesRouter.get('/:id', requirePermiso('clientes.ver'), async (req, res, next
         LEFT JOIN productos p ON p.id=vd.producto_id AND p.negocio_id=?
         WHERE vd.venta_id=? ORDER BY vd.id`).all(cr.negocio_id, cr.venta_id);
       creditosConDetalle.push({ ...cr, cuotas, items, seguimientoEquipos: negocio.seguimiento_equipos===1,
+        moraHistorial: await db.prepare(`SELECT a.fecha_hora,a.motivo,a.datos_nuevos, u.nombre AS autor, cu.numero
+          FROM auditoria a JOIN cuotas cu ON cu.id=a.entidad_id LEFT JOIN usuarios u ON u.id=a.empleado
+          WHERE cu.credito_id=? AND a.entidad='cuota' AND a.accion='perdonar_mora' ORDER BY a.fecha_hora`).all(cr.id),
+        correcciones: await db.prepare(`SELECT a.fecha_hora,a.motivo,u.nombre AS autor FROM auditoria a LEFT JOIN usuarios u ON u.id=a.empleado WHERE a.entidad='credito' AND a.entidad_id=? AND a.accion='corregir_financiacion' ORDER BY a.fecha_hora`).all(cr.id),
         incidencias: await listIncidencias(cr.id) });
     }
 
@@ -175,8 +212,8 @@ clientesRouter.get('/:id', requirePermiso('clientes.ver'), async (req, res, next
 
     res.json({
       ...cliente, finanzasAutorizadas:true, creditos: creditosConDetalle, pagos,
-      deudaTotalCentavos: deudaTotal, proximoVencimiento,
-      diasHastaVencimiento: proximoVencimiento ? diffDays(proximoVencimiento, today) : null,
+      deudaTotalCentavos: deudaTotal,
+      ...resumenVencimientos(creditosConDetalle.flatMap(cr => cr.cuotas), today),
       riesgo: await perfilRiesgoCliente(req.params.id, negociosPermitidos),
       historial: await historialFinancieroCliente(req.params.id, negociosPermitidos),
       gestionCobranza: await gestionCliente(req.params.id, negociosPermitidos),

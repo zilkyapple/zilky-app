@@ -30,7 +30,7 @@ export async function anularComprobante(comprobanteId, { motivo, usuarioId }) {
   if (!motivo) throw badRequest('El motivo de anulación es obligatorio');
 
   const pago = await getPago(comprobante.pago_id);
-  if(pago.tipo==='entrega_inicial') throw Object.assign(new Error('La entrega inicial no puede anularse desde pagos. Su corrección requiere editar y auditar el financiamiento y se resolverá en la Etapa 6.'),{status:409});
+  if(pago.tipo==='entrega_inicial') throw Object.assign(new Error('La entrega inicial no puede anularse desde pagos. Usá Corregir financiación en la ficha del cliente para conservar y auditar los comprobantes originales.'),{status:409});
   if(pago.anulado) throw badRequest('El pago ya fue anulado');
   const aplicaciones = await listAplicacionesPorPago(pago.id);
 

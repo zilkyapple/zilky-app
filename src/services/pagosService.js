@@ -3,7 +3,7 @@ import { registrarHistoriaPago } from './incidenciasService.js';
 import {integer,dateISO} from '../lib/validation.js';
 import {auditar} from '../lib/audit.js';
 import { nowAR, diffDays } from '../lib/dates.js';
-import { distribuirPago, estadoCuota } from '../lib/mora.js';
+import { distribuirPago, estadoCuota, calcularMora } from '../lib/mora.js';
 import { getCredito, actualizarEstadoCredito } from '../repositories/creditos.js';
 import { listCuotasPorCredito, actualizarCuota } from '../repositories/cuotas.js';
 import { getNegocio } from '../repositories/negocios.js';
@@ -33,7 +33,7 @@ export async function registrarPago(input) {
 
   const todasLasCuotas = await listCuotasPorCredito(credito_id);
   const cuotasAntesDelPago = todasLasCuotas.map(c=>({...c}));
-  const cuotasPendientes = todasLasCuotas.filter((c) => c.saldo_pendiente_centavos > 0 && !c.estado_manual);
+  const cuotasPendientes = todasLasCuotas.filter((c) => (c.saldo_pendiente_centavos > 0 || calcularMora(c, negocio, today).pendiente > 0) && !c.estado_manual);
   if(cuota_id && !cuotasPendientes.some(c=>c.id===cuota_id)) throw badRequest('La cuota indicada no está pendiente en este crédito');
   const saldoAnterior = cuotasPendientes.reduce((acc, c) => acc + c.saldo_pendiente_centavos, 0);
 
@@ -64,6 +64,7 @@ export async function registrarPago(input) {
     await actualizarCuota(cuota.id, {
       saldo_pendiente_centavos: cuota.saldo_pendiente_centavos,
       mora_pagada_centavos: cuota.mora_pagada_centavos,
+      mora_generada_centavos: cuota.mora_generada_centavos,
       fecha_saldada: seSaldoAhora ? today : cuota.fecha_saldada,
       dias_atraso_al_pagar: diasAtraso,
     });
@@ -97,13 +98,13 @@ export async function registrarPago(input) {
 
 export async function recalcularEstadoCredito(creditoId, negocio, today) {
   const cuotasFinal = await listCuotasPorCredito(creditoId);
-  const todasPagadas = cuotasFinal.every((c) => c.saldo_pendiente_centavos <= 0 || c.estado_manual);
+  const todasPagadas = cuotasFinal.every((c) => (c.saldo_pendiente_centavos <= 0 && calcularMora(c, negocio, today).pendiente <= 0) || c.estado_manual);
   let estadoGeneral = 'activo';
   if (todasPagadas) {
     estadoGeneral = 'finalizado';
   } else {
     const estados = cuotasFinal
-      .filter((c) => c.saldo_pendiente_centavos > 0 && !c.estado_manual)
+      .filter((c) => (c.saldo_pendiente_centavos > 0 || calcularMora(c, negocio, today).pendiente > 0) && !c.estado_manual)
       .map((c) => estadoCuota(c, negocio, today).estado);
     if (estados.includes('mora')) estadoGeneral = 'en_mora';
     else if (estados.includes('gracia') || estados.includes('vence_hoy')) estadoGeneral = 'en_gracia';
