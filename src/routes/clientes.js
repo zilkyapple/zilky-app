@@ -1,3 +1,4 @@
+import { prepararWhatsApp } from '../services/whatsappPreparacionService.js';
 import { contactosCliente, cambiarModo, guardarContacto, actualizarContacto } from '../services/contactosCobranzaService.js';
 import { Router } from 'express';
 import { db } from '../db/connection.js';
@@ -138,6 +139,11 @@ clientesRouter.post('/:id/gestion-especial/seguimiento', requirePermiso('cliente
 });
 
 // Cada mutación exige ambos permisos en el negocio explícito, además del vínculo del cliente.
+clientesRouter.get('/:id/whatsapp-preparacion', requireAdmin, async(req,res,next)=>{
+  try { const negocioId=negocioSolicitado(req); if(!negocioId)return res.status(400).json({error:'Seleccioná un negocio'});
+    res.json(await prepararWhatsApp(req.params.id,negocioId));
+  }catch(e){next(e);}
+});
 clientesRouter.post('/:id/cobranza-modo', requireAdmin, async(req,res,next)=>{
   try { const negocioId=negocioSolicitado(req); if(!negocioId)return res.status(400).json({error:'Seleccioná un negocio'});
     res.json(await cambiarModo({clienteId:req.params.id,negocioId,modo:req.body.modo,anterior:req.body.anterior,nota:req.body.nota,usuarioId:req.usuarioId}));
