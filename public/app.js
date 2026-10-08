@@ -31,7 +31,7 @@ function aplicarPermisosUI(root) {
   const admin=state.usuario?.rol==='administrador';
   const links={'#/productos':'productos.ver','#/comprobantes':'comprobantes.ver','#/ventas/nueva':'ventas.crear','#/clientes':'clientes.ver','#/cobrar':'cobranzas.ver','#/calendario':'cobranzas.ver'};
   root.querySelectorAll('a[href]').forEach(a=>{const href=a.getAttribute('href');if(links[href])a.hidden=!puede(links[href]);if(href?.startsWith('#/ventas/nueva/'))a.hidden=!puede('ventas.crear');if(href==='#/configuracion')a.hidden=!admin;if(href==='#/empleados')a.hidden=!puede('empleados.gestionar',null);});
-  const actions={'registrar-pago':'pagos.registrar','editar-seguimiento':'clientes.editar','crear-cliente-inline':'clientes.editar','nueva-venta':'ventas.crear','ir-cobrar':'cobranzas.ver','anular-comprobante':'comprobantes.anular'};
+  const actions={'registrar-pago':'pagos.registrar','editar-cliente':'clientes.editar','editar-seguimiento':'clientes.editar','crear-cliente-inline':'clientes.editar','nueva-venta':'ventas.crear','ir-cobrar':'cobranzas.ver','anular-comprobante':'comprobantes.anular'};
   root.querySelectorAll('[data-action]').forEach(el=>{const action=el.dataset.action;if(actions[action])el.hidden=!puede(actions[action],el.dataset.negocio||state.negocioActual);if(['abrir-crear-negocio','crear-producto'].includes(action))el.hidden=!admin;});
 }
 const TOKEN_KEY = 'zilky_token';
@@ -67,7 +67,7 @@ async function api(path, opts = {}) {
     clearToken();
     showAuthScreen();
   }
-  if (!res.ok) throw new Error(body?.error || `Error ${res.status}`);
+  if (!res.ok) throw Object.assign(new Error(body?.error || `Error ${res.status}`), {status:res.status});
   return body;
 }
 
@@ -403,10 +403,12 @@ async function renderClientesList(q, list = document.getElementById('clientesLis
 function accionesClienteHtml(c) {
   return `
     <div class="quick-actions" style="margin-top:14px">
-      <a class="btn btn-secondary" href="${esc(waLink(c.telefono, mensajeSaludo(c)))}" target="_blank">${iconWhatsapp()}WhatsApp</a>
+      <a class="btn btn-secondary" href="${esc(waLink(c.whatsapp || c.telefono, mensajeSaludo(c)))}" target="_blank" rel="noopener noreferrer">${iconWhatsapp()}WhatsApp</a>
       <a class="btn btn-secondary" href="tel:${esc(c.telefono || '')}">${iconLlamar()}Llamar</a>
       <a class="btn btn-secondary" href="#/ventas/nueva/${esc(c.id)}">${iconVenta()}Nueva venta</a>
       <button class="btn btn-secondary" data-action="editar-seguimiento" data-id="${esc(c.id)}">${iconNota()}Seguimiento</button>
+      <button class="btn btn-secondary" data-action="editar-cliente" data-id="${esc(c.id)}">Editar datos</button>
+      ${state.usuario?.rol==='administrador'?`<button class="btn btn-secondary" data-action="eliminar-cliente" data-id="${esc(c.id)}">Eliminar cliente</button>`:''}
       ${state.negocioActual && puede('clientes.ver') ? `<a class="btn btn-secondary" href="#/comprobantes/cliente/${esc(c.id)}">${iconNota()}Comprobantes</a>` : ''}
     </div>
   `;
@@ -461,7 +463,7 @@ async function viewClienteDetail(view, id) {
       <div class="lbl">Deuda ${esc(state.negocioActual ? 'en ' + negocioNombre(state.negocioActual) : 'en los negocios autorizados')}</div>
       <div class="amt">${esc(formatARS(c.deudaTotalCentavos))}</div>
       <div class="meta">
-        ${c.proximoVencimiento ? `Próximo vencimiento: ${fmtFecha(c.proximoVencimiento)} (${c.diasHastaVencimiento >= 0 ? `en ${c.diasHastaVencimiento} días` : `hace ${-c.diasHastaVencimiento} días`})` : 'Sin obligaciones pendientes'}
+        ${vencimientosClienteHtml(c)}
         &nbsp;·&nbsp; <span class="badge badge-${esc(riesgoClass)}">Riesgo ${esc(c.riesgo?.nivel || 'bajo')}</span>
       </div>
     </div>
@@ -564,7 +566,7 @@ async function abrirMensajeEspecial(clienteId,negocioId) {
     const c=await api(`/clientes/${encodeURIComponent(clienteId)}?negocio_id=${encodeURIComponent(negocioId)}`);
     if(!vigente())return;
     if(!(c.gestionCobranza||[]).some(g=>g.negocio_id===negocioId&&g.gestion_especial===1))return setHTML(sheet,'<p>Esta cuenta ya no está en Gestión especial. Actualizá la vista.</p>');
-    const mensaje=`Hola ${c.nombre}, te contactamos de ${negocioNombre(negocioId)} por el saldo pendiente de ${formatARS(c.deudaTotalCentavos)}. ¿Podés indicarnos cuándo podrías realizar un pago? Gracias.`;
+    const mensaje=mensajeSaludo(c);
     setHTML(sheet,`<div class="sheet-title">Mensaje de seguimiento</div><p>Revisá y editá el texto antes de abrir WhatsApp. No se envía ni se marca como enviado desde Zilky.</p><div class="field"><label for="gestionMensaje">Mensaje</label><textarea id="gestionMensaje" maxlength="4000">${esc(mensaje)}</textarea></div>
       ${c.whatsapp||c.telefono?'<a id="gestionWhatsapp" class="btn btn-primary" target="_blank" rel="noopener noreferrer">Abrir en WhatsApp</a>':'<p>Este cliente no tiene teléfono registrado. Podés copiar el texto.</p>'}
       <button class="btn btn-secondary" data-action="cerrar-sheet">Cerrar</button>`);
@@ -1299,14 +1301,31 @@ function normalizePhone(tel) {
   return digits.startsWith('54') ? digits : `54${digits}`;
 }
 function waLink(tel, texto) { if (!tel) return '#'; return `https://wa.me/${normalizePhone(tel)}?text=${encodeURIComponent(texto)}`; }
+function vencimientosClienteHtml(c) {
+  const vencido = c.vencimientoVencido || (c.diasHastaVencimiento < 0 ? c.proximoVencimiento : null);
+  const atraso = c.diasAtrasoVencimiento ?? -c.diasHastaVencimiento;
+  const lineas = [];
+  if (vencido) lineas.push(`Cuota vencida: ${esc(fmtFecha(vencido))} · ${esc(atraso)} días de atraso`);
+  if (c.cuotasVencenHoy > 0 || (c.proximoVencimiento && c.diasHastaVencimiento === 0)) lineas.push('Cuota con vencimiento hoy');
+  if (c.proximoVencimiento && c.diasHastaVencimiento > 0) lineas.push(`Próximo vencimiento: ${esc(fmtFecha(c.proximoVencimiento))} (en ${esc(c.diasHastaVencimiento)} días)`);
+  return lineas.length ? lineas.join('<br>') : c.deudaTotalCentavos > 0 ? 'Revisá el detalle de las cuotas pendientes' : 'Sin obligaciones pendientes';
+}
+const importeMensaje = centavos => '$'+new Intl.NumberFormat('es-AR', {maximumFractionDigits:0}).format(centavos/100);
 function mensajeSaludo(c) {
-  if (c.proximoVencimiento && c.diasHastaVencimiento >= 0) return `Hola ${c.nombre}! Te recordamos que tu próximo vencimiento es el ${fmtFecha(c.proximoVencimiento)}.`;
-  if (c.deudaTotalCentavos > 0) return `Hola ${c.nombre}! Tenés un saldo pendiente de ${formatARS(c.deudaTotalCentavos)}. Cualquier consulta, escribinos.`;
-  return `Hola ${c.nombre}! ¿Cómo estás?`;
+  const saludo = `${c.nombre}, cómo estás?`;
+  // Nunca usar deudaTotalCentavos: incluye cuotas futuras no exigibles.
+  if (Number.isSafeInteger(c.saldoExigibleCentavos) && c.saldoExigibleCentavos > 0) {
+    const concepto = c.cuotasVencidas > 0
+      ? c.cuotasVencenHoy > 0 ? 'tus cuotas vencidas y con vencimiento hoy' : c.cuotasVencidas === 1 ? 'tu cuota vencida' : 'tus cuotas vencidas'
+      : c.cuotasVencenHoy === 1 ? 'tu cuota con vencimiento hoy' : 'tus cuotas con vencimiento hoy';
+    return `${saludo}\nTenés un saldo pendiente de ${importeMensaje(c.saldoExigibleCentavos)}, correspondiente a ${concepto}.\nMantenenos al tanto.`;
+  }
+  if (c.proximoVencimiento && c.diasHastaVencimiento > 0) return `${saludo}\nTe recordamos que tu próxima cuota vence el ${fmtFecha(c.proximoVencimiento)}.\nMantenenos al tanto.`;
+  return saludo;
 }
 function mensajeRecordatorio(c) {
-  if (c.diasAntes === 0) return `Hola ${c.cliente_nombre}! Tu cuota vence hoy. El saldo es de ${formatARS(c.saldo_pendiente_centavos)}.`;
-  return `Hola ${c.cliente_nombre}! Te recordamos que tu cuota vence el ${fmtFecha(c.fecha_vencimiento)} (en ${c.diasAntes} día${c.diasAntes === 1 ? '' : 's'}). El saldo es de ${formatARS(c.saldo_pendiente_centavos)}.`;
+  if (c.diasAntes <= 0) return mensajeSaludo({nombre:c.cliente_nombre, saldoExigibleCentavos:c.saldo_pendiente_centavos + (c.moraPendiente || 0), cuotasVencidas:c.diasAntes < 0 ? 1 : 0, cuotasVencenHoy:c.diasAntes === 0 ? 1 : 0});
+  return `${c.cliente_nombre}, cómo estás?\nTe recordamos que tu cuota vence el ${fmtFecha(c.fecha_vencimiento)} (en ${c.diasAntes} día${c.diasAntes === 1 ? '' : 's'}). El importe de esa cuota es ${importeMensaje(c.saldo_pendiente_centavos)}.\nMantenenos al tanto.`;
 }
 
 // ---------------- Iconos ----------------
@@ -1348,6 +1367,8 @@ document.addEventListener('click', async (e) => {
   else if (action === 'registrar-pago') abrirRegistrarPago(credito, monto ? Number(monto) : null);
   else if (action === 'ver-cliente-negocio') { setNegocio(id || null); const parts = parseHash(); if (parts[1]) render(); }
   else if (action === 'editar-seguimiento') abrirEditarSeguimiento(id);
+  else if (action === 'editar-cliente') abrirEditarCliente(id);
+  else if (action === 'eliminar-cliente') abrirEliminarCliente(id);
   else if (action === 'gestion-cliente') abrirGestionCliente(id,el.dataset.negocio,el.dataset.tipo);
   else if (action === 'mensaje-especial') abrirMensajeEspecial(id,el.dataset.negocio);
   else if (action === 'incidencia-equipo') abrirIncidenciaEquipo(id,credito,el.dataset.negocio);
@@ -1382,6 +1403,84 @@ function abrirMenuRapido() {
       <div class="quick-sheet-item" data-action="crear-producto">${iconProductos()}Producto nuevo</div>
     </div>
   `);
+}
+
+async function abrirEditarCliente(clienteId) {
+  if (!puede('clientes.editar') || !puede('clientes.ver')) return toast('No tenés permiso para editar este cliente',true);
+  const negocioId=state.negocioActual, token=getToken();
+  const filtro=negocioId ? `?negocio_id=${encodeURIComponent(negocioId)}` : '';
+  openSheet('<div class="sheet-title">Editar datos del cliente</div><p>Cargando…</p>');
+  const sheet=document.getElementById('activeSheet');
+  const vigente=()=>sheet.isConnected && document.getElementById('activeSheet')===sheet && document.getElementById('sheetBackdrop').classList.contains('open') && state.negocioActual===negocioId && getToken()===token && puede('clientes.editar') && puede('clientes.ver');
+  try {
+    const ficha=await api(`/clientes/${encodeURIComponent(clienteId)}/datos${filtro}`);
+    if (!vigente()) return;
+    const campos=[['nombre','Nombre'],['apellido','Apellido'],['telefono','Teléfono'],['whatsapp','WhatsApp'],['dni','DNI'],['instagram','Instagram'],['direccion','Dirección'],['ciudad','Ciudad'],['provincia','Provincia'],['fecha_nacimiento','Fecha de nacimiento'],['trabajo','Trabajo'],['frecuencia_pago','Frecuencia de pago'],['foto_url','URL de foto'],['notas','Observaciones']];
+    setHTML(sheet, `<div class="sheet-title">Editar datos del cliente</div><p>Se conservará quién hizo la corrección y los datos anteriores. No modifica ventas, cuotas ni pagos.</p>
+      ${campos.map(([k,label])=>`<div class="field"><label for="ec_${k}">${esc(label)}</label>${k==='notas'?`<textarea id="ec_${k}" maxlength="10000">${esc(ficha.datos[k])}</textarea>`:`<input id="ec_${k}" type="${k==='fecha_nacimiento'?'date':'text'}" maxlength="1000" value="${esc(ficha.datos[k])}">`}</div>`).join('')}
+      <div class="field"><label for="ec_motivo">Motivo de la corrección</label><textarea id="ec_motivo" maxlength="2000"></textarea></div>
+      <div class="sheet-actions"><button class="btn btn-secondary" data-action="cerrar-sheet">Cancelar</button><button id="ec_guardar" class="btn btn-primary">Guardar corrección</button></div>`);
+    let enviado=null;
+    sheet.querySelector('#ec_guardar').addEventListener('click',async event=>{
+      const button=event.currentTarget;
+      if (button.disabled || !vigente()) return;
+      const datos=Object.fromEntries(campos.map(([k])=>[k,sheet.querySelector('#ec_'+k).value.trim()]));
+      const motivo=sheet.querySelector('#ec_motivo').value.trim();
+      if (!datos.nombre || !motivo) return toast('Completá nombre y motivo de la corrección',true);
+      enviado ||= {datos,motivo,version:ficha.version};
+      button.disabled=true; sheet.querySelectorAll('input,textarea').forEach(el=>el.disabled=true);
+      try {
+        await api(`/clientes/${encodeURIComponent(clienteId)}/datos${filtro}`,{method:'PATCH',body:JSON.stringify(enviado)});
+        if (vigente()) {closeSheet();toast('Datos corregidos; historial conservado');render();}
+      } catch(error) {if(vigente()){
+        button.disabled=false;
+        // Un rechazo de validación permite corregir campos; una respuesta incierta
+        // conserva el mismo payload para que el reintento no duplique cambios.
+        if(error.status===400){enviado=null;sheet.querySelectorAll('input,textarea').forEach(el=>el.disabled=false);}
+        toast(error.message,true);
+      }}
+    });
+  } catch(error) {if(vigente())setHTML(sheet,`<p>${esc(error.message)}</p><button class="btn btn-secondary" data-action="cerrar-sheet">Cerrar</button>`);}
+}
+
+async function abrirEliminarCliente(clienteId) {
+  if(state.usuario?.rol!=='administrador')return toast('Requiere administrador',true);
+  const token=getToken(),negocioId=state.negocioActual,solicitudId=crypto.randomUUID();
+  const filtro=negocioId?`?negocio_id=${encodeURIComponent(negocioId)}`:'';
+  openSheet('<div class="sheet-title">Revisar eliminación del cliente</div><p>Cargando relaciones…</p>');
+  const sheet=document.getElementById('activeSheet');
+  const vigente=()=>sheet.isConnected&&document.getElementById('activeSheet')===sheet&&document.getElementById('sheetBackdrop').classList.contains('open')&&getToken()===token&&state.negocioActual===negocioId&&state.usuario?.rol==='administrador';
+  try {
+    const r=await api(`/clientes/${encodeURIComponent(clienteId)}/eliminacion${filtro}`);
+    if(!vigente())return;
+    const etiquetas={operaciones:'Operaciones',financiaciones:'Financiaciones',cuotas:'Cuotas',pagos:'Pagos (incluidos anulados)',comprobantes:'Comprobantes',contratos:'Contratos',recordatorios:'Recordatorios',gestiones:'Antecedentes de cobranza',configuraciones_cobranza:'Configuraciones de cobranza',saldos_favor:'Saldos a favor',correcciones:'Correcciones de datos (se conservan)'};
+    setHTML(sheet,`<div class="sheet-title">Eliminar ${esc(r.nombre)}</div>
+      <p>La ficha está vinculada a ${esc(r.negocios)} negocio(s). Esta acción afecta la ficha completa.</p>
+      <ul>${Object.entries(etiquetas).map(([k,v])=>`<li>${esc(v)}: ${esc(r.actividad[k]||0)}</li>`).join('')}<li>Seguimiento comercial: ${r.seguimiento?'Sí':'No'}</li></ul>
+      ${r.permitido?`<p>Solo se permite eliminar fichas sin actividad. Sus datos y vínculos quedarán guardados en la auditoría junto con tu usuario y el motivo.</p>
+        <div class="field"><label for="el_motivo">Motivo de la eliminación</label><textarea id="el_motivo" maxlength="2000"></textarea></div>
+        <div class="field"><label for="el_confirmacion">Escribí ELIMINAR para confirmar</label><input id="el_confirmacion" autocomplete="off"></div>`:'<p><strong>No se puede eliminar: tiene operaciones o historial asociado.</strong> La ficha, sus pagos, comprobantes y antecedentes se conservan. Podés corregir sus datos básicos.</p>'}
+      <div class="sheet-actions"><button class="btn btn-secondary" data-action="cerrar-sheet">Cancelar</button>${r.permitido?'<button id="el_guardar" class="btn btn-primary" disabled>Eliminar ficha sin actividad</button>':''}</div>`);
+    if(!r.permitido)return;
+    const button=sheet.querySelector('#el_guardar'),motivo=sheet.querySelector('#el_motivo'),confirmacion=sheet.querySelector('#el_confirmacion');
+    let enviado=null;
+    const habilitar=()=>{if(!enviado)button.disabled=!motivo.value.trim()||confirmacion.value!=='ELIMINAR';};
+    motivo.addEventListener('input',habilitar);confirmacion.addEventListener('input',habilitar);
+    button.addEventListener('click',async()=>{
+      if(button.disabled||!vigente())return;
+      if(!enviado&&(!motivo.value.trim()||confirmacion.value!=='ELIMINAR'))return;
+      enviado||={version:r.version,motivo:motivo.value.trim(),confirmacion:confirmacion.value,solicitud_id:solicitudId};
+      button.disabled=true;motivo.disabled=true;confirmacion.disabled=true;
+      try {
+        await api(`/clientes/${encodeURIComponent(clienteId)}`,{method:'DELETE',body:JSON.stringify(enviado)});
+        if(vigente()){closeSheet();toast('Ficha sin actividad eliminada; auditoría conservada');location.hash='#/clientes';}
+      }catch(error){if(vigente()){
+        if(error.status===400){enviado=null;motivo.disabled=false;confirmacion.disabled=false;habilitar();}
+        else button.disabled=[403,404,409].includes(error.status);
+        toast(error.message+(error.status===409?' Volvé a abrir la confirmación.':''),true);
+      }}
+    });
+  }catch(error){if(vigente())setHTML(sheet,`<p>${esc(error.message)}</p><button class="btn btn-secondary" data-action="cerrar-sheet">Cerrar</button>`);}
 }
 
 function abrirCrearCliente() {

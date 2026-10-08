@@ -1,4 +1,5 @@
 import { diffDays, addDays } from './dates.js';
+import { redondearInteresCentavos } from './money.js';
 
 export function estadoCuota(cuota, negocio, today) {
   if (cuota.estado_manual) return { estado: cuota.estado_manual, parcial: false };
@@ -47,6 +48,7 @@ export function calcularMora(cuota, negocio, today) {
       : Math.round(base * tasa * periodos);
   }
 
+  acumulada = redondearInteresCentavos(acumulada);
   const pendiente = Math.max(0, acumulada - (cuota.mora_pagada_centavos || 0));
   return { acumulada, pendiente, diasEnMora };
 }
