@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto';
 import {db} from '../db/connection.js';
 import {integer,dateISO} from '../lib/validation.js';
 import {auditar} from '../lib/audit.js';
-import {todayAR,nowAR} from '../lib/dates.js';
+import {todayAR,nowAR,diffDays} from '../lib/dates.js';
 import {getCredito} from '../repositories/creditos.js';
 import {getNegocio} from '../repositories/negocios.js';
 import {listCuotasPorCredito,crearCuota} from '../repositories/cuotas.js';
@@ -43,6 +43,7 @@ export async function corregirFinanciacion(id,input,actor) {
     const before=await vistaFinanciacion(id);if(before.version!==version)throw err('La financiación cambió. Volvé a revisar el plan.',409);
     if(before.pagos.length&&input.confirmar_correccion_pagos!==true)throw err('Confirmá que revisaste los pagos y comprobantes existentes');
     if(before.cuotas.some(q=>q.estado_manual))throw err('Esta operación tiene cuotas con estado manual y requiere conciliación',409);
+    if(before.pagos.some(p=>!p.anulado&&String(p.fecha_hora).slice(0,10)<datos.fecha_inicio))throw err('La compra no puede ser posterior a un pago existente',409);
     const negocio=await getNegocio(first.negocio_id);
     const ids=datos.cuotas.filter(q=>q.id).map(q=>q.id);
     if(new Set(ids).size!==ids.length||ids.some(id=>!before.cuotas.some(q=>q.id===id)))throw err('Cuotas inválidas o de otra financiación');
@@ -57,7 +58,17 @@ export async function corregirFinanciacion(id,input,actor) {
     for(const q of eliminadas)await db.prepare('DELETE FROM cuotas WHERE id=?').run(q.id);
     for(let i=0;i<datos.cuotas.length;i++){
       const q=datos.cuotas[i],old=before.cuotas.find(x=>x.id===q.id);
-      if(old)await db.prepare('UPDATE cuotas SET numero=?,monto_centavos=?,saldo_pendiente_centavos=?,fecha_vencimiento=?,mora_generada_centavos=? WHERE id=?').run(i+1,q.monto_centavos,q.monto_centavos-old.monto_centavos+old.saldo_pendiente_centavos,q.fecha_vencimiento,calcularMora(old,negocio,todayAR()).acumulada,q.id);
+      if(old){
+        const saldo=q.monto_centavos-old.monto_centavos+old.saldo_pendiente_centavos;
+        let saldada=old.fecha_saldada,atraso=old.dias_atraso_al_pagar;
+        if(saldo===0&&!saldada){
+          const pagosCapital=before.aplicaciones.filter(a=>a.cuota_id===q.id&&a.capital_centavos>0).map(a=>before.pagos.find(p=>p.id===a.pago_id&&!p.anulado)).filter(Boolean);
+          saldada=pagosCapital.map(p=>String(p.fecha_hora).slice(0,10)).sort().at(-1);
+          if(!saldada)throw err('No se pudo conciliar la fecha del capital cobrado',409);
+          atraso=Math.max(0,diffDays(saldada,old.fecha_vencimiento));
+        }
+        await db.prepare('UPDATE cuotas SET numero=?,monto_centavos=?,saldo_pendiente_centavos=?,fecha_vencimiento=?,mora_generada_centavos=?,fecha_saldada=?,dias_atraso_al_pagar=? WHERE id=?').run(i+1,q.monto_centavos,saldo,q.fecha_vencimiento,calcularMora(old,negocio,todayAR()).acumulada,saldada,atraso,q.id);
+      }
       else await crearCuota({credito_id:id,numero:i+1,monto_centavos:q.monto_centavos,fecha_vencimiento:q.fecha_vencimiento});
     }
     await db.prepare('UPDATE creditos SET monto_total_centavos=?,entrega_inicial_centavos=?,saldo_financiado_centavos=?,fecha_inicio=?,producto_descripcion=?,condiciones=? WHERE id=?').run(datos.monto_total_centavos,datos.entrega_inicial_centavos,datos.monto_total_centavos-datos.entrega_inicial_centavos,datos.fecha_inicio,datos.producto_descripcion.trim(),datos.condiciones.trim(),id);

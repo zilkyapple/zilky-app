@@ -182,7 +182,11 @@ test('Financiación PG: corrige plan y entrega con originales auditados, conserv
   const audit=(await pool.query("SELECT * FROM auditoria WHERE entidad_id=$1 AND accion='corregir_financiacion'",[v.credito.id])).rows;
   assert.equal(audit.length,1);assert.equal(JSON.parse(audit[0].datos_anteriores).cuotas.length,3);
   // Segunda migración debe tolerar entregas anteriores anuladas sin reconstruir ni borrar pagos.
-  await migrate();assert.deepEqual((await api(path,admin)).body.pagos,after.pagos);
+  await migrate();
+  const migrated=(await api(path,admin)).body.pagos;
+  // La migración histórica completa organización en fixtures creados sin organización.
+  assert.deepEqual(migrated,after.pagos.map(p=>({...p,organizacion_id:p.organizacion_id||'default'})));
+  await migrate();assert.deepEqual((await api(path,admin)).body.pagos,migrated);
 });
 test('Financiación PG: no borra cuotas con aplicaciones, ni baja importe por debajo de capital cobrado',async()=>{
   const path=`/ventas/creditos/${s.credito.id}/correccion`,v=(await api(path,admin)).body;
@@ -192,4 +196,21 @@ test('Financiación PG: no borra cuotas con aplicaciones, ni baja importe por de
   assert.equal((await api(path,admin,'PATCH',{...body,datos:{...datos,cuotas:datos.cuotas.slice(1)}})).status,409);
   assert.equal((await api(path,admin,'PATCH',{...body,datos:{...datos,cuotas:datos.cuotas.map((q,i)=>i? q:{...q,monto_centavos:1})}})).status,409);
   assert.deepEqual(await finanzas(),before);
+});
+
+test('Financiación PG: reducción al capital cobrado conserva fecha real y atraso, sin crear otro pago',async()=>{
+  const n=await crearNegocio({nombre:'QA corrección capital',mora_valor:0});
+  const c=await crearCliente({nombre:'Capital',apellido:'QA',negocio_id:n.id});
+  const v=await crearVenta({negocio_id:n.id,cliente_id:c.id,fecha:addDays(hoy,-20),modalidad:'unico',monto_total_centavos:100000,plan:{fecha_limite:addDays(hoy,-10)}});
+  await registrarPago({credito_id:v.credito.id,monto_centavos:50000,fecha_hora:`${addDays(hoy,-5)}T12:00:00-03:00`});
+  const path=`/ventas/creditos/${v.credito.id}/correccion`,p=(await api(path,admin)).body;
+  const datos={monto_total_centavos:50000,entrega_inicial_centavos:0,fecha_inicio:p.credito.fecha_inicio,producto_descripcion:'',condiciones:'',cuotas:p.cuotas.map(q=>({id:q.id,monto_centavos:50000,fecha_vencimiento:q.fecha_vencimiento}))};
+  const body={version:p.version,datos,motivo:'QA importe corregido',solicitud_id:randomUUID(),confirmar_correccion_pagos:true};
+  const r=await api(path,admin,'PATCH',body);assert.equal(r.status,200,JSON.stringify(r.body));
+  const after=(await api(path,admin)).body;
+  assert.equal(after.cuotas[0].saldo_pendiente_centavos,0);assert.equal(after.cuotas[0].fecha_saldada,addDays(hoy,-5));assert.equal(after.cuotas[0].dias_atraso_al_pagar,5);
+  assert.deepEqual(after.pagos,p.pagos);assert.deepEqual(after.aplicaciones,p.aplicaciones);
+  assert.equal((await api(path,admin,'PATCH',{...body,solicitud_id:randomUUID()})).status,409);
+  const ficha=(await api(`/clientes/${c.id}?negocio_id=${n.id}`,admin)).body;
+  assert.equal(ficha.creditos[0].correcciones.length,1);assert.equal(ficha.creditos[0].correcciones[0].motivo,body.motivo);
 });

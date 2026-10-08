@@ -400,3 +400,22 @@ test('Mora: muestra generada, cobrada y perdonada; empleado no puede condonar',(
     }finally{b.w.close();}
   }
 });
+
+test('Financiación UI: carga el plan editable y confirma pagos antes de enviar corrección',async()=>{
+  const b=browser({admin:true});
+  try {
+    const v={version:'a'.repeat(64),credito:{id:'cr',negocio_id:'qa',monto_total_centavos:400000,entrega_inicial_centavos:100000,fecha_inicio:'2026-10-01'},cuotas:[{id:'q',monto_centavos:300000,fecha_vencimiento:'2026-11-01'}],pagos:[{id:'p'}]};
+    let payload;
+    b.w.fetch=async(url,opts={})=>{if(opts.method==='PATCH'){payload=JSON.parse(opts.body);return {ok:false,status:400,json:async()=>({error:'QA validación'})};}return {ok:true,status:200,json:async()=>v};};
+    await b.w.abrirCorreccionFinanciacion('cr','qa');
+    const d=b.w.document;
+    assert.equal(d.querySelector('#corTotal').value,'4000');assert.equal(d.querySelectorAll('#corCuotas > div').length,1);
+    d.querySelector('#corAgregar').click();assert.equal(d.querySelectorAll('#corCuotas > div').length,2);
+    d.querySelectorAll('.corQuitar')[1].click();
+    d.querySelector('#corMotivo').value='Corregir QA';d.querySelector('#corConfirmar').checked=true;
+    d.querySelector('#corGuardar').click();
+    await new Promise(r=>setTimeout(r,10));
+    assert.equal(payload.confirmar_correccion_pagos,true);assert.equal(payload.datos.cuotas[0].id,'q');assert.equal(payload.datos.monto_total_centavos,400000);
+    assert.equal(d.querySelector('#corGuardar').disabled,false);
+  }finally{b.w.close();}
+});
