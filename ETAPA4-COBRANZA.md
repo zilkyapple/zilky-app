@@ -24,7 +24,13 @@ Archivos: public/app.js; src/routes/clientes.js; servicios contactosCobranzaServ
 
 Pruebas nuevas: ámbito y permisos; idempotencia y concurrencia; reprogramación auditada; conflicto de edición; modos y pausa; pago parcial/final; aislamiento de otra financiación; protección del historial al corregir; doble clic/reintento; respuesta tardía/cambio de negocio; tratamiento seguro de notas.
 
-Estado de cierre: pendiente de confirmar la última ejecución completa y la prueba de interfaz en producción. No se declara terminada la integración automática de Etapa 5.
+Validación final: 368 pruebas aprobadas, 0 fallos y 0 omitidas en PostgreSQL 17 con Node 24 y Node 26; auditoría de dependencias sin vulnerabilidades. PR #14 integrada. Commit desplegado: 6ec7044e2755c6cbc3f999896fd7aefe76dd3f25. Render confirmó Live el 08/10/2026 a las 21:58:29 UTC.
+
+Producción, únicamente negocio QA y cliente ficticio existente: se creó una operación de $1.000 con vencimiento 11/10; se programó contacto 12/10, se reprogramó 15/10, se pausó y se volvió a revisión. Cobrar mostró contacto y vencimiento separados. El pago ficticio de $1.000 canceló el contacto y dejó saldo cero; ficha y consulta directa a la rama actual de producción confirmaron tres eventos, fechas conservadas y ninguna clasificación especial. El contacto salió de los pendientes y Todas volvió de 15 a 14 cuotas. No se enviaron mensajes. La venta/pago/comprobante QA quedan en el historial y en los totales administrativos de QA, sin movimiento real de dinero.
+
+Se corrigió en las notas de trabajo la identificación de la rama actual de producción después de contrastar la lista de ramas de Neon; no se cambió ninguna conexión ni se restauró/borró dato alguno en este trabajo. La comprobación inicial contra un identificador anterior no se usa como evidencia del estado actual.
+
+La cobranza operativa de esta entrega está desplegada y validada. La integración automática de Etapa 5 sigue pendiente. No se repitió una sesión de empleado real en esta entrega; el aislamiento, permisos y acciones del empleado están cubiertos en la suite.
 
 ## Continuidad
 
