@@ -1,6 +1,8 @@
 # Correcciones para datos reales — 2026-10-08
 
-Estado: implementación en PR #13; validación final y despliegue pendientes.
+Estado: PR #13 integrada y desplegada. Pendiente validación visual autenticada.
+Commit desplegado: 91d317bf87e35c41fbd3b121529be34ec39ce95d.
+Render confirmó estado live el 2026-10-08 a las 16:07:47 (Argentina).
 Baseline: f446d4f4a2b8df185653c829bfa9dc044e268034.
 
 ## Alcance y comportamiento
@@ -51,7 +53,7 @@ Baseline: f446d4f4a2b8df185653c829bfa9dc044e268034.
 
 - 149 pruebas locales de frontend y lógica: aprobadas.
 - Suite PostgreSQL completa en CI aislada, Node 24/26. El checkpoint de mora pasó
-  ambas variantes y auditoría de dependencias. Validación final del editor en curso.
+  ambas variantes y auditoría de dependencias. Validación final: 351 pruebas aprobadas, 0 fallos y 0 omitidas en ambas versiones; auditoría de dependencias sin vulnerabilidades.
 - Casos añadidos: versiones viejas, permisos, historial intacto, eliminación segura,
   perdón idempotente, cobro solo de mora, anulación, corrección de entrega con originales,
   migración repetida, reducción al capital cobrado conservando fecha y atraso reales.
@@ -60,3 +62,34 @@ Baseline: f446d4f4a2b8df185653c829bfa9dc044e268034.
   navegador disponible muestra inicio de sesión. No declarar cerrado este punto.
 - Un respaldo anterior no autoriza restaurar encima de nuevas operaciones reales.
   Reversión de aplicación debe conservar columnas aditivas e historial creado.
+
+## Comprobación posterior al despliegue
+
+- Migración aplicada y build exitoso en Render; commit publicado verificado.
+- Conteos y huellas de los valores anteriores de las 25 tablas permanecen idénticos
+  después de migrar (se excluyen únicamente las cuatro columnas nuevas).
+- No se borraron datos reales ni se enviaron mensajes de WhatsApp.
+- El proveedor no permitió un segundo snapshot por límite de capacidad. El respaldo
+  restaurado se comparó inmediatamente antes del despliegue: las 25 tablas seguían
+  idénticas a producción, y sus secuencias habían sido verificadas.
+- Pantalla de acceso de producción abre correctamente. La validación autenticada
+  sigue pendiente: el intento de acceso fue rechazado. No se declara cerrado el
+  flujo visual de creación/edición/pago/mora/comprobantes/eliminación en producción.
+- La suite de integración verificó esos comportamientos sobre PostgreSQL aislado.
+  Esto no sustituye la comprobación visual pendiente.
+
+## Archivos modificados
+
+- `public/app.js`: formularios, ficha, mora y WhatsApp.
+- `src/db/migrate.js`: campos nuevos e índice de entrega inicial activa.
+- `src/lib/{clientData,money,mora,vencimientos}.js`: validación y cálculos.
+- `src/repositories/cuotas.js`: persistencia y selección de saldos.
+- `src/routes/{clientes,pagos,ventas}.js`: API y permisos.
+- `src/services/{clientDataService,clientDeletionService,financiacionService,moraService}.js`:
+  servicios de edición, eliminación protegida, corrección y condonación.
+- `src/services/{pagosService,comprobantesService,dashboardService,incidenciasService}.js`:
+  integración con pagos, comprobantes y estados.
+- `test/{client-corrections-unit,client-corrections,frontend-client-file,stage1}.test.js`:
+  regresión y nuevos casos.
+- `package-lock.json`: actualización de seguridad de proxy-addr.
+- Este informe.
