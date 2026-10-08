@@ -1,6 +1,6 @@
 # Correcciones para datos reales — 2026-10-08
 
-Estado: PR #13 integrada y desplegada. Pendiente validación visual autenticada.
+Estado: PR #13 integrada y desplegada; flujo principal validado con cliente ficticio en el negocio QA de producción.
 Commit desplegado: 91d317bf87e35c41fbd3b121529be34ec39ce95d.
 Render confirmó estado live el 2026-10-08 a las 16:07:47 (Argentina).
 Baseline: f446d4f4a2b8df185653c829bfa9dc044e268034.
@@ -58,8 +58,7 @@ Baseline: f446d4f4a2b8df185653c829bfa9dc044e268034.
   perdón idempotente, cobro solo de mora, anulación, corrección de entrega con originales,
   migración repetida, reducción al capital cobrado conservando fecha y atraso reales.
 - Se actualizó proxy-addr a 2.0.8 por vulnerabilidad crítica reportada por npm audit.
-- Producción: falta validación autenticada del flujo completo en navegador; el
-  navegador disponible muestra inicio de sesión. No declarar cerrado este punto.
+- Producción: acceso de administrador y flujo QA verificados el 08/10. Ver evidencia de validación al final.
 - Un respaldo anterior no autoriza restaurar encima de nuevas operaciones reales.
   Reversión de aplicación debe conservar columnas aditivas e historial creado.
 
@@ -72,11 +71,9 @@ Baseline: f446d4f4a2b8df185653c829bfa9dc044e268034.
 - El proveedor no permitió un segundo snapshot por límite de capacidad. El respaldo
   restaurado se comparó inmediatamente antes del despliegue: las 25 tablas seguían
   idénticas a producción, y sus secuencias habían sido verificadas.
-- Pantalla de acceso de producción abre correctamente. La validación autenticada
-  sigue pendiente: el intento de acceso fue rechazado. No se declara cerrado el
-  flujo visual de creación/edición/pago/mora/comprobantes/eliminación en producción.
+- Pantalla de acceso de producción abre correctamente. Tras un primer intento rechazado, el usuario completó el acceso y se verificó el flujo QA.
 - La suite de integración verificó esos comportamientos sobre PostgreSQL aislado.
-  Esto no sustituye la comprobación visual pendiente.
+  La comprobación visual complementaria se detalla a continuación.
 
 ## Archivos modificados
 
@@ -93,3 +90,26 @@ Baseline: f446d4f4a2b8df185653c829bfa9dc044e268034.
   regresión y nuevos casos.
 - `package-lock.json`: actualización de seguridad de proxy-addr.
 - Este informe.
+
+## Validación visual autenticada — 08/10/2026
+
+Se usó únicamente el negocio QA y una ficha ficticia identificada como prueba.
+No se modificaron clientes reales, no se enviaron mensajes y la sesión quedó abierta.
+
+- Alta de cliente y corrección de nombre/observaciones verificadas al volver a la ficha.
+- Venta con entrega de $200 y dos cuotas; corrección auditada del importe, fecha,
+  descripción y condiciones. Cuotas corregidas: $70.000 vencidos y $70.000 futuros.
+- Se mostraron por separado 30 días de atraso y el próximo vencimiento futuro.
+- Mora generada de $5.500; pago QA de $500 imputado a mora; perdón auditado de $5.000.
+  La ficha conservó generación, cobro, perdón y atraso como conceptos separados.
+- Enlace de WhatsApp inspeccionado sin enviarlo: tres líneas y exigible de $70.000,
+  excluyendo cuota futura y mora perdonada. Número ficticio usado exclusivamente en QA.
+- Pago QA final: saldo cero, 2/2 cuotas saldadas, una pagada tarde y otra anticipada.
+  El historial conservó 30 días de atraso y decisión de mora con actor/motivo.
+- Tres comprobantes visibles: entrega, cobro parcial de mora y pago final.
+- Eliminación bloqueada con detalle de operaciones, cuotas, pagos y comprobantes.
+  La eliminación efectiva de fichas vacías se verificó en PostgreSQL aislado; no se
+  hizo un borrado irreversible desde el navegador de producción.
+- La ficha QA quedó finalizada, sin deuda de prueba activa. Sus movimientos ficticios
+  permanecen en el negocio QA para preservar evidencia; no son ingresos reales.
+- No fue necesaria otra modificación de código durante esta validación visual.
