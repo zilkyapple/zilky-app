@@ -27,7 +27,7 @@ async function cuotasEnriquecidas(negocioId = null) {
     JOIN clientes cl ON cl.id = cr.cliente_id
     JOIN cliente_negocio cn ON cn.cliente_id=cr.cliente_id AND cn.negocio_id=cr.negocio_id
     LEFT JOIN cliente_negocio_cobranza cc ON cc.cliente_id=cr.cliente_id AND cc.negocio_id=cr.negocio_id
-    WHERE cu.saldo_pendiente_centavos > 0 AND cu.estado_manual IS NULL
+    WHERE (cu.saldo_pendiente_centavos > 0 OR cu.mora_generada_centavos > cu.mora_pagada_centavos + cu.mora_perdonada_centavos) AND cu.estado_manual IS NULL
     ${filterSql}
   `;
   const rows = await db.prepare(sql).all(...filterParams);
@@ -209,8 +209,8 @@ export async function historialFinancieroCliente(clienteId, negocioId = null) {
       COUNT(*) FILTER (WHERE cu.saldo_pendiente_centavos <= 0)::int AS pagadas,
       COUNT(*) FILTER (WHERE cu.saldo_pendiente_centavos <= 0 AND cu.dias_atraso_al_pagar = 0)::int AS a_tiempo,
       COUNT(*) FILTER (WHERE cu.saldo_pendiente_centavos <= 0 AND cu.dias_atraso_al_pagar > 0)::int AS tarde,
-      COUNT(*) FILTER (WHERE cu.saldo_pendiente_centavos > 0 AND cu.estado_manual IS NULL AND cu.fecha_vencimiento < '${todayAR()}')::int AS vencidas_actualmente,
-      COALESCE(SUM(cu.saldo_pendiente_centavos) FILTER (WHERE cu.saldo_pendiente_centavos > 0 AND cu.estado_manual IS NULL), 0) AS deuda_actual,
+      COUNT(*) FILTER (WHERE (cu.saldo_pendiente_centavos > 0 OR cu.mora_generada_centavos > cu.mora_pagada_centavos + cu.mora_perdonada_centavos) AND cu.estado_manual IS NULL AND cu.fecha_vencimiento < '${todayAR()}')::int AS vencidas_actualmente,
+      COALESCE(SUM(cu.saldo_pendiente_centavos) FILTER (WHERE (cu.saldo_pendiente_centavos > 0 OR cu.mora_generada_centavos > cu.mora_pagada_centavos + cu.mora_perdonada_centavos) AND cu.estado_manual IS NULL), 0) AS deuda_actual,
       COALESCE(AVG(cu.dias_atraso_al_pagar) FILTER (WHERE cu.dias_atraso_al_pagar IS NOT NULL), 0) AS atraso_promedio,
       COALESCE(MAX(cu.dias_atraso_al_pagar), 0) AS atraso_maximo
     FROM cuotas cu JOIN creditos cr ON cr.id = cu.credito_id

@@ -7,6 +7,7 @@ export function estadoCuota(cuota, negocio, today) {
   const pagada = cuota.saldo_pendiente_centavos <= 0;
   const parcial = !pagada && cuota.saldo_pendiente_centavos < cuota.monto_centavos;
 
+  if (pagada && !cuota.estado_manual && calcularMora(cuota, negocio, today).pendiente > 0) return { estado: 'mora', parcial: false };
   if (pagada) {
     const fechaReferencia = cuota.fecha_saldada || today;
     const antesDeVencer = diffDays(cuota.fecha_vencimiento, fechaReferencia) > 0;
@@ -26,13 +27,16 @@ export function estadoCuota(cuota, negocio, today) {
 }
 
 export function calcularMora(cuota, negocio, today) {
-  const { estado } = estadoCuota(cuota, negocio, today);
-  if (estado !== 'mora') return { acumulada: 0, pendiente: 0, diasEnMora: 0 };
+  const pagada = cuota.mora_pagada_centavos || 0;
+  const perdonada = cuota.mora_perdonada_centavos || 0;
+  const registrada = Math.max(cuota.mora_generada_centavos || 0, pagada + perdonada);
+  const resultado = (generada, diasEnMora) => ({ acumulada: generada, pendiente: cuota.estado_manual ? 0 : Math.max(0, generada-pagada-perdonada), pagada, perdonada, diasEnMora });
+  if (cuota.estado_manual || cuota.saldo_pendiente_centavos <= 0) return resultado(registrada, 0);
 
   const diasGracia = negocio.dias_gracia ?? 7;
   const inicioMora = addDays(cuota.fecha_vencimiento, diasGracia + 1);
   const diasEnMora = Math.max(0, diffDays(today, inicioMora) + 1);
-  if (diasEnMora <= 0) return { acumulada: 0, pendiente: 0, diasEnMora: 0 };
+  if (diasEnMora <= 0) return resultado(registrada, 0);
 
   const base = negocio.mora_base === 'total' ? cuota.monto_centavos : cuota.saldo_pendiente_centavos;
   const periodoDias = negocio.mora_periodo === 'dia' ? 1 : negocio.mora_periodo === 'mes' ? 30 : 7;
@@ -49,8 +53,7 @@ export function calcularMora(cuota, negocio, today) {
   }
 
   acumulada = redondearInteresCentavos(acumulada);
-  const pendiente = Math.max(0, acumulada - (cuota.mora_pagada_centavos || 0));
-  return { acumulada, pendiente, diasEnMora };
+  return resultado(Math.max(registrada, acumulada), diasEnMora);
 }
 
 export function distribuirPago({ cuotas, monto, negocio, today, cuotaObjetivoId = null }) {
@@ -62,7 +65,10 @@ export function distribuirPago({ cuotas, monto, negocio, today, cuotaObjetivoId 
 
   for (const cuota of lista) {
     if (disponible <= 0) break;
-    if (cuota.saldo_pendiente_centavos <= 0) continue;
+    if (cuota.estado_manual) continue;
+    const moraAntes = calcularMora(cuota, negocio, today);
+    cuota.mora_generada_centavos = moraAntes.acumulada;
+    if (cuota.saldo_pendiente_centavos <= 0 && moraAntes.pendiente <= 0) continue;
 
     let capitalAplicado = 0;
     let moraAplicada = 0;

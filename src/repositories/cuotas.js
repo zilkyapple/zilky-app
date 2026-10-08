@@ -17,22 +17,23 @@ export async function listCuotasPendientes(negocioId = null) {
   const sql = `
     SELECT cu.*, cr.negocio_id, cr.cliente_id, cr.modalidad
     FROM cuotas cu JOIN creditos cr ON cr.id = cu.credito_id
-    WHERE cu.saldo_pendiente_centavos > 0 AND cu.estado_manual IS NULL
+    WHERE (cu.saldo_pendiente_centavos > 0 OR cu.mora_generada_centavos > cu.mora_pagada_centavos + cu.mora_perdonada_centavos) AND cu.estado_manual IS NULL
     ${negocioId ? 'AND cr.negocio_id = ?' : ''}
     ORDER BY cu.fecha_vencimiento ASC
   `;
   return negocioId ? db.prepare(sql).all(negocioId) : db.prepare(sql).all();
 }
-export async function actualizarCuota(cId, { saldo_pendiente_centavos, mora_pagada_centavos, estado_manual, fecha_saldada, dias_atraso_al_pagar }) {
+export async function actualizarCuota(cId, { saldo_pendiente_centavos, mora_pagada_centavos, estado_manual, fecha_saldada, dias_atraso_al_pagar, mora_generada_centavos }) {
   const actual = await getCuota(cId);
   await db.prepare(`
-    UPDATE cuotas SET saldo_pendiente_centavos = ?, mora_pagada_centavos = ?, estado_manual = ?, fecha_saldada = ?, dias_atraso_al_pagar = ? WHERE id = ?
+    UPDATE cuotas SET saldo_pendiente_centavos = ?, mora_pagada_centavos = ?, estado_manual = ?, fecha_saldada = ?, dias_atraso_al_pagar = ?, mora_generada_centavos = ? WHERE id = ?
   `).run(
     saldo_pendiente_centavos ?? actual.saldo_pendiente_centavos,
     mora_pagada_centavos ?? actual.mora_pagada_centavos,
     estado_manual !== undefined ? estado_manual : actual.estado_manual,
     fecha_saldada !== undefined ? fecha_saldada : actual.fecha_saldada,
     dias_atraso_al_pagar !== undefined ? dias_atraso_al_pagar : actual.dias_atraso_al_pagar,
+    mora_generada_centavos ?? actual.mora_generada_centavos,
     cId
   );
   return getCuota(cId);

@@ -18,7 +18,8 @@ export async function agregarIncidencia({ creditoId, tipo, fecha, clave, motivo=
     [id(),creditoId,tipo,fecha,clave,motivo,usuarioId,pagoId])).rows[0];
 }
 
-const vencidas = (cuotas, fecha) => cuotas.filter(c => c.saldo_pendiente_centavos > 0 && !c.estado_manual && c.fecha_vencimiento < fecha);
+const deuda = c => c.saldo_pendiente_centavos + Math.max(0,(c.mora_generada_centavos||0)-(c.mora_pagada_centavos||0)-(c.mora_perdonada_centavos||0));
+const vencidas = (cuotas, fecha) => cuotas.filter(c => deuda(c) > 0 && !c.estado_manual && c.fecha_vencimiento < fecha);
 
 export async function registrarHistoriaPago({ credito, antes, despues, fecha, pagoId, usuarioId }) {
   const atrasadasAntes = vencidas(antes,fecha);
@@ -34,8 +35,8 @@ export async function registrarHistoriaPago({ credito, antes, despues, fecha, pa
       await agregarIncidencia({...base,tipo:'regularizada',fecha,clave:`pago:${pagoId}:regularizada`});
     }
   }
-  const quedabaSaldo = antes.some(c=>c.saldo_pendiente_centavos>0 && !c.estado_manual);
-  const pagadas = despues.length>0 && despues.every(c=>c.saldo_pendiente_centavos<=0 && !c.estado_manual);
+  const quedabaSaldo = antes.some(c=>deuda(c)>0 && !c.estado_manual);
+  const pagadas = despues.length>0 && despues.every(c=>deuda(c)<=0 && !c.estado_manual);
   if (quedabaSaldo && pagadas) {
     const ultimoVencimiento = despues.map(c=>c.fecha_vencimiento).sort().at(-1);
     const tipo = fecha < ultimoVencimiento ? 'cancelada_anticipadamente' : 'finalizada_correctamente';

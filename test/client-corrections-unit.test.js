@@ -67,3 +67,22 @@ test('Cliente: versión no incluye finanzas ni cambia por orden de campos, pero 
   assert.notEqual(versionDatos({nombre:'Bruno'}),versionDatos({nombre:'Bruno',notas:'Cambio'}));
   assert.equal(datosBasicos({id:'no-exportar',nombre:'Bruno'}).id,undefined);
 });
+
+test('Mora: capital primero no elimina interés y permite cobrar mora sin capital',()=>{
+  const negocio={dias_gracia:0,mora_tipo:'fijo',mora_valor:8500,mora_periodo:'semana',orden_aplicacion_pago:'["capital","mora"]'};
+  const cuota={id:'qa',fecha_vencimiento:'2026-10-01',monto_centavos:14000000,saldo_pendiente_centavos:14000000};
+  const r=distribuirPago({cuotas:[cuota],monto:14000000,negocio,today:'2026-10-02'});
+  const c=r.cuotasActualizadas[0];
+  assert.equal(c.saldo_pendiente_centavos,0);assert.equal(c.mora_generada_centavos,850000);
+  assert.equal(calcularMora(c,negocio,'2026-10-20').pendiente,850000);
+  const cobro=distribuirPago({cuotas:[c],monto:850000,negocio,today:'2026-10-20'});
+  assert.equal(cobro.aplicaciones[0].mora,850000);assert.equal(cobro.remanente,0);
+  assert.equal(calcularMora(cobro.cuotasActualizadas[0],negocio,'2026-10-20').pendiente,0);
+});
+test('Mora: perdonar conserva generada, excluye importe del reclamo y no exime atrasos posteriores',()=>{
+  const negocio={dias_gracia:0,mora_tipo:'fijo',mora_valor:8500,mora_periodo:'semana'};
+  const c={fecha_vencimiento:'2026-10-01',monto_centavos:14000000,saldo_pendiente_centavos:14000000,mora_generada_centavos:850000,mora_perdonada_centavos:850000};
+  assert.equal(calcularMora(c,negocio,'2026-10-02').pendiente,0);
+  assert.equal(calcularMora(c,negocio,'2026-10-09').pendiente,850000);
+  assert.equal(calcularMora({...c,saldo_pendiente_centavos:0},negocio,'2026-10-09').acumulada,850000);
+});

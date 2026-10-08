@@ -473,6 +473,10 @@ export async function migrate() {
     await db.exec(schema);
     await migrarTokensInvitaciones();
     await db.exec(patches);
+    await db.exec(`
+      ALTER TABLE cuotas ADD COLUMN IF NOT EXISTS mora_generada_centavos BIGINT NOT NULL DEFAULT 0 CHECK (mora_generada_centavos >= 0);
+      ALTER TABLE cuotas ADD COLUMN IF NOT EXISTS mora_perdonada_centavos BIGINT NOT NULL DEFAULT 0 CHECK (mora_perdonada_centavos >= 0);
+    `);
   });
   console.log('✔ Migraciones aplicadas.');
 }

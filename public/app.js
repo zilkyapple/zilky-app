@@ -578,7 +578,7 @@ async function abrirMensajeEspecial(clienteId,negocioId) {
 
 function creditoCardHtml(cr) {
   const negocio = state.negocios.find((n) => n.id === cr.negocio_id);
-  const pendientes = cr.cuotas.filter(c => c.saldo_pendiente_centavos > 0 && !c.estado_manual);
+  const pendientes = cr.cuotas.filter(c => (c.saldo_pendiente_centavos > 0 || c.moraPendiente > 0) && !c.estado_manual);
   const pendiente = pendientes.length > 0;
   const estadoOperacion = !pendiente ? cr.estado : pendientes.some(c => c.diasAtraso > 0) ? 'atrasada' : 'al_dia';
   const atrasos = cr.cuotas.filter(c => c.diasAtraso > 0 || c.dias_atraso_al_pagar > 0);
@@ -597,8 +597,9 @@ function creditoCardHtml(cr) {
       ${cr.cuotas.map((cu) => `
         <div class="cuota-row">
           <div class="cn">Cuota ${esc(cu.numero)}/${esc(cr.cuotas.length)} · vence ${esc(fmtFecha(cu.fecha_vencimiento))}
-            <div class="field-hint">Valor: ${esc(formatARS(cu.monto_centavos))}${cu.saldo_pendiente_centavos > 0 && !cu.estado_manual && Number.isFinite(cu.diasHasta) ? ` · ${cu.diasHasta < 0 ? `${esc(-cu.diasHasta)} días de atraso` : cu.diasHasta === 0 ? 'Vence hoy' : `Vence en ${esc(cu.diasHasta)} días`}` : cu.fecha_saldada ? ` · Pagada: ${esc(fmtFecha(cu.fecha_saldada))}` : ''}${cu.moraPendiente > 0 ? ` · Mora pendiente: ${esc(formatARS(cu.moraPendiente))}` : ''}</div>
+            <div class="field-hint">Valor: ${esc(formatARS(cu.monto_centavos))}${cu.saldo_pendiente_centavos > 0 && !cu.estado_manual && Number.isFinite(cu.diasHasta) ? ` · ${cu.diasHasta < 0 ? `${esc(-cu.diasHasta)} días de atraso` : cu.diasHasta === 0 ? 'Vence hoy' : `Vence en ${esc(cu.diasHasta)} días`}` : cu.fecha_saldada ? ` · Pagada: ${esc(fmtFecha(cu.fecha_saldada))}` : ''}${cu.moraGenerada > 0 ? ` · Mora generada: ${esc(formatARS(cu.moraGenerada))} · Pendiente: ${esc(formatARS(cu.moraPendiente))} · Cobrada: ${esc(formatARS(cu.moraCobrada))} · Perdonada: ${esc(formatARS(cu.moraPerdonada))}` : ''}</div>
           </div>
+          ${cu.moraPendiente > 0 && state.usuario?.rol === 'administrador' ? `<button class="btn btn-secondary" data-action="perdonar-mora" data-cuota="${esc(cu.id)}" data-negocio="${esc(cr.negocio_id)}">Perdonar mora</button>` : ''}
           <div class="cr"><span class="amt">${esc(formatARS(cu.saldo_pendiente_centavos))}</span><span class="badge badge-${esc(cu.estado)}">${esc(ESTADO_LABEL[cu.estado] || cu.estado)}</span></div>
         </div>
       `).join('')}
@@ -1367,6 +1368,7 @@ document.addEventListener('click', async (e) => {
   else if (action === 'registrar-pago') abrirRegistrarPago(credito, monto ? Number(monto) : null);
   else if (action === 'ver-cliente-negocio') { setNegocio(id || null); const parts = parseHash(); if (parts[1]) render(); }
   else if (action === 'editar-seguimiento') abrirEditarSeguimiento(id);
+  else if (action === 'perdonar-mora') abrirPerdonarMora(el.dataset.cuota,el.dataset.negocio);
   else if (action === 'editar-cliente') abrirEditarCliente(id);
   else if (action === 'eliminar-cliente') abrirEliminarCliente(id);
   else if (action === 'gestion-cliente') abrirGestionCliente(id,el.dataset.negocio,el.dataset.tipo);
@@ -1630,3 +1632,26 @@ async function arrancarApp() {
   if (!getToken()) { showAuthScreen(); return; }
   await arrancarApp();
 })();
+
+async function abrirPerdonarMora(cuotaId, negocioId) {
+  if(state.usuario?.rol!=='administrador') return toast('Requiere administrador',true);
+  const token=getToken(),scope=state.negocioActual,solicitud=crypto.randomUUID();
+  openSheet('<div class="sheet-title">Perdonar mora</div><p>Cargando…</p>');
+  const sheet=document.getElementById('activeSheet');
+  const vigente=()=>sheet.isConnected&&document.getElementById('activeSheet')===sheet&&getToken()===token&&state.negocioActual===scope&&document.getElementById('sheetBackdrop').classList.contains('open')&&state.usuario?.rol==='administrador';
+  try {
+    const data=await api(`/pagos/cuotas/${encodeURIComponent(cuotaId)}/mora?negocio_id=${encodeURIComponent(negocioId)}`);
+    if(!vigente())return;
+    setHTML(sheet,`<div class="sheet-title">Perdonar mora</div><p>Mora pendiente: <strong>${esc(formatARS(data.mora.pendiente))}</strong></p><p>Se perdona únicamente este importe. El atraso y la mora generada quedan en el historial. Nuevos atrasos pueden generar más mora.</p><div class="field"><label>Motivo</label><textarea id="motivoMora" maxlength="2000"></textarea></div><button id="confirmarMora" class="btn btn-primary">Confirmar perdón</button>`);
+    let busy=false,payload=null;
+    sheet.querySelector('#confirmarMora').addEventListener('click',async()=>{
+      if(busy||!vigente())return;
+      const motivo=sheet.querySelector('#motivoMora').value.trim();if(!motivo)return toast('Indicá el motivo',true);
+      payload ||= {version:data.version,motivo,solicitud_id:solicitud,negocio_id:negocioId};
+      busy=true;sheet.querySelector('#confirmarMora').disabled=true;sheet.querySelector('#motivoMora').disabled=true;
+      try { await api(`/pagos/cuotas/${encodeURIComponent(cuotaId)}/perdonar-mora`,{method:'POST',body:JSON.stringify(payload)});if(vigente()){closeSheet();toast('Mora perdonada; historial conservado');render();} }
+      catch(e){if(vigente()){toast(e.message,true);if(e.status===409)setHTML(sheet,'<p>La cuota cambió. Cerrá y abrí nuevamente para revisar el importe.</p>');else{sheet.querySelector('#confirmarMora').disabled=false;if(e.status===400){payload=null;sheet.querySelector('#motivoMora').disabled=false;}}}}
+      finally{busy=false;}
+    });
+  }catch(e){if(vigente())setHTML(sheet,`<p>${esc(e.message)}</p>`);}
+}

@@ -179,10 +179,10 @@ clientesRouter.get('/:id', requirePermiso('clientes.ver'), async (req, res, next
       const cuotas = cuotasRaw.map((c) => {
         const { estado, parcial } = estadoCuota(c, negocio, today);
         const mora = calcularMora(c, negocio, today);
-        if (c.saldo_pendiente_centavos > 0 && !c.estado_manual) {
+        if (!c.estado_manual) {
           deudaTotal += c.saldo_pendiente_centavos + mora.pendiente;
         }
-        return { ...c, estado, parcial, moraPendiente: mora.pendiente,
+        return { ...c, estado, parcial, moraPendiente: mora.pendiente, moraGenerada: mora.acumulada, moraCobrada: mora.pagada, moraPerdonada: mora.perdonada,
           diasHasta: diffDays(c.fecha_vencimiento, today),
           diasAtraso: c.saldo_pendiente_centavos > 0 && !c.estado_manual ? Math.max(0, diffDays(today, c.fecha_vencimiento)) : 0 };
       });
