@@ -592,6 +592,7 @@ function creditoCardHtml(cr) {
         <span class="badge badge-${esc(cr.estado === 'finalizado' ? 'pagada' : estadoOperacion === 'atrasada' ? 'mora' : 'activa')}">${esc(estadoOperacion.replaceAll('_', ' '))}</span>
       </div>
       <div class="field-hint">Compra: ${esc(fmtFecha(cr.fecha_inicio))} · Total: ${esc(formatARS(cr.monto_total_centavos))} · Entrega inicial: ${esc(formatARS(cr.entrega_inicial_centavos))}</div>
+      ${cr.producto_descripcion ? `<p>Producto/equipo corregido: ${esc(cr.producto_descripcion)}</p>` : ''}${cr.condiciones ? `<p>Condiciones: ${esc(cr.condiciones)}</p>` : ''}
       ${(cr.items || []).length ? `<ul>${cr.items.map(it => `<li>${esc(it.descripcion || it.producto_nombre || 'Producto')} · Cantidad: ${esc(it.cantidad)}${it.producto_variante ? ` · ${esc(it.producto_variante)}` : ''}${it.producto_imei ? ` · IMEI: ${esc(it.producto_imei)}` : ''}</li>`).join('')}</ul>` : '<p class="field-hint">Sin detalle de producto registrado.</p>'}
       <p class="field-hint">Cuotas pagadas: ${esc(cr.cuotas.filter(c => c.saldo_pendiente_centavos <= 0 && !c.estado_manual).length)}/${esc(cr.cuotas.length)} · Saldo pendiente: ${esc(formatARS(pendientes.reduce((s,c) => s+c.saldo_pendiente_centavos+(c.moraPendiente || 0),0)))}</p>
       ${cr.cuotas.map((cu) => `
@@ -606,6 +607,7 @@ function creditoCardHtml(cr) {
       ${atrasos.length ? `<details><summary>Historial de atrasos (${esc(atrasos.length)})</summary>${atrasos.map(c => `<p>Cuota ${esc(c.numero)} · Vencimiento: ${esc(fmtFecha(c.fecha_vencimiento))} · ${c.saldo_pendiente_centavos <= 0 ? `Regularizada el ${esc(fmtFecha(c.fecha_saldada))} tras ${esc(c.dias_atraso_al_pagar)} días de atraso` : `${esc(c.diasAtraso)} días de atraso actual`}</p>`).join('')}</details>` : ''}
       ${(cr.moraHistorial||[]).length ? `<details><summary>Decisiones de mora</summary>${cr.moraHistorial.map(e=>`<p>Cuota ${esc(e.numero)} · ${esc(e.fecha_hora)} · ${esc(e.autor||'Administrador')} · ${esc(e.motivo)}</p>`).join('')}</details>` : ''}
       ${incidenciasHtml(cr)}
+      ${state.usuario?.rol==='administrador' ? `<button class="btn btn-secondary" data-action="corregir-financiacion" data-credito="${esc(cr.id)}" data-negocio="${esc(cr.negocio_id)}">Corregir financiación</button>` : ''}
       ${pendiente ? `<button class="btn btn-primary btn-block" style="margin-top:12px" data-action="registrar-pago" data-negocio="${esc(cr.negocio_id)}" data-credito="${esc(cr.id)}">${iconCobrar()}Registrar pago</button>` : ''}
     </div>
   `;
@@ -1369,6 +1371,7 @@ document.addEventListener('click', async (e) => {
   else if (action === 'registrar-pago') abrirRegistrarPago(credito, monto ? Number(monto) : null);
   else if (action === 'ver-cliente-negocio') { setNegocio(id || null); const parts = parseHash(); if (parts[1]) render(); }
   else if (action === 'editar-seguimiento') abrirEditarSeguimiento(id);
+  else if (action === 'corregir-financiacion') abrirCorreccionFinanciacion(credito,el.dataset.negocio);
   else if (action === 'perdonar-mora') abrirPerdonarMora(el.dataset.cuota,el.dataset.negocio);
   else if (action === 'editar-cliente') abrirEditarCliente(id);
   else if (action === 'eliminar-cliente') abrirEliminarCliente(id);
@@ -1652,6 +1655,49 @@ async function abrirPerdonarMora(cuotaId, negocioId) {
       busy=true;sheet.querySelector('#confirmarMora').disabled=true;sheet.querySelector('#motivoMora').disabled=true;
       try { await api(`/pagos/cuotas/${encodeURIComponent(cuotaId)}/perdonar-mora`,{method:'POST',body:JSON.stringify(payload)});if(vigente()){closeSheet();toast('Mora perdonada; historial conservado');render();} }
       catch(e){if(vigente()){toast(e.message,true);if(e.status===409)setHTML(sheet,'<p>La cuota cambió. Cerrá y abrí nuevamente para revisar el importe.</p>');else{sheet.querySelector('#confirmarMora').disabled=false;if(e.status===400){payload=null;sheet.querySelector('#motivoMora').disabled=false;}}}}
+      finally{busy=false;}
+    });
+  }catch(e){if(vigente())setHTML(sheet,`<p>${esc(e.message)}</p>`);}
+}
+
+async function abrirCorreccionFinanciacion(creditoId,negocioId) {
+  if(state.usuario?.rol!=='administrador')return toast('Requiere administrador',true);
+  const token=getToken(),scope=state.negocioActual,solicitud=crypto.randomUUID();
+  openSheet('<div class="sheet-title">Corregir financiación</div><p>Cargando…</p>');
+  const sheet=document.getElementById('activeSheet');
+  const vigente=()=>sheet.isConnected&&document.getElementById('activeSheet')===sheet&&document.getElementById('sheetBackdrop').classList.contains('open')&&getToken()===token&&state.negocioActual===scope&&state.usuario?.rol==='administrador';
+  try {
+    const v=await api(`/ventas/creditos/${encodeURIComponent(creditoId)}/correccion?negocio_id=${encodeURIComponent(negocioId)}`);
+    if(!vigente())return;
+    const cr=v.credito;
+    setHTML(sheet,`<div class="sheet-title">Corregir financiación</div><p>Los cambios quedan auditados con motivo y responsable. Los pagos de cuotas se conservan. Las cuotas saldadas no se modifican.</p>
+      <div class="field"><label>Importe de la operación ($)</label><input id="corTotal" type="number" min="0" step="0.01" value="${esc(cr.monto_total_centavos/100)}"></div>
+      <div class="field"><label>Entrega inicial ($)</label><input id="corEntrega" type="number" min="0" step="0.01" value="${esc(cr.entrega_inicial_centavos/100)}"></div>
+      <p>Si corregís la entrega, el comprobante anterior quedará anulado y se emitirá el corregido. Es una corrección de carga, no un nuevo cobro ni una devolución.</p>
+      <div class="field"><label>Fecha de compra</label><input id="corFecha" type="date" value="${esc(cr.fecha_inicio)}"></div>
+      <div class="field"><label>Descripción correcta del producto/equipo</label><input id="corProducto" maxlength="4000" value="${esc(cr.producto_descripcion||'')}"></div>
+      <div class="field"><label>Condiciones de financiación</label><textarea id="corCondiciones" maxlength="4000">${esc(cr.condiciones||'')}</textarea></div>
+      <p>Cuotas: podés agregar, corregir importes y vencimientos, o quitar cuotas sin pagos ni mora. Revisá el plan completo antes de guardar.</p><div id="corCuotas"></div><button id="corAgregar" class="btn btn-secondary">Agregar cuota</button>
+      <div class="field"><label>Motivo de la corrección</label><textarea id="corMotivo" maxlength="2000"></textarea></div>
+      ${v.pagos.length?'<label><input type="checkbox" id="corConfirmar"> Revisé los pagos existentes y confirmo esta corrección de carga.</label>':''}
+      <button id="corGuardar" class="btn btn-primary">Guardar corrección</button>`);
+    const lista=sheet.querySelector('#corCuotas');
+    function add(q={}) {
+      const row=document.createElement('div');row.className='field';row.dataset.id=q.id||'';
+      setHTML(row,`<label>Cuota · importe ($) y vencimiento</label><input class="corMonto" type="number" min="0.01" step="0.01" value="${esc((q.monto_centavos||0)/100)}"><input class="corVence" type="date" value="${esc(q.fecha_vencimiento||'')}"><button class="btn btn-secondary corQuitar">Quitar cuota</button>`);
+      row.querySelector('.corQuitar').addEventListener('click',()=>{if(vigente()&&!row.querySelector('button').disabled)row.remove();});lista.appendChild(row);
+    }
+    v.cuotas.forEach(add);sheet.querySelector('#corAgregar').addEventListener('click',()=>{if(vigente())add();});
+    let busy=false,payload=null;
+    sheet.querySelector('#corGuardar').addEventListener('click',async()=>{
+      if(busy||!vigente())return;
+      const read=id=>sheet.querySelector('#'+id).value;
+      const datos={monto_total_centavos:Math.round(Number(read('corTotal'))*100),entrega_inicial_centavos:Math.round(Number(read('corEntrega'))*100),fecha_inicio:read('corFecha'),producto_descripcion:read('corProducto'),condiciones:read('corCondiciones'),cuotas:[...lista.children].map(row=>({id:row.dataset.id||undefined,monto_centavos:Math.round(Number(row.querySelector('.corMonto').value)*100),fecha_vencimiento:row.querySelector('.corVence').value}))};
+      const motivo=read('corMotivo').trim();if(!motivo)return toast('Indicá el motivo',true);
+      payload ||= {version:v.version,solicitud_id:solicitud,motivo,datos,negocio_id:negocioId,confirmar_correccion_pagos:sheet.querySelector('#corConfirmar')?.checked===true};
+      busy=true;sheet.querySelectorAll('input,textarea,button').forEach(el=>el.disabled=true);
+      try{await api(`/ventas/creditos/${encodeURIComponent(creditoId)}/correccion`,{method:'PATCH',body:JSON.stringify(payload)});if(vigente()){closeSheet();toast('Corrección registrada con historial');render();}}
+      catch(e){if(vigente()){toast(e.message,true);if(e.status===409)setHTML(sheet,`<p>${esc(e.message)}</p><p>Cerrá y abrí nuevamente para revisar la operación.</p>`);else {sheet.querySelector('#corGuardar').disabled=false;if(e.status===400){payload=null;sheet.querySelectorAll('input,textarea,button').forEach(el=>el.disabled=false);}}}}
       finally{busy=false;}
     });
   }catch(e){if(vigente())setHTML(sheet,`<p>${esc(e.message)}</p>`);}

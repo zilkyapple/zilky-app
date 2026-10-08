@@ -385,7 +385,7 @@ CREATE TABLE IF NOT EXISTS credito_incidencias (
 );
 CREATE INDEX IF NOT EXISTS idx_credito_incidencias_credito ON credito_incidencias(credito_id,secuencia);
 ALTER TABLE pagos ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'cuota';
-CREATE UNIQUE INDEX IF NOT EXISTS idx_entrega_inicial_credito ON pagos(credito_id) WHERE tipo='entrega_inicial';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_entrega_inicial_credito ON pagos(credito_id) WHERE tipo='entrega_inicial' AND anulado=0;
 ALTER TABLE negocios ADD COLUMN IF NOT EXISTS recordatorio_dias TEXT DEFAULT '[7,3,1,0]';
 ALTER TABLE negocios ADD COLUMN IF NOT EXISTS cobranza_modo_negocio TEXT DEFAULT 'revisar';
 ALTER TABLE cuotas ADD COLUMN IF NOT EXISTS fecha_saldada TEXT;
@@ -474,6 +474,10 @@ export async function migrate() {
     await migrarTokensInvitaciones();
     await db.exec(patches);
     await db.exec(`
+      ALTER TABLE creditos ADD COLUMN IF NOT EXISTS producto_descripcion TEXT;
+      ALTER TABLE creditos ADD COLUMN IF NOT EXISTS condiciones TEXT;
+      DROP INDEX IF EXISTS idx_entrega_inicial_credito;
+      CREATE UNIQUE INDEX idx_entrega_inicial_credito ON pagos(credito_id) WHERE tipo='entrega_inicial' AND anulado=0;
       ALTER TABLE cuotas ADD COLUMN IF NOT EXISTS mora_generada_centavos BIGINT NOT NULL DEFAULT 0 CHECK (mora_generada_centavos >= 0);
       ALTER TABLE cuotas ADD COLUMN IF NOT EXISTS mora_perdonada_centavos BIGINT NOT NULL DEFAULT 0 CHECK (mora_perdonada_centavos >= 0);
     `);
