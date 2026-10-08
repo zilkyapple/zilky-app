@@ -111,3 +111,15 @@ test('Etapa4: corregir financiación no borra cuotas con contactos registrados',
   await assert.rejects(()=>corregirFinanciacion(vb.credito.id,{version:v.version,motivo:'QA intento de reemplazar cuota con contacto',solicitud_id:randomUUID(),datos:{monto_total_centavos:100000,entrega_inicial_centavos:0,fecha_inicio:hoy,producto_descripcion:'QA',condiciones:'QA',cuotas:[{monto_centavos:100000,fecha_vencimiento:addDays(hoy,3)}]}},admin.id),e=>e.status===409&&/historial de contactos/.test(e.message));
   assert.equal((await db.prepare('SELECT COUNT(*)::int n FROM recordatorios WHERE cuota_id=?').get(qb.id)).n,1);
 });
+
+test('Etapa5 preparación: admin ve snapshot aislado y sin mutar registros; empleado no accede',async()=>{
+  const url=`/clientes/${c.id}/whatsapp-preparacion?negocio_id=${a.id}`;
+  const before=await db.prepare('SELECT * FROM recordatorios ORDER BY id').all();
+  assert.equal((await req(url,null,emp,'GET')).status,403);
+  assert.equal((await req(`/clientes/${c.id}/whatsapp-preparacion`,null,admin,'GET')).status,400);
+  assert.equal((await req(`/clientes/${c.id}/whatsapp-preparacion?negocio_id=inexistente`,null,admin,'GET')).status,404);
+  const result=await req(url,null,admin,'GET');assert.equal(result.status,200);assert.equal(result.body.envio_habilitado,false);
+  assert.ok(result.body.contactos.every(r=>r.cuota_id!==qb.id));
+  assert.deepEqual(await db.prepare('SELECT * FROM recordatorios ORDER BY id').all(),before);
+  assert.ok(result.body.contactos.every(r=>r.envio_habilitado===false));
+});

@@ -511,6 +511,7 @@ function gestionCobranzaHtml(c) {
     ${gestiones.map(g=>`<div class="card"><strong>${esc(negocioNombre(g.negocio_id))} · ${g.gestion_especial===1?'Gestión especial':'Cobranza normal'}</strong>
       <p>Modo: ${esc(modosCobranza[g.modo]||'Revisión')}</p>
       ${puede('clientes.editar',g.negocio_id)&&puede('cobranzas.ver',g.negocio_id)?`<button class="btn btn-secondary" data-action="contactos-cobranza" data-id="${esc(c.id)}" data-negocio="${esc(g.negocio_id)}">Gestionar contactos</button>`:''}
+      ${admin?`<button class="btn btn-secondary" data-action="whatsapp-preparacion" data-id="${esc(c.id)}" data-negocio="${esc(g.negocio_id)}">Previsualizar automatización</button>`:''}
       ${historialContactosHtml(c,g.negocio_id)}
       ${(g.historialModo||[]).length?`<details><summary>Cambios del modo de cobranza</summary>${g.historialModo.map(h=>`<p>${esc(fmtFecha(h.fecha_hora))} · ${esc(h.autor||'Sistema')} · ${esc(modosCobranza[parseJsonSeguro(h.datos_nuevos).modo]||'Revisión')}: ${esc(h.motivo)}</p>`).join('')}</details>`:''}
       ${g.proximo_contacto?`<p>Próximo seguimiento: ${esc(fmtFecha(g.proximo_contacto))}</p>`:''}
@@ -1382,6 +1383,7 @@ document.addEventListener('click', async (e) => {
   else if (action === 'editar-cliente') abrirEditarCliente(id);
   else if (action === 'eliminar-cliente') abrirEliminarCliente(id);
   else if (action === 'gestion-cliente') abrirGestionCliente(id,el.dataset.negocio,el.dataset.tipo);
+  else if (action === 'whatsapp-preparacion') abrirPreparacionWhatsApp(id,el.dataset.negocio);
   else if (action === 'contactos-cobranza') abrirContactosCobranza(id,el.dataset.negocio);
   else if (action === 'mensaje-especial') abrirMensajeEspecial(id,el.dataset.negocio);
   else if (action === 'incidencia-equipo') abrirIncidenciaEquipo(id,credito,el.dataset.negocio);
@@ -1770,4 +1772,21 @@ function historialContactosHtml(c,negocioId) {
   const rows=(c.contactosCobranza||[]).filter(r=>r.negocio_id===negocioId);
   if(!rows.length)return '';
   return `<details><summary>Contactos y compromisos (${rows.length})</summary>${rows.map(r=>`<div class="card"><strong>Cuota ${esc(r.numero)} · ${esc({pendiente:'Pendiente',realizado:'Realizado',cancelado:'Cancelado',cancelado_pago:'Cancelado por pago'}[r.estado]||r.estado)}</strong><p>Contacto: ${esc(fmtFecha(r.fecha_contacto))} · Vencimiento: ${esc(fmtFecha(r.vencimiento_actual||r.fecha_vencimiento_real))}</p><p>${esc(r.nota)}</p>${(r.historial||[]).map(h=>`<p>${esc(fmtFecha(h.fecha_hora))} · ${esc(h.autor||'Sistema')} · ${esc({programar:'Programado',reprogramar:'Reprogramado',realizado:'Contacto realizado',cancelar:'Cancelado',cancelado_pago:'Cuota saldada'}[h.accion]||h.accion)}: ${esc(h.motivo)}${h.accion==='reprogramar'?` · ${esc(fmtFecha(parseJsonSeguro(h.datos_anteriores).fecha_contacto))} → ${esc(fmtFecha(parseJsonSeguro(h.datos_nuevos).fecha_contacto))}`:''}</p>`).join('')}</div>`).join('')}</details>`;
+}
+
+async function abrirPreparacionWhatsApp(clienteId,negocioId) {
+  if(state.usuario?.rol!=='administrador')return toast('Requiere administrador',true);
+  if(state.negocioActual!==negocioId)return toast('Seleccioná el negocio de esta cuenta',true);
+  const token=getToken();
+  openSheet('<div class="sheet-title">Previsualización de WhatsApp</div><p>Cargando…</p>');
+  const sheet=document.getElementById('activeSheet');
+  const vigente=()=>document.getElementById('activeSheet')===sheet&&document.getElementById('sheetBackdrop').classList.contains('open')&&state.negocioActual===negocioId&&getToken()===token;
+  try {
+    const data=await api(`/clientes/${encodeURIComponent(clienteId)}/whatsapp-preparacion?negocio_id=${encodeURIComponent(negocioId)}`);
+    if(!vigente())return;
+    const razones={contacto_cerrado:'Contacto cerrado',contacto_reprogramado_o_futuro:'La fecha de contacto todavía no llegó',cobranza_pausada:'Cobranza pausada',gestion_especial_manual:'Gestión especial: seguimiento manual',requiere_revision:'Requiere revisión humana',cuota_saldada:'Cuota saldada',telefono_internacional_pendiente:'Falta teléfono con prefijo internacional explícito (+)',integracion_no_activada:'Integración sin activar'};
+    setHTML(sheet,`<div class="sheet-title">Previsualización de WhatsApp</div><p>No envía mensajes ni cambia los contactos. La integración con Meta todavía no está activada.</p>
+      ${data.contactos.length?data.contactos.map(c=>`<div class="card"><strong>Cuota ${esc(c.numero)} · vence ${esc(fmtFecha(c.fecha_vencimiento))}</strong><p>Contacto: ${esc(fmtFecha(c.fecha_contacto))}</p><p>${c.motivos.map(m=>esc(razones[m]||m)).join(' · ')}</p>${c.mensaje?`<p style="white-space:pre-wrap">${esc(c.mensaje)}</p>`:'<p>Sin importe pendiente para reclamar.</p>'}</div>`).join(''):'<p>No hay contactos programados para previsualizar.</p>'}
+      <button class="btn btn-secondary" data-action="cerrar-sheet">Cerrar</button>`);
+  }catch(e){if(vigente())setHTML(sheet,`<p>${esc(e.message)}</p><button class="btn btn-secondary" data-action="cerrar-sheet">Cerrar</button>`);}
 }
