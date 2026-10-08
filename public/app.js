@@ -604,6 +604,7 @@ function creditoCardHtml(cr) {
         </div>
       `).join('')}
       ${atrasos.length ? `<details><summary>Historial de atrasos (${esc(atrasos.length)})</summary>${atrasos.map(c => `<p>Cuota ${esc(c.numero)} · Vencimiento: ${esc(fmtFecha(c.fecha_vencimiento))} · ${c.saldo_pendiente_centavos <= 0 ? `Regularizada el ${esc(fmtFecha(c.fecha_saldada))} tras ${esc(c.dias_atraso_al_pagar)} días de atraso` : `${esc(c.diasAtraso)} días de atraso actual`}</p>`).join('')}</details>` : ''}
+      ${(cr.moraHistorial||[]).length ? `<details><summary>Decisiones de mora</summary>${cr.moraHistorial.map(e=>`<p>Cuota ${esc(e.numero)} · ${esc(e.fecha_hora)} · ${esc(e.autor||'Administrador')} · ${esc(e.motivo)}</p>`).join('')}</details>` : ''}
       ${incidenciasHtml(cr)}
       ${pendiente ? `<button class="btn btn-primary btn-block" style="margin-top:12px" data-action="registrar-pago" data-negocio="${esc(cr.negocio_id)}" data-credito="${esc(cr.id)}">${iconCobrar()}Registrar pago</button>` : ''}
     </div>

@@ -192,6 +192,9 @@ clientesRouter.get('/:id', requirePermiso('clientes.ver'), async (req, res, next
         LEFT JOIN productos p ON p.id=vd.producto_id AND p.negocio_id=?
         WHERE vd.venta_id=? ORDER BY vd.id`).all(cr.negocio_id, cr.venta_id);
       creditosConDetalle.push({ ...cr, cuotas, items, seguimientoEquipos: negocio.seguimiento_equipos===1,
+        moraHistorial: await db.prepare(`SELECT a.fecha_hora,a.motivo,a.datos_nuevos, u.nombre AS autor, cu.numero
+          FROM auditoria a JOIN cuotas cu ON cu.id=a.entidad_id LEFT JOIN usuarios u ON u.id=a.empleado
+          WHERE cu.credito_id=? AND a.entidad='cuota' AND a.accion='perdonar_mora' ORDER BY a.fecha_hora`).all(cr.id),
         incidencias: await listIncidencias(cr.id) });
     }
 

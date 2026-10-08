@@ -387,3 +387,16 @@ test('Eliminar cliente: cambio de negocio durante la consulta descarta la confir
   b.w.fetch=()=>new Promise(r=>finish=r);
   try {const pending=b.w.abrirEliminarCliente('cliente-qa');b.w.qaState.negocioActual='otro';finish({ok:true,status:200,json:async()=>({nombre:'Error QA',negocios:1,actividad:{},permitido:true,version:'v1'})});await pending;assert.equal(b.w.document.getElementById('el_guardar'),null);} finally {b.w.close();}
 });
+
+test('Mora: muestra generada, cobrada y perdonada; empleado no puede condonar',()=>{
+  for(const admin of [false,true]) {
+    const b=browser({admin});
+    try {
+      const html=b.w.creditoCardHtml({id:'cr',cliente_id:'cliente-qa',negocio_id:'qa',modalidad:'unico',estado:'activo',cuotas:[{id:'cu',numero:1,monto_centavos:14000000,saldo_pendiente_centavos:0,fecha_vencimiento:'2026-10-01',moraGenerada:850000,moraPendiente:350000,moraCobrada:200000,moraPerdonada:300000}]});
+      b.w.setHTML(b.view,html);
+      assert.match(b.view.textContent,/Mora generada/);assert.match(b.view.textContent,/Cobrada/);assert.match(b.view.textContent,/Perdonada/);
+      assert.equal(!!b.view.querySelector('[data-action="perdonar-mora"]'),admin);
+      assert.ok(b.view.querySelector('[data-action="registrar-pago"]'));
+    }finally{b.w.close();}
+  }
+});

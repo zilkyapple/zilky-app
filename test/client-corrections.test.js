@@ -127,7 +127,7 @@ test('Eliminar PG: seguimiento comercial preservado aunque no haya operaciones',
 
 test('Mora PG: condonación auditada, reintento, empleado denegado y atraso conservado',async()=>{
   const n=await crearNegocio({nombre:'QA mora',dias_gracia:0,mora_tipo:'fijo',mora_valor:8500,mora_periodo:'semana'});
-  const c=await crearCliente({nombre:'Mora QA',negocio_id:n.id});
+  const c=await crearCliente({nombre:'Mora',apellido:'QA',negocio_id:n.id});
   const v=await crearVenta({negocio_id:n.id,cliente_id:c.id,fecha:addDays(hoy,-2),modalidad:'unico',monto_total_centavos:14000000,plan:{fecha_limite:addDays(hoy,-1)}});
   const q=v.cuotas[0],url=`/pagos/cuotas/${q.id}`;
   const p=await api(url+'/mora',admin);assert.equal(p.body.mora.pendiente,850000);
@@ -145,8 +145,8 @@ test('Mora PG: condonación auditada, reintento, empleado denegado y atraso cons
 });
 test('Mora PG: capital primero mantiene mora pendiente, luego cobro y anulación la reabren',async()=>{
   const {anularComprobante}=await import('../src/services/comprobantesService.js');
-  const n=await crearNegocio({nombre:'QA capital primero',dias_gracia:0,mora_tipo:'fijo',mora_valor:8500,mora_periodo:'semana',orden_aplicacion_pago:'["capital","mora"]'});
-  const c=await crearCliente({nombre:'Cobro QA',negocio_id:n.id});
+  const n=await crearNegocio({nombre:'QA capital primero',dias_gracia:0,mora_tipo:'fijo',mora_valor:8500,mora_periodo:'semana',orden_aplicacion_pago:['capital','mora']});
+  const c=await crearCliente({nombre:'Cobro',apellido:'QA',negocio_id:n.id});
   const v=await crearVenta({negocio_id:n.id,cliente_id:c.id,fecha:addDays(hoy,-2),modalidad:'unico',monto_total_centavos:14000000,plan:{fecha_limite:addDays(hoy,-1)}});
   await registrarPago({credito_id:v.credito.id,monto_centavos:14000000,fecha_hora:`${hoy}T12:00:00-03:00`});
   let f=await api(`/clientes/${c.id}?negocio_id=${n.id}`,admin);assert.equal(f.body.saldoExigibleCentavos,850000);
