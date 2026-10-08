@@ -1735,6 +1735,18 @@ async function abrirContactosCobranza(clienteId,negocioId) {
       <div class="field"><label for="contactoNota">Resultado, compromiso acordado u observaciones</label><textarea id="contactoNota" maxlength="2000"></textarea></div>
       <button class="btn btn-primary" id="guardarContacto" ${!pendientes.length&&!cuotas.length?'disabled':''}>Guardar contacto</button>
       <p>“Realizado” registra tu declaración de contacto; abrir WhatsApp no lo marca como enviado.</p>`);
+    const actualizarFormulario=()=>{
+      const r=pendientes.find(r=>'r:'+r.id===sheet.querySelector('#contactoDestino').value);
+      sheet.querySelector('#contactoAccion').closest('.field').hidden=!r;
+      sheet.querySelector('#contactoFecha').closest('.field').hidden=!!r&&sheet.querySelector('#contactoAccion').value!=='reprogramar';
+    };
+    sheet.querySelector('#contactoDestino').addEventListener('change',()=>{
+      const r=pendientes.find(r=>'r:'+r.id===sheet.querySelector('#contactoDestino').value);
+      sheet.querySelector('#contactoFecha').value=r?.fecha_contacto||todayISO();actualizarFormulario();
+    });
+    sheet.querySelector('#contactoAccion').addEventListener('change',actualizarFormulario);
+    if(pendientes.length)sheet.querySelector('#contactoFecha').value=pendientes[0].fecha_contacto;
+    actualizarFormulario();
     let busy=false,payload=null,requestTarget=null;
     const guardar=sheet.querySelector('#guardarContacto');
     guardar.addEventListener('click',async()=>{
