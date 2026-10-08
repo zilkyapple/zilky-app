@@ -509,6 +509,10 @@ function gestionCobranzaHtml(c) {
   return `<details class="client-section" ${gestiones.some(g=>g.gestion_especial===1)?'open':''}>
     <summary>Gestión de cobranza y antecedentes</summary>
     ${gestiones.map(g=>`<div class="card"><strong>${esc(negocioNombre(g.negocio_id))} · ${g.gestion_especial===1?'Gestión especial':'Cobranza normal'}</strong>
+      <p>Modo: ${esc(modosCobranza[g.modo]||'Revisión')}</p>
+      ${puede('clientes.editar',g.negocio_id)&&puede('cobranzas.ver',g.negocio_id)?`<button class="btn btn-secondary" data-action="contactos-cobranza" data-id="${esc(c.id)}" data-negocio="${esc(g.negocio_id)}">Gestionar contactos</button>`:''}
+      ${historialContactosHtml(c,g.negocio_id)}
+      ${(g.historialModo||[]).length?`<details><summary>Cambios del modo de cobranza</summary>${g.historialModo.map(h=>`<p>${esc(fmtFecha(h.fecha_hora))} · ${esc(h.autor||'Sistema')} · ${esc(modosCobranza[parseJsonSeguro(h.datos_nuevos).modo]||'Revisión')}: ${esc(h.motivo)}</p>`).join('')}</details>`:''}
       ${g.proximo_contacto?`<p>Próximo seguimiento: ${esc(fmtFecha(g.proximo_contacto))}</p>`:''}
       <p class="field-hint">La clasificación es manual. No elimina deuda ni bloquea pagos. Los antecedentes se conservan.</p>
       ${admin?`<button class="btn btn-secondary" data-action="gestion-cliente" data-id="${esc(c.id)}" data-negocio="${esc(g.negocio_id)}" data-tipo="${g.gestion_especial===1?'salida':'entrada'}">${g.gestion_especial===1?'Volver a cobranza normal':'Pasar a Gestión especial'}</button>`:''}
@@ -773,6 +777,7 @@ async function viewCobrar(view) {
       </div>
     ` : ''}
 
+    ${(b.contactos||[]).length?`<details class="client-section" open><summary>Contactos programados (${b.contactos.length})</summary>${b.contactos.map(r=>`<div class="list-item" data-action="ver-cliente" data-id="${esc(r.cliente_id)}"><div class="list-item-body"><strong>${esc(r.cliente_nombre)} ${esc(r.cliente_apellido||'')}</strong><p>Contacto: ${esc(fmtFecha(r.fecha_contacto))}${r.fecha_contacto<=todayISO()?' · Para revisar':''} · ${esc(modosCobranza[r.modo]||'Revisión')}</p><p>Cuota ${esc(r.numero)} · vence ${esc(fmtFecha(r.fecha_vencimiento))} · ${esc(negocioNombre(r.negocio_id))}</p></div></div>`).join('')}</details>`:''}
     <div class="section-title">Cobranza</div>
     <div class="tabs" id="cobranzaTabs">
       <button data-tab="hoy" class="${esc(state.cobranzaTab === 'hoy' ? 'active' : '')}">Hoy (${esc(b.hoy.length)})</button>
@@ -1377,6 +1382,7 @@ document.addEventListener('click', async (e) => {
   else if (action === 'editar-cliente') abrirEditarCliente(id);
   else if (action === 'eliminar-cliente') abrirEliminarCliente(id);
   else if (action === 'gestion-cliente') abrirGestionCliente(id,el.dataset.negocio,el.dataset.tipo);
+  else if (action === 'contactos-cobranza') abrirContactosCobranza(id,el.dataset.negocio);
   else if (action === 'mensaje-especial') abrirMensajeEspecial(id,el.dataset.negocio);
   else if (action === 'incidencia-equipo') abrirIncidenciaEquipo(id,credito,el.dataset.negocio);
   else if (action === 'anular-comprobante') abrirAnularComprobante(id);
@@ -1702,4 +1708,53 @@ async function abrirCorreccionFinanciacion(creditoId,negocioId) {
       finally{busy=false;}
     });
   }catch(e){if(vigente())setHTML(sheet,`<p>${esc(e.message)}</p>`);}
+}
+
+// Contactos operativos: la fecha de seguimiento nunca modifica el vencimiento de la cuota.
+const modosCobranza = {automatico:'Automática',revisar:'Revisión',pausada:'Pausada'};
+async function abrirContactosCobranza(clienteId,negocioId) {
+  const permitido=()=>puede('clientes.ver',negocioId)&&puede('clientes.editar',negocioId)&&puede('cobranzas.ver',negocioId);
+  if(!permitido())return toast('No tenés permiso para gestionar contactos',true);
+  const token=getToken(),negocioActual=state.negocioActual;
+  openSheet('<div class="sheet-title">Contactos de cobranza</div><p>Cargando…</p>');
+  const sheet=document.getElementById('activeSheet');
+  const vigente=()=>sheet.isConnected&&document.getElementById('activeSheet')===sheet&&document.getElementById('sheetBackdrop').classList.contains('open')&&getToken()===token&&state.negocioActual===negocioActual&&permitido();
+  try {
+    const c=await api(`/clientes/${encodeURIComponent(clienteId)}?negocio_id=${encodeURIComponent(negocioId)}`);
+    if(!vigente())return;
+    const contactos=(c.contactosCobranza||[]).filter(r=>r.negocio_id===negocioId);
+    const pendientes=contactos.filter(r=>r.estado==='pendiente');
+    const cuotas=(c.creditos||[]).filter(cr=>cr.negocio_id===negocioId).flatMap(cr=>cr.cuotas||[]).filter(q=>!q.estado_manual&&(q.saldo_pendiente_centavos>0||q.moraPendiente>0)&&!pendientes.some(r=>r.cuota_id===q.id));
+    const g=(c.gestionCobranza||[]).find(g=>g.negocio_id===negocioId);
+    setHTML(sheet,`<div class="sheet-title">Contactos de cobranza · ${esc(negocioNombre(negocioId))}</div>
+      <p>Programar un contacto no cambia la fecha de vencimiento ni perdona mora. No se envían mensajes automáticamente.</p>
+      ${state.usuario?.rol==='administrador'?`<div class="field"><label for="contactoModo">Modo de cobranza</label><select id="contactoModo">${Object.entries(modosCobranza).map(([v,n])=>`<option value="${v}" ${v===(g?.modo||'revisar')?'selected':''}>${n}</option>`).join('')}</select></div><div class="field"><label for="contactoModoNota">Motivo del cambio de modo</label><textarea id="contactoModoNota" maxlength="2000"></textarea></div><button class="btn btn-secondary" id="guardarContactoModo">Guardar modo</button><p class="field-hint">Automática deja preparada la preferencia para la integración de WhatsApp. Revisión requiere intervención humana. Pausada suspende los avisos sugeridos; la deuda y los contactos permanecen visibles.</p>`:''}
+      <div class="field"><label for="contactoDestino">Cuota o contacto</label><select id="contactoDestino">${pendientes.map(r=>`<option value="r:${esc(r.id)}">Revisar contacto ${esc(fmtFecha(r.fecha_contacto))} · cuota ${esc(r.numero)}</option>`).join('')}${cuotas.map(q=>`<option value="q:${esc(q.id)}">Programar cuota ${esc(q.numero)} · vence ${esc(fmtFecha(q.fecha_vencimiento))}</option>`).join('')}</select></div>
+      <div class="field"><label for="contactoAccion">Acción sobre un contacto existente</label><select id="contactoAccion"><option value="reprogramar">Reprogramar</option><option value="realizado">Registrar contacto realizado</option><option value="cancelar">Cancelar contacto</option></select></div>
+      <div class="field"><label for="contactoFecha">Próximo contacto</label><input id="contactoFecha" type="date" min="${todayISO()}" value="${todayISO()}" /></div>
+      <div class="field"><label for="contactoNota">Resultado, compromiso acordado u observaciones</label><textarea id="contactoNota" maxlength="2000"></textarea></div>
+      <button class="btn btn-primary" id="guardarContacto" ${!pendientes.length&&!cuotas.length?'disabled':''}>Guardar contacto</button>
+      <p>“Realizado” registra tu declaración de contacto; abrir WhatsApp no lo marca como enviado.</p>`);
+    let busy=false,payload=null;
+    const guardar=sheet.querySelector('#guardarContacto');
+    guardar.addEventListener('click',async()=>{
+      if(busy||!vigente())return;
+      const destino=sheet.querySelector('#contactoDestino').value;
+      const r=pendientes.find(r=>'r:'+r.id===destino);
+      payload||=r?{accion:sheet.querySelector('#contactoAccion').value,fecha:sheet.querySelector('#contactoFecha').value,nota:sheet.querySelector('#contactoNota').value,version:JSON.stringify([r.fecha_contacto,r.reprogramado_fecha,r.nota])}:{cuota_id:destino.slice(2),fecha:sheet.querySelector('#contactoFecha').value,nota:sheet.querySelector('#contactoNota').value,solicitud_id:crypto.randomUUID()};
+      busy=true;guardar.disabled=true;
+      try {await api(`/clientes/${encodeURIComponent(clienteId)}/contactos${r?'/'+encodeURIComponent(r.id):''}?negocio_id=${encodeURIComponent(negocioId)}`,{method:r?'PATCH':'POST',body:JSON.stringify(payload)});if(vigente()){closeSheet();toast('Contacto guardado');render();}}
+      catch(e){if(vigente()){toast(e.message,true);guardar.disabled=false;}if(e.status&&e.status<500)payload=null;}finally{busy=false;}
+    });
+    sheet.querySelector('#guardarContactoModo')?.addEventListener('click',async e=>{
+      if(busy||!vigente())return;busy=true;e.target.disabled=true;
+      try{await api(`/clientes/${encodeURIComponent(clienteId)}/cobranza-modo?negocio_id=${encodeURIComponent(negocioId)}`,{method:'POST',body:JSON.stringify({modo:sheet.querySelector('#contactoModo').value,anterior:g?.modo||'revisar',nota:sheet.querySelector('#contactoModoNota').value})});if(vigente()){closeSheet();toast('Modo guardado');render();}}
+      catch(err){if(vigente()){toast(err.message,true);e.target.disabled=false;}}finally{busy=false;}
+    });
+  }catch(e){if(vigente())setHTML(sheet,`<p>${esc(e.message)}</p>`);}
+}
+function historialContactosHtml(c,negocioId) {
+  const rows=(c.contactosCobranza||[]).filter(r=>r.negocio_id===negocioId);
+  if(!rows.length)return '';
+  return `<details><summary>Contactos y compromisos (${rows.length})</summary>${rows.map(r=>`<div class="card"><strong>Cuota ${esc(r.numero)} · ${esc({pendiente:'Pendiente',realizado:'Realizado',cancelado:'Cancelado',cancelado_pago:'Cancelado por pago'}[r.estado]||r.estado)}</strong><p>Contacto: ${esc(fmtFecha(r.fecha_contacto))} · Vencimiento: ${esc(fmtFecha(r.vencimiento_actual||r.fecha_vencimiento_real))}</p><p>${esc(r.nota)}</p>${(r.historial||[]).map(h=>`<p>${esc(fmtFecha(h.fecha_hora))} · ${esc(h.autor||'Sistema')} · ${esc({programar:'Programado',reprogramar:'Reprogramado',realizado:'Contacto realizado',cancelar:'Cancelado',cancelado_pago:'Cuota saldada'}[h.accion]||h.accion)}: ${esc(h.motivo)}</p>`).join('')}</div>`).join('')}</details>`;
 }

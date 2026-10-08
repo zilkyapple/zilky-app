@@ -1,3 +1,4 @@
+import { contactosCliente, cambiarModo, guardarContacto, actualizarContacto } from '../services/contactosCobranzaService.js';
 import { Router } from 'express';
 import { db } from '../db/connection.js';
 import { crearCliente, listClientes, getCliente, buscarClientes, buscarDuplicados, actualizarSeguimiento, listClientesFinalizados, listClientesPorNegocio, listClientesPorNegocios } from '../repositories/clientes.js';
@@ -136,6 +137,23 @@ clientesRouter.post('/:id/gestion-especial/seguimiento', requirePermiso('cliente
   }catch(e){next(e);}
 });
 
+// Cada mutación exige ambos permisos en el negocio explícito, además del vínculo del cliente.
+clientesRouter.post('/:id/cobranza-modo', requireAdmin, async(req,res,next)=>{
+  try { const negocioId=negocioSolicitado(req); if(!negocioId)return res.status(400).json({error:'Seleccioná un negocio'});
+    res.json(await cambiarModo({clienteId:req.params.id,negocioId,modo:req.body.modo,anterior:req.body.anterior,nota:req.body.nota,usuarioId:req.usuarioId}));
+  }catch(e){next(e);}
+});
+clientesRouter.post('/:id/contactos', requirePermiso('clientes.ver'), requirePermiso('clientes.editar'), requirePermiso('cobranzas.ver'), async(req,res,next)=>{
+  try { const negocioId=negocioSolicitado(req); if(!negocioId)return res.status(400).json({error:'Seleccioná un negocio'});
+    res.json(await guardarContacto({clienteId:req.params.id,negocioId,cuotaId:req.body.cuota_id,fecha:req.body.fecha,nota:req.body.nota,solicitudId:req.body.solicitud_id,usuarioId:req.usuarioId}));
+  }catch(e){next(e);}
+});
+clientesRouter.patch('/:id/contactos/:contactoId', requirePermiso('clientes.ver'), requirePermiso('clientes.editar'), requirePermiso('cobranzas.ver'), async(req,res,next)=>{
+  try { const negocioId=negocioSolicitado(req); if(!negocioId)return res.status(400).json({error:'Seleccioná un negocio'});
+    res.json(await actualizarContacto({clienteId:req.params.id,negocioId,contactoId:req.params.contactoId,accion:req.body.accion,fecha:req.body.fecha,nota:req.body.nota,version:req.body.version,usuarioId:req.usuarioId}));
+  }catch(e){next(e);}
+});
+
 // Detalle: por defecto muestra operaciones del cliente filtradas al scope del usuario.
 clientesRouter.post('/:id/creditos/:creditoId/incidencias', requireAdmin, async (req,res,next)=>{
   try {
@@ -217,6 +235,7 @@ clientesRouter.get('/:id', requirePermiso('clientes.ver'), async (req, res, next
       riesgo: await perfilRiesgoCliente(req.params.id, negociosPermitidos),
       historial: await historialFinancieroCliente(req.params.id, negociosPermitidos),
       gestionCobranza: await gestionCliente(req.params.id, negociosPermitidos),
+      contactosCobranza: await contactosCliente(req.params.id, negociosPermitidos),
       saldosFavor,
     });
   } catch (err) { next(err); }
