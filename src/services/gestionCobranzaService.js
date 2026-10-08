@@ -7,10 +7,12 @@ import { getNegocio } from '../repositories/negocios.js';
 import { auditar } from '../lib/audit.js';
 
 export async function gestionCliente(clienteId, negocios=null) {
-  const filas=await db.query(`SELECT cn.negocio_id, COALESCE(cc.gestion_especial,0) AS gestion_especial, cc.proximo_contacto
+  const filas=await db.query(`SELECT cn.negocio_id, COALESCE(cc.gestion_especial,0) AS gestion_especial, COALESCE(cc.modo,'revisar') AS modo, cc.proximo_contacto
     FROM cliente_negocio cn LEFT JOIN cliente_negocio_cobranza cc USING (cliente_id,negocio_id)
     WHERE cn.cliente_id=$1 AND ($2::text[] IS NULL OR cn.negocio_id=ANY($2::text[]))`,[clienteId,negocios]);
   for(const f of filas.rows) f.historial=await db.prepare('SELECT * FROM cobranza_gestion_eventos WHERE cliente_id=? AND negocio_id=? ORDER BY secuencia').all(clienteId,f.negocio_id);
+  for(const f of filas.rows) f.historialModo=await db.prepare(`SELECT a.fecha_hora,a.motivo,a.datos_nuevos,u.nombre AS autor FROM auditoria a LEFT JOIN usuarios u ON u.id=a.empleado
+    WHERE a.entidad='cobranza_modo' AND a.entidad_id=? AND a.datos_nuevos::jsonb->>'negocio_id'=? ORDER BY a.fecha_hora,a.id`).all(clienteId,f.negocio_id);
   return filas.rows;
 }
 

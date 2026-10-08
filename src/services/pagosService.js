@@ -1,3 +1,4 @@
+import { cancelarContactosSaldados } from './contactosCobranzaService.js';
 import {db} from '../db/connection.js';
 import { registrarHistoriaPago } from './incidenciasService.js';
 import {integer,dateISO} from '../lib/validation.js';
@@ -88,7 +89,7 @@ export async function registrarPago(input) {
     credito_id, monto_centavos, fecha_hora, medio_pago, saldo_restante_centavos: saldoPosterior, usuario_id,
   });
 
-  const estadoCredito = await recalcularEstadoCredito(credito_id, negocio, today);
+  const estadoCredito = await recalcularEstadoCredito(credito_id, negocio, today, usuario_id);
   await registrarHistoriaPago({credito,antes:cuotasAntesDelPago,despues:await listCuotasPorCredito(credito_id),fecha:today,pagoId:pago.id,usuarioId:usuario_id});
 
   await auditar('pago',pago.id,'crear',null,pago,usuario_id);
@@ -96,7 +97,7 @@ export async function registrarPago(input) {
   });
 }
 
-export async function recalcularEstadoCredito(creditoId, negocio, today) {
+export async function recalcularEstadoCredito(creditoId, negocio, today, usuarioId = null) {
   const cuotasFinal = await listCuotasPorCredito(creditoId);
   const todasPagadas = cuotasFinal.every((c) => (c.saldo_pendiente_centavos <= 0 && calcularMora(c, negocio, today).pendiente <= 0) || c.estado_manual);
   let estadoGeneral = 'activo';
@@ -110,6 +111,7 @@ export async function recalcularEstadoCredito(creditoId, negocio, today) {
     else if (estados.includes('gracia') || estados.includes('vence_hoy')) estadoGeneral = 'en_gracia';
   }
   await actualizarEstadoCredito(creditoId, estadoGeneral);
+  await cancelarContactosSaldados(creditoId,negocio,today,usuarioId);
   return estadoGeneral;
 }
 
