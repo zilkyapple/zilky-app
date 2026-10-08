@@ -49,6 +49,7 @@ export async function corregirFinanciacion(id,input,actor) {
     if(new Set(ids).size!==ids.length||ids.some(id=>!before.cuotas.some(q=>q.id===id)))throw err('Cuotas inválidas o de otra financiación');
     const eliminadas=before.cuotas.filter(q=>!ids.includes(q.id));
     if(eliminadas.some(q=>before.aplicaciones.some(a=>a.cuota_id===q.id)||q.fecha_saldada||calcularMora(q,negocio,todayAR()).acumulada>0))throw err('No se pueden quitar cuotas con pagos o mora; conservá esas cuotas en el plan',409);
+    for(const q of eliminadas)if(await db.prepare('SELECT 1 FROM recordatorios WHERE cuota_id=?').get(q.id))throw err('Conservá las cuotas con historial de contactos en el plan',409);
     for(const q of datos.cuotas.filter(q=>q.id)){
       const old=before.cuotas.find(x=>x.id===q.id),abonado=old.monto_centavos-old.saldo_pendiente_centavos;
       if(q.monto_centavos<abonado)throw err('El importe corregido es menor al capital cobrado. Requiere conciliar el excedente.',409);
@@ -81,7 +82,7 @@ export async function corregirFinanciacion(id,input,actor) {
       }
       if(datos.entrega_inicial_centavos>0)await registrarEntregaInicial({credito_id:id,monto_centavos:datos.entrega_inicial_centavos,fecha_hora:entrega?.fecha_hora||`${datos.fecha_inicio}T12:00:00-03:00`,medio_pago:entrega?.medio_pago||'no_especificado',usuario_id:actor});
     }
-    await recalcularEstadoCredito(id,negocio,todayAR());
+    await recalcularEstadoCredito(id,negocio,todayAR(),actor);
     await auditar('credito',id,'corregir_financiacion',before,{solicitud_id,requestHash,datos,despues:await vistaFinanciacion(id)},actor,motivo.trim());
     return {id};
   });

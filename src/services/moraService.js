@@ -39,7 +39,7 @@ export async function perdonarMora(cuotaId, input, usuarioId) {
     await db.prepare('UPDATE cuotas SET mora_generada_centavos=?, mora_perdonada_centavos=? WHERE id=?').run(actual.mora.acumulada,perdonada,cuotaId);
     const data={solicitud_id,version,importe_centavos:actual.mora.pendiente,fecha:todayAR(),mora_generada_centavos:actual.mora.acumulada,mora_perdonada_centavos:perdonada};
     await auditar('cuota',cuotaId,'perdonar_mora',actual.cuota,data,usuarioId,motivo.trim());
-    await recalcularEstadoCredito(actual.credito.id,await getNegocio(actual.credito.negocio_id),todayAR());
+    await recalcularEstadoCredito(actual.credito.id,await getNegocio(actual.credito.negocio_id),todayAR(),usuarioId);
     return data;
   });
 }

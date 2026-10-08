@@ -1735,16 +1735,17 @@ async function abrirContactosCobranza(clienteId,negocioId) {
       <div class="field"><label for="contactoNota">Resultado, compromiso acordado u observaciones</label><textarea id="contactoNota" maxlength="2000"></textarea></div>
       <button class="btn btn-primary" id="guardarContacto" ${!pendientes.length&&!cuotas.length?'disabled':''}>Guardar contacto</button>
       <p>“Realizado” registra tu declaración de contacto; abrir WhatsApp no lo marca como enviado.</p>`);
-    let busy=false,payload=null;
+    let busy=false,payload=null,requestTarget=null;
     const guardar=sheet.querySelector('#guardarContacto');
     guardar.addEventListener('click',async()=>{
       if(busy||!vigente())return;
       const destino=sheet.querySelector('#contactoDestino').value;
       const r=pendientes.find(r=>'r:'+r.id===destino);
+      requestTarget||={suffix:r?'/'+encodeURIComponent(r.id):'',method:r?'PATCH':'POST'};
       payload||=r?{accion:sheet.querySelector('#contactoAccion').value,fecha:sheet.querySelector('#contactoFecha').value,nota:sheet.querySelector('#contactoNota').value,version:JSON.stringify([r.fecha_contacto,r.reprogramado_fecha,r.nota])}:{cuota_id:destino.slice(2),fecha:sheet.querySelector('#contactoFecha').value,nota:sheet.querySelector('#contactoNota').value,solicitud_id:crypto.randomUUID()};
       busy=true;guardar.disabled=true;
-      try {await api(`/clientes/${encodeURIComponent(clienteId)}/contactos${r?'/'+encodeURIComponent(r.id):''}?negocio_id=${encodeURIComponent(negocioId)}`,{method:r?'PATCH':'POST',body:JSON.stringify(payload)});if(vigente()){closeSheet();toast('Contacto guardado');render();}}
-      catch(e){if(vigente()){toast(e.message,true);guardar.disabled=false;}if(e.status&&e.status<500)payload=null;}finally{busy=false;}
+      try {await api(`/clientes/${encodeURIComponent(clienteId)}/contactos${requestTarget.suffix}?negocio_id=${encodeURIComponent(negocioId)}`,{method:requestTarget.method,body:JSON.stringify(payload)});if(vigente()){closeSheet();toast('Contacto guardado');render();}}
+      catch(e){if(vigente()){toast(e.message,true);guardar.disabled=false;}if(e.status&&e.status<500){payload=null;requestTarget=null;}}finally{busy=false;}
     });
     sheet.querySelector('#guardarContactoModo')?.addEventListener('click',async e=>{
       if(busy||!vigente())return;busy=true;e.target.disabled=true;
@@ -1756,5 +1757,5 @@ async function abrirContactosCobranza(clienteId,negocioId) {
 function historialContactosHtml(c,negocioId) {
   const rows=(c.contactosCobranza||[]).filter(r=>r.negocio_id===negocioId);
   if(!rows.length)return '';
-  return `<details><summary>Contactos y compromisos (${rows.length})</summary>${rows.map(r=>`<div class="card"><strong>Cuota ${esc(r.numero)} · ${esc({pendiente:'Pendiente',realizado:'Realizado',cancelado:'Cancelado',cancelado_pago:'Cancelado por pago'}[r.estado]||r.estado)}</strong><p>Contacto: ${esc(fmtFecha(r.fecha_contacto))} · Vencimiento: ${esc(fmtFecha(r.vencimiento_actual||r.fecha_vencimiento_real))}</p><p>${esc(r.nota)}</p>${(r.historial||[]).map(h=>`<p>${esc(fmtFecha(h.fecha_hora))} · ${esc(h.autor||'Sistema')} · ${esc({programar:'Programado',reprogramar:'Reprogramado',realizado:'Contacto realizado',cancelar:'Cancelado',cancelado_pago:'Cuota saldada'}[h.accion]||h.accion)}: ${esc(h.motivo)}</p>`).join('')}</div>`).join('')}</details>`;
+  return `<details><summary>Contactos y compromisos (${rows.length})</summary>${rows.map(r=>`<div class="card"><strong>Cuota ${esc(r.numero)} · ${esc({pendiente:'Pendiente',realizado:'Realizado',cancelado:'Cancelado',cancelado_pago:'Cancelado por pago'}[r.estado]||r.estado)}</strong><p>Contacto: ${esc(fmtFecha(r.fecha_contacto))} · Vencimiento: ${esc(fmtFecha(r.vencimiento_actual||r.fecha_vencimiento_real))}</p><p>${esc(r.nota)}</p>${(r.historial||[]).map(h=>`<p>${esc(fmtFecha(h.fecha_hora))} · ${esc(h.autor||'Sistema')} · ${esc({programar:'Programado',reprogramar:'Reprogramado',realizado:'Contacto realizado',cancelar:'Cancelado',cancelado_pago:'Cuota saldada'}[h.accion]||h.accion)}: ${esc(h.motivo)}${h.accion==='reprogramar'?` · ${esc(fmtFecha(parseJsonSeguro(h.datos_anteriores).fecha_contacto))} → ${esc(fmtFecha(parseJsonSeguro(h.datos_nuevos).fecha_contacto))}`:''}</p>`).join('')}</div>`).join('')}</details>`;
 }

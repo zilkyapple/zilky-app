@@ -117,7 +117,8 @@ export async function listaCobranza(negocioId = null, { ventanaDias = 7 } = {}) 
   }
   const especial=[...agrupados.values()].sort((a,b)=>(a.proximo_contacto||'').localeCompare(b.proximo_contacto||''));
   const contactos=[];
-  const pendientes=await db.prepare("SELECT * FROM recordatorios WHERE estado='pendiente' ORDER BY fecha_contacto,created_at").all();
+  const {sql:contactFilter,params:contactParams}=buildNegocioFilter(negocioId);
+  const pendientes=await db.prepare(`SELECT r.* FROM recordatorios r JOIN creditos cr ON cr.id=r.credito_id WHERE r.estado='pendiente' ${contactFilter} ORDER BY r.fecha_contacto,r.created_at`).all(...contactParams);
   const porCuota=new Map(cuotas.map(c=>[c.id,c]));
   for(const r of pendientes) {const c=porCuota.get(r.cuota_id);if(c && c.cliente_id===r.cliente_id && c.negocio_id===r.negocio_id)contactos.push({id:r.id,cliente_id:c.cliente_id,negocio_id:c.negocio_id,cliente_nombre:c.cliente_nombre,cliente_apellido:c.cliente_apellido,fecha_contacto:r.fecha_contacto,fecha_vencimiento:c.fecha_vencimiento,numero:c.numero,modo:c.cobranza_modo});}
   return { hoy, proximas, vencidas, especial, todas, ventanaDias, contactos };
@@ -144,10 +145,12 @@ export async function calendarioDia(negocioId, fechaISO) {
 export async function recordatoriosDeHoy(negocioId = null) {
   const cuotas = await cuotasEnriquecidas(negocioId);
   const negocioCache = {};
+  const {sql:contactFilter,params:contactParams}=buildNegocioFilter(negocioId);
+  const programadas=new Set((await db.prepare(`SELECT r.cuota_id FROM recordatorios r JOIN creditos cr ON cr.id=r.credito_id WHERE r.estado='pendiente' ${contactFilter}`).all(...contactParams)).map(r=>r.cuota_id));
   const out = [];
   for (const c of cuotas) {
     if(c.gestion_especial===1 || c.cobranza_modo==='pausada')continue;
-    if(await db.prepare("SELECT 1 FROM recordatorios WHERE cuota_id=? AND estado='pendiente'").get(c.id))continue;
+    if(programadas.has(c.id))continue;
     if (!['proxima', 'vence_hoy'].includes(c.estado)) continue;
     if (!negocioCache[c.negocio_id]) negocioCache[c.negocio_id] = await getNegocio(c.negocio_id);
     let reglas = [];

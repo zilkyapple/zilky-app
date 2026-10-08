@@ -93,3 +93,21 @@ test('Etapa4: cancelar/realizar contacto no simula envío ni cambia saldo',async
   assert.equal(response.status,200);assert.equal(response.body.estado,'realizado');assert.equal(response.body.enviado_fecha,null);
   assert.equal((await db.prepare('SELECT saldo_pendiente_centavos FROM cuotas WHERE id=?').get(qb.id)).saldo_pendiente_centavos,100000);
 });
+test('Etapa4: pausar suspende avisos sin ocultar cuotas; revisión los recupera',async()=>{
+  await venta(a);
+  const avisos=()=>req(`/dashboard/recordatorios?negocio_id=${a.id}`,null,emp,'GET');
+  assert.equal((await avisos()).body.length,1);
+  const url=`/clientes/${c.id}/cobranza-modo?negocio_id=${a.id}`;
+  assert.equal((await req(url,{modo:'pausada',anterior:'automatico',nota:'Pausa QA'},admin)).status,200);
+  assert.equal((await avisos()).body.length,0);
+  assert.equal((await req(`/dashboard/cobranza?negocio_id=${a.id}`,null,emp,'GET')).body.todas.length,1);
+  assert.equal((await req(url,{modo:'revisar',anterior:'pausada',nota:'Revisión QA'},admin)).status,200);
+  assert.equal((await avisos()).body.length,1);
+});
+test('Etapa4: corregir financiación no borra cuotas con contactos registrados',async()=>{
+  const {vistaFinanciacion,corregirFinanciacion}=await import('../src/services/financiacionService.js');
+  const {randomUUID}=await import('node:crypto');
+  const v=await vistaFinanciacion(vb.credito.id);
+  await assert.rejects(()=>corregirFinanciacion(vb.credito.id,{version:v.version,motivo:'QA intento de reemplazar cuota con contacto',solicitud_id:randomUUID(),datos:{monto_total_centavos:100000,entrega_inicial_centavos:0,fecha_inicio:hoy,producto_descripcion:'QA',condiciones:'QA',cuotas:[{monto_centavos:100000,fecha_vencimiento:addDays(hoy,3)}]}},admin.id),e=>e.status===409&&/historial de contactos/.test(e.message));
+  assert.equal((await db.prepare('SELECT COUNT(*)::int n FROM recordatorios WHERE cuota_id=?').get(qb.id)).n,1);
+});
