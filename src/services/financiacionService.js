@@ -1,3 +1,4 @@
+import {avisarCorreccionCaja} from './cajaService.js';
 import {createHash} from 'node:crypto';
 import {db} from '../db/connection.js';
 import {integer,dateISO} from '../lib/validation.js';
@@ -33,6 +34,8 @@ export async function corregirFinanciacion(id,input,actor) {
   for(const q of datos.cuotas){integer(q.monto_centavos,'importe de cuota',{min:1});dateISO(q.fecha_vencimiento);if(q.fecha_vencimiento<datos.fecha_inicio)throw err('El vencimiento no puede ser anterior a la compra');}
   if(datos.monto_total_centavos>datos.entrega_inicial_centavos&&!datos.cuotas.length)throw err('El saldo requiere al menos una cuota');
   return db.transaction(async()=>{
+    // A documentary correction is not a new physical cash receipt/refund.
+    await db.query("SELECT set_config('zilky.correccion_financiacion','1',true)");
     const first=await getCredito(id);if(!first)throw err('Financiación no encontrada',404);
     await db.lockClienteNegocio(first.cliente_id,first.negocio_id);
     await db.prepare('SELECT id FROM creditos WHERE id=? FOR UPDATE').get(id);
@@ -82,6 +85,7 @@ export async function corregirFinanciacion(id,input,actor) {
       }
       if(datos.entrega_inicial_centavos>0)await registrarEntregaInicial({credito_id:id,monto_centavos:datos.entrega_inicial_centavos,fecha_hora:entrega?.fecha_hora||`${datos.fecha_inicio}T12:00:00-03:00`,medio_pago:entrega?.medio_pago||'no_especificado',usuario_id:actor});
     }
+    await avisarCorreccionCaja(first.negocio_id,id,datos.entrega_inicial_centavos-before.credito.entrega_inicial_centavos,actor);
     await recalcularEstadoCredito(id,negocio,todayAR(),actor);
     await auditar('credito',id,'corregir_financiacion',before,{solicitud_id,requestHash,datos,despues:await vistaFinanciacion(id)},actor,motivo.trim());
     return {id};

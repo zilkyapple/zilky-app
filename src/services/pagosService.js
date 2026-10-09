@@ -42,7 +42,7 @@ export async function registrarPago(input) {
     await sumarSaldoFavor(credito.cliente_id, credito.negocio_id, monto_centavos);
     const pago = await crearPago({
       negocio_id: credito.negocio_id, cliente_id: credito.cliente_id, credito_id, fecha_hora,
-      monto_centavos, medio_pago, caja, empleado, comprobante_url, nota,
+      monto_centavos, medio_pago, caja, empleado, comprobante_url, nota, usuario_id,
       saldo_anterior_centavos: 0, saldo_posterior_centavos: 0,
     });
     const comprobante = await crearComprobante({
@@ -76,7 +76,7 @@ export async function registrarPago(input) {
 
   const pago = await crearPago({
     negocio_id: credito.negocio_id, cliente_id: credito.cliente_id, credito_id, fecha_hora,
-    monto_centavos, medio_pago, caja, empleado, comprobante_url, nota,
+    monto_centavos, medio_pago, caja, empleado, comprobante_url, nota, usuario_id,
     saldo_anterior_centavos: saldoAnterior, saldo_posterior_centavos: saldoPosterior,
   });
 
@@ -126,7 +126,7 @@ export async function registrarEntregaInicial({credito_id,monto_centavos,fecha_h
     if(monto_centavos!==credito.entrega_inicial_centavos) throw badRequest('Entrega no coincide con el financiamiento');
     await db.lockClienteNegocio(credito.cliente_id,credito.negocio_id);
     const pago=await crearPago({negocio_id:credito.negocio_id,cliente_id:credito.cliente_id,credito_id,
-      monto_centavos,fecha_hora,medio_pago,tipo:'entrega_inicial',saldo_anterior_centavos:credito.saldo_financiado_centavos,saldo_posterior_centavos:credito.saldo_financiado_centavos});
+      monto_centavos,fecha_hora,medio_pago,usuario_id,tipo:'entrega_inicial',saldo_anterior_centavos:credito.saldo_financiado_centavos,saldo_posterior_centavos:credito.saldo_financiado_centavos});
     const comprobante=await crearComprobante({pago_id:pago.id,negocio_id:credito.negocio_id,cliente_id:credito.cliente_id,credito_id,venta_id:credito.venta_id,
       monto_centavos,fecha_hora,medio_pago,saldo_restante_centavos:credito.saldo_financiado_centavos,usuario_id});
     await auditar('pago',pago.id,'entrega_inicial',null,pago,usuario_id);

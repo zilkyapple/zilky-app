@@ -1,7 +1,8 @@
+import {capturarPagoCaja} from '../services/cajaService.js';
 import { db } from '../db/connection.js';
 import { id } from '../lib/id.js';
 
-export async function crearPago(data) {
+export async function crearPago(data) { return db.transaction(async()=>{
   const pId = id();
   await db.prepare(`
     INSERT INTO pagos (id, negocio_id, cliente_id, credito_id, fecha_hora, monto_centavos, medio_pago, caja, empleado, comprobante_url, nota, saldo_anterior_centavos, saldo_posterior_centavos, tipo)
@@ -11,8 +12,10 @@ export async function crearPago(data) {
     data.monto_centavos, data.medio_pago || 'efectivo', data.caja || null, data.empleado || null,
     data.comprobante_url || null, data.nota || null, data.saldo_anterior_centavos, data.saldo_posterior_centavos, data.tipo || 'cuota'
   );
-  return getPago(pId);
-}
+  const pago=await getPago(pId);
+  await capturarPagoCaja(pago,data.usuario_id);
+  return pago;
+});}
 export async function getPago(pId) { return db.prepare('SELECT * FROM pagos WHERE id = ?').get(pId); }
 export async function crearAplicacion(pagoId, { cuotaId, capital, mora }) {
   const aId = id();
@@ -23,10 +26,12 @@ export async function crearAplicacion(pagoId, { cuotaId, capital, mora }) {
 export async function listPagosPorCredito(creditoId) { return db.prepare('SELECT * FROM pagos WHERE credito_id = ? ORDER BY fecha_hora ASC').all(creditoId); }
 export async function listPagosPorCliente(clienteId) { return db.prepare('SELECT * FROM pagos WHERE cliente_id = ? ORDER BY fecha_hora DESC').all(clienteId); }
 export async function listAplicacionesPorPago(pagoId) { return db.prepare('SELECT * FROM pago_aplicaciones WHERE pago_id = ?').all(pagoId); }
-export async function anularPago(pagoId, motivo) {
+export async function anularPago(pagoId, motivo, actor) { return db.transaction(async()=>{
   await db.prepare('UPDATE pagos SET anulado = 1, motivo_anulacion = ? WHERE id = ?').run(motivo || null, pagoId);
-  return getPago(pagoId);
-}
+  const pago=await getPago(pagoId);
+  await capturarPagoCaja(pago,actor,'anulacion');
+  return pago;
+});}
 export async function getSaldoFavor(clienteId, negocioId) {
   const row = await db.prepare('SELECT monto_centavos FROM saldo_favor WHERE cliente_id = ? AND negocio_id = ?').get(clienteId, negocioId);
   return row ? row.monto_centavos : 0;

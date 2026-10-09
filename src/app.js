@@ -1,3 +1,4 @@
+import {cajasRouter} from './routes/cajas.js';
 import express from 'express';
 import cors from 'cors';
 import path from 'node:path';
@@ -33,6 +34,7 @@ app.use('/api', cargarUsuario);
 app.use('/api/auth', authRouter);
 app.use('/api', requireAuth); // a partir de acá todo requiere token válido
 
+app.use('/api/cajas', cajasRouter);
 app.use('/api/negocios', negociosRouter);
 app.use('/api/clientes', clientesRouter);
 app.use('/api/productos', productosRouter);

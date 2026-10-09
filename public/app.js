@@ -237,7 +237,7 @@ async function render() {
     ventas: 'ventas.crear', productos: 'productos.ver',
     comprobantes: 'comprobantes.ver', empleados: 'empleados.gestionar',
   };
-  if (root === 'configuracion' && state.usuario?.rol !== 'administrador') {
+  if (['configuracion','caja'].includes(root) && state.usuario?.rol !== 'administrador') {
     setHTML(view, '<div class="empty-state"><p>Requiere administrador</p></div>');
     return;
   }
@@ -258,6 +258,7 @@ async function render() {
     else if (root === 'comprobantes') await viewComprobantes(view, parts[1] === 'cliente' ? parts[2] || null : null);
     else if (root === 'configuracion') await viewConfiguracion(view);
     else if (root === 'empleados') await viewEmpleados(view);
+    else if (root === 'caja') await viewCaja(view);
     else if (root === 'mas') await viewMas(view);
     else setHTML(view, notFound());
   } catch (err) {
@@ -1174,7 +1175,8 @@ async function viewMas(view) {
     <a class="list-item" href="#/comprobantes"><span class="avatar">🧾</span><div class="list-item-body"><div class="list-item-title">Comprobantes</div></div><span class="chev">${iconChevron()}</span></a>
     <a class="list-item" href="#/configuracion"><span class="avatar">⚙️</span><div class="list-item-body"><div class="list-item-title">Configuración del negocio</div></div><span class="chev">${iconChevron()}</span></a>
     <a class="list-item" href="#/empleados"><span class="avatar">👥</span><div class="list-item-body"><div class="list-item-title">Empleados y permisos</div></div><span class="chev">${iconChevron()}</span></a>
-    ${['Contratos', 'Caja', 'Exportaciones'].map((n) => `
+    ${state.usuario?.rol==='administrador'?'<a class="list-item" href="#/caja"><span class="avatar">$</span><div class="list-item-body"><div class="list-item-title">Caja</div></div></a>':''}
+    ${['Contratos', 'Exportaciones'].map((n) => `
       <div class="list-item" style="opacity:.55"><span class="avatar">✦</span><div class="list-item-body"><div class="list-item-title">${esc(n)}</div><div class="list-item-sub">Próxima etapa</div></div></div>
     `).join('')}
     <div class="section-title">Cuenta</div>
@@ -1801,3 +1803,41 @@ function correccionFinanciacionHtml(evento) {
   return `<div class="card"><p>${esc(evento.fecha_hora)} · ${esc(evento.autor||'Administrador')} · ${esc(evento.motivo)}</p>
     ${(evento.cambios||[]).length?evento.cambios.map(c=>`<div class="field"><strong>${esc(c.etiqueta)}</strong><div style="white-space:pre-wrap;overflow-wrap:anywhere">Antes: ${esc(valor(c.anterior,c.tipo))}</div><div style="white-space:pre-wrap;overflow-wrap:anywhere">Después: ${esc(valor(c.nuevo,c.tipo))}</div></div>`).join(''):'<p>Sin diferencias de campos disponibles en este registro.</p>'}</div>`;
 }
+// ---------------- Caja opcional ----------------
+const cajaMoney = n => new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',minimumFractionDigits:2}).format((n||0)/100);
+async function viewCaja(view) {
+  const [cajas,negocios,usuarios]=await Promise.all([api('/cajas'),api('/negocios'),api('/usuarios')]);
+  if(!view.isConnected)return;
+  setHTML(view,`<div class="section-title">Caja</div><p>Control del dinero por período. Activar o desactivar Caja no modifica ventas, fiados, pagos ni el dashboard.</p><button id="cajaNueva" class="btn btn-primary">Crear caja</button><div id="cajasLista"></div>`);
+  const lista=view.querySelector('#cajasLista');
+  const formConfig=(c={activa:false,arqueo:false,modalidad:'negocio',negocios:[]})=>{
+    setHTML(lista,`<form id="cajaConfig" class="card"><h3>${c.id?'Configurar':'Nueva'} caja</h3><label>Nombre<input name="nombre" required maxlength="100" value="${esc(c.nombre||'')}" placeholder="Caja del local"></label><label><input name="activa" type="checkbox" ${c.activa?'checked':''}> Usar Caja</label><label><input name="arqueo" type="checkbox" ${c.arqueo?'checked':''}> Usar arqueo de efectivo al cerrar</label><label>Organización<select name="modalidad"><option value="negocio" ${c.modalidad==='negocio'?'selected':''}>Compartida por negocio(s)</option><option value="empleado" ${c.modalidad==='empleado'?'selected':''}>Por empleado / turno</option></select></label><p>Negocios incluidos: elegí varios solamente si comparten el dinero físico.</p>${negocios.map(n=>`<label><input type="checkbox" name="negocio" value="${esc(n.id)}" ${c.negocios.some(x=>x.id===n.id)?'checked':''}> ${esc(n.nombre)}</label>`).join('')}<p>Los cobros anteriores a la activación no se incorporan. Los períodos e historiales anteriores se conservan.</p><button class="btn btn-primary">Guardar configuración</button><button type="button" id="cajaCancelar" class="btn">Volver</button><p role="status" id="cajaError"></p></form>`);
+    lista.querySelector('#cajaCancelar').onclick=()=>viewCaja(view);
+    const form=lista.querySelector('form');form.onsubmit=async e=>{e.preventDefault();const f=new FormData(form);await cajaSubmit(form,()=>api('/cajas'+(c.id?'/'+c.id:''),{method:c.id?'PATCH':'POST',body:JSON.stringify({nombre:f.get('nombre'),activa:f.has('activa'),arqueo:f.has('arqueo'),modalidad:f.get('modalidad'),negocios:f.getAll('negocio'),version:c.version})}),()=>viewCaja(view));};
+  };
+  view.querySelector('#cajaNueva').onclick=()=>formConfig();
+  setHTML(lista,cajas.length?cajas.map(c=>`<div class="card"><h3>${esc(c.nombre)} · ${c.activa?'Activada':'Desactivada'}</h3><p>${esc(c.negocios.map(n=>n.nombre).join(' · '))}</p><p>Arqueo ${c.arqueo?'activado':'desactivado'} · ${c.modalidad==='negocio'?'Caja compartida':'Por empleado / turno'}</p><button class="btn" data-caja="${esc(c.id)}">Abrir caja e historial</button><button class="btn" data-config="${esc(c.id)}">Configurar</button></div>`).join(''):'<p>Todavía no hay cajas configuradas. Los cobros y el dashboard siguen funcionando normalmente.</p>');
+  lista.querySelectorAll('[data-config]').forEach(b=>b.onclick=()=>formConfig(cajas.find(c=>c.id===b.dataset.config)));
+  lista.querySelectorAll('[data-caja]').forEach(b=>b.onclick=()=>detalle(cajas.find(c=>c.id===b.dataset.caja)));
+  async function detalle(c){
+    const d=await api('/cajas/'+c.id);if(!view.isConnected)return;
+    const pendientes=d.movimientos.filter(m=>!m.sesion_id&&!m.resuelto);
+    setHTML(lista,`<button id="cajaVolver" class="btn">Volver a cajas</button><h3>${esc(c.nombre)}</h3><p>Transferencias y tarjetas se informan separadas del efectivo. Las anulaciones quedan pendientes de conciliación hasta confirmar si se devolvió dinero.</p>${d.activa?`<details><summary>Abrir período</summary><form id="cajaAbrir"><label>Efectivo inicial ($)<input name="inicial" type="number" min="0" step="0.01" required value="0"></label><label>Responsable<select name="responsable_id">${usuarios.filter(u=>u.activo===1).map(u=>`<option value="${esc(u.id)}" ${u.id===state.usuario.id?'selected':''}>${esc(u.nombre||u.email)}</option>`).join('')}</select></label><button class="btn btn-primary">Abrir</button><p id="cajaError" role="status"></p></form></details>`:'<p>Caja desactivada. El historial sigue disponible.</p>'}${pendientes.length?`<details><summary>Sin período asignado (${pendientes.length})</summary><p>Estos movimientos no se incluyen automáticamente en un arqueo. Revisalos antes del próximo cierre.</p>${pendientes.map(m=>movHtml(m)+`<button class="btn" data-conciliar="${esc(m.id)}">Conciliar movimiento</button>`).join('')}</details>`:''}${d.sesiones.map(s=>`<div class="card"><h3>${s.cierre?'Cerrada':'Abierta'} · ${esc(s.responsable)}</h3><p>${esc(new Date(s.apertura).toLocaleString('es-AR',{timeZone:'America/Argentina/Cordoba'}))}${s.cierre?' → '+esc(new Date(s.cierre).toLocaleString('es-AR',{timeZone:'America/Argentina/Cordoba'})):''}</p><p>Inicial: ${esc(cajaMoney(s.inicial))} · Efectivo esperado: ${esc(cajaMoney(s.efectivo_esperado))}</p>${Object.entries(s.medios).filter(([m])=>m!=='efectivo').map(([m,v])=>`<p>${esc(m)}: ${esc(cajaMoney(v))}</p>`).join('')}${s.cierre?`<p>${s.arqueo?`Contado: ${esc(cajaMoney(s.contado))} · Diferencia: ${esc(cajaMoney(s.diferencia))}`:'Cerrada sin arqueo'}</p><p>${esc(s.notas)}</p>`:`<button class="btn" data-mov="${esc(s.id)}">Ingreso / egreso</button><button class="btn" data-cierre="${esc(s.id)}">Cerrar período</button>`}<details><summary>Movimientos</summary>${d.movimientos.filter(m=>m.sesion_id===s.id).map(movHtml).join('')||'<p>Sin movimientos</p>'}</details></div>`).join('')}<details><summary>Conciliados sin afectar períodos</summary>${d.movimientos.filter(m=>m.resuelto&&!m.sesion_id).map(m=>movHtml(m)+`<p>${esc(parseJsonSeguro(m.resolucion).motivo||'')}</p>`).join('')||'<p>Sin movimientos</p>'}</details><div id="cajaAccion"></div>`);
+    lista.querySelector('#cajaVolver').onclick=()=>viewCaja(view);
+    const apertura=lista.querySelector('#cajaAbrir');if(apertura){const rid=crypto.randomUUID();apertura.onsubmit=async e=>{e.preventDefault();const f=new FormData(apertura);await cajaSubmit(apertura,()=>api('/cajas/'+c.id+'/abrir',{method:'POST',body:JSON.stringify({inicial:toCentavos(f.get('inicial')),responsable_id:f.get('responsable_id'),solicitud_id:rid})}),()=>detalle(c));};}
+    lista.querySelectorAll('[data-mov]').forEach(b=>b.onclick=()=>accion(b.dataset.mov,false));
+    lista.querySelectorAll('[data-cierre]').forEach(b=>b.onclick=()=>accion(b.dataset.cierre,true));
+    lista.querySelectorAll('[data-conciliar]').forEach(b=>b.onclick=()=>{
+      const target=lista.querySelector('#cajaAccion');
+      setHTML(target,`<form class="card"><h3>Conciliar movimiento</h3><p>Incluí el movimiento solamente si el dinero realmente entró o salió de este período. Si ya está contemplado en el efectivo inicial, registrá que no afecta este período.</p><label>Destino<select name="sesion_id"><option value="">No afecta un período (dejar constancia)</option>${d.sesiones.filter(s=>!s.cierre).map(s=>`<option value="${esc(s.id)}">Período de ${esc(s.responsable)}</option>`).join('')}</select></label><label>Motivo<input name="motivo" required maxlength="1000"></label><button class="btn btn-primary">Confirmar conciliación</button><p id="cajaError" role="status"></p></form>`);
+      const form=target.querySelector('form');form.onsubmit=async e=>{e.preventDefault();const f=new FormData(form);await cajaSubmit(form,()=>api('/cajas/movimientos/'+b.dataset.conciliar+'/conciliar',{method:'POST',body:JSON.stringify({aplicar:!!f.get('sesion_id'),sesion_id:f.get('sesion_id'),motivo:f.get('motivo')})}),()=>detalle(c));};target.scrollIntoView({behavior:'smooth'});
+    });
+    function accion(sid,cierre){const s=d.sesiones.find(s=>s.id===sid),target=lista.querySelector('#cajaAccion'),rid=crypto.randomUUID();
+      setHTML(target,`<form class="card"><h3>${cierre?'Cerrar período':'Registrar movimiento'}</h3>${cierre?`<p>El cierre conserva el resultado y no se puede editar.</p>${s.arqueo?'<label>Efectivo contado ($)<input name="contado" type="number" min="0" step="0.01" required></label>':'<p>Arqueo desactivado: no hace falta contar efectivo.</p>'}<label>Observaciones<textarea name="notas" maxlength="1000"></textarea></label>`:`<label>Negocio<select name="negocio_id">${c.negocios.map(n=>`<option value="${esc(n.id)}">${esc(n.nombre)}</option>`).join('')}</select></label><label>Tipo<select name="tipo"><option value="ingreso">Ingreso</option><option value="egreso">Egreso</option></select></label><label>Medio<select name="medio"><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option><option value="tarjeta">Tarjeta</option><option value="otro">Otro</option></select></label><label>Importe ($)<input name="monto" type="number" min="0.01" step="0.01" required></label><label>Concepto<input name="concepto" required maxlength="1000"></label><p>Para cobrar una cuota usá Registrar pago en la ficha del cliente. Este movimiento no modifica su deuda.</p>`}<button class="btn btn-primary">${cierre?'Confirmar cierre':'Guardar movimiento'}</button><button class="btn" type="button" id="cajaNo">Cancelar</button><p id="cajaError" role="status"></p></form>`);
+      target.querySelector('#cajaNo').onclick=()=>setHTML(target,'');const form=target.querySelector('form');form.onsubmit=async e=>{e.preventDefault();const f=new FormData(form),body=cierre?{contado:s.arqueo?toCentavos(f.get('contado')):null,notas:f.get('notas')}:{...Object.fromEntries(f),monto:toCentavos(f.get('monto')),solicitud_id:rid};await cajaSubmit(form,()=>api('/cajas/sesiones/'+sid+(cierre?'/cerrar':'/movimientos'),{method:'POST',body:JSON.stringify(body)}),()=>detalle(c));};
+      target.scrollIntoView({behavior:'smooth',block:'start'});
+    }
+  }
+}
+function movHtml(m){return `<p>${esc(new Date(m.fecha).toLocaleString('es-AR',{timeZone:'America/Argentina/Cordoba'}))} · ${esc(m.negocio)} · ${esc(m.concepto)} · ${esc(m.medio)} · <strong>${esc(cajaMoney(m.monto))}</strong></p>`;}
+async function cajaSubmit(form,save,done){const buttons=[...form.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);try{await save();await done();}catch(e){form.querySelector('#cajaError').textContent=e.message;}finally{buttons.forEach(b=>b.disabled=false);}}
