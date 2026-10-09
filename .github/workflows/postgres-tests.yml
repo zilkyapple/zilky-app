@@ -17,27 +17,23 @@ jobs:
       fail-fast: false
       matrix:
         node: [24, 26]
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: zilky_test
-          POSTGRES_PASSWORD: disposable-ci-only
-          POSTGRES_DB: zilky_stage2_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U zilky_test -d zilky_stage2_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     env:
-      TEST_DATABASE_URL: postgresql://zilky_test:disposable-ci-only@127.0.0.1:5432/zilky_stage2_test
+      TEST_DATABASE_URL: postgresql://zilky_test:disposable-ci-only@127.0.0.1:55432/zilky_stage2_test
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - name: Disposable PostgreSQL
+        run: |
+          PG_BIN=$(find /usr/lib/postgresql -path '*/bin/initdb' | sort -V | tail -1 | xargs dirname)
+          test -x "$PG_BIN/initdb"
+          sudo install -d -o postgres -g postgres /tmp/zilky-pg
+          sudo -u postgres "$PG_BIN/initdb" -D /tmp/zilky-pg -A trust --no-locale
+          sudo -u postgres "$PG_BIN/pg_ctl" -D /tmp/zilky-pg -l /tmp/zilky-pg.log -o '-h 127.0.0.1 -p 55432' -w start
+          sudo -u postgres "$PG_BIN/createuser" -h 127.0.0.1 -p 55432 zilky_test
+          sudo -u postgres "$PG_BIN/createdb" -h 127.0.0.1 -p 55432 -O zilky_test zilky_stage2_test
+          "$PG_BIN/psql" -h 127.0.0.1 -p 55432 -U zilky_test -d zilky_stage2_test -c 'SELECT version()'
       - name: Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
