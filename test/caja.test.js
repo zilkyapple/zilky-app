@@ -100,3 +100,10 @@ test('Fallo de auditoría revierte el movimiento de caja',async()=>{
  try{await assert.rejects(movimientoCaja(se.id,{solicitud_id:randomUUID(),negocio_id:a.id,tipo:'egreso',monto:100,medio:'efectivo',concepto:'QA rollback'},admin.id),/CAJA_AUDIT_FAIL/);assert.equal((await detalleCaja(c.id)).movimientos.length,before);}finally{await db.exec('DROP TRIGGER caja_fail ON auditoria; DROP FUNCTION caja_audit_fail()');}
  await cerrarCaja(se.id,{},admin.id);
 });
+
+test('Cobro con fecha pasada queda pendiente de conciliación, nunca entra silenciosamente en la caja actual',async()=>{
+ const se=await abrirCaja(c.id,{inicial:0,solicitud_id:randomUUID()},admin.id);
+ const p=await registrarPago({credito_id:sale.credito.id,monto_centavos:100,medio_pago:'efectivo',usuario_id:admin.id,fecha_hora:addDays(todayAR(),-1)+'T12:00:00-03:00'});
+ const d=await detalleCaja(c.id);assert.equal(d.sesiones.find(s=>s.id===se.id).efectivo_esperado,0);assert.ok(d.movimientos.some(m=>m.tipo==='cobro'&&!m.sesion_id));
+ await cerrarCaja(se.id,{},admin.id);
+});

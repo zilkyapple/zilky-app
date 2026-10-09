@@ -1,3 +1,4 @@
+import {todayAR} from '../lib/dates.js';
 import {db} from '../db/connection.js';
 import {id} from '../lib/id.js';
 import {auditar} from '../lib/audit.js';
@@ -94,7 +95,8 @@ export async function capturarPagoCaja(pago,actor,tipo='cobro'){
  }else c=await db.prepare('SELECT c.* FROM caja_config c JOIN caja_negocios n ON n.caja_id=c.id WHERE n.negocio_id=? AND c.activa').get(pago.negocio_id);
  if(!c)return;
  const clave=c.modalidad==='negocio'?'negocio':actor;
- const abierta=c.activa&&tipo==='cobro'?await db.prepare('SELECT id FROM caja_sesiones WHERE caja_id=? AND clave=? AND cierre IS NULL').get(c.id,clave):null;
+ const fechaPago=String(pago.fecha_hora).slice(0,10);
+ const abierta=c.activa&&tipo==='cobro'&&fechaPago===todayAR()?await db.prepare('SELECT id FROM caja_sesiones WHERE caja_id=? AND clave=? AND cierre IS NULL').get(c.id,clave):null;
  await db.prepare('INSERT INTO caja_asientos(id,caja_id,sesion_id,negocio_id,pago_id,tipo,monto,medio,concepto,actor) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(pago_id,tipo) DO NOTHING').run(id(),c.id,abierta?.id||null,pago.negocio_id,pago.id,tipo,tipo==='anulacion'?-pago.monto_centavos:pago.monto_centavos,pago.medio_pago||'otro',tipo==='anulacion'?'Pago anulado: pendiente confirmar si se devolvió dinero':'Cobro registrado',actor||null);
 }
 
