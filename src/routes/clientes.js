@@ -1,3 +1,4 @@
+import { resumenCorreccion } from '../lib/historialFinanciacion.js';
 import { prepararWhatsApp } from '../services/whatsappPreparacionService.js';
 import { contactosCliente, cambiarModo, guardarContacto, actualizarContacto } from '../services/contactosCobranzaService.js';
 import { Router } from 'express';
@@ -219,7 +220,7 @@ clientesRouter.get('/:id', requirePermiso('clientes.ver'), async (req, res, next
         moraHistorial: await db.prepare(`SELECT a.fecha_hora,a.motivo,a.datos_nuevos, u.nombre AS autor, cu.numero
           FROM auditoria a JOIN cuotas cu ON cu.id=a.entidad_id LEFT JOIN usuarios u ON u.id=a.empleado
           WHERE cu.credito_id=? AND a.entidad='cuota' AND a.accion='perdonar_mora' ORDER BY a.fecha_hora`).all(cr.id),
-        correcciones: await db.prepare(`SELECT a.fecha_hora,a.motivo,u.nombre AS autor FROM auditoria a LEFT JOIN usuarios u ON u.id=a.empleado WHERE a.entidad='credito' AND a.entidad_id=? AND a.accion='corregir_financiacion' ORDER BY a.fecha_hora`).all(cr.id),
+        correcciones: (await db.prepare(`SELECT a.fecha_hora,a.motivo,a.datos_anteriores,a.datos_nuevos,u.nombre AS autor FROM auditoria a LEFT JOIN usuarios u ON u.id=a.empleado WHERE a.entidad='credito' AND a.entidad_id=? AND a.accion='corregir_financiacion' ORDER BY a.fecha_hora,a.id`).all(cr.id)).map(resumenCorreccion),
         incidencias: await listIncidencias(cr.id) });
     }
 

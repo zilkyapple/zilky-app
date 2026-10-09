@@ -213,4 +213,7 @@ test('Financiación PG: reducción al capital cobrado conserva fecha real y atra
   assert.equal((await api(path,admin,'PATCH',{...body,solicitud_id:randomUUID()})).status,409);
   const ficha=(await api(`/clientes/${c.id}?negocio_id=${n.id}`,admin)).body;
   assert.equal(ficha.creditos[0].correcciones.length,1);assert.equal(ficha.creditos[0].correcciones[0].motivo,body.motivo);
+  const cambios=ficha.creditos[0].correcciones[0].cambios;
+  assert.ok(cambios.some(c=>c.campo==='monto_total_centavos'&&c.anterior===100000&&c.nuevo===50000));
+  assert.equal(ficha.creditos[0].correcciones[0].datos_anteriores,undefined);
 });
