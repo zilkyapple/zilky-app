@@ -1,3 +1,4 @@
+import {avisarCorreccionCaja} from './cajaService.js';
 import {createHash} from 'node:crypto';
 import {db} from '../db/connection.js';
 import {integer,dateISO} from '../lib/validation.js';
@@ -84,6 +85,7 @@ export async function corregirFinanciacion(id,input,actor) {
       }
       if(datos.entrega_inicial_centavos>0)await registrarEntregaInicial({credito_id:id,monto_centavos:datos.entrega_inicial_centavos,fecha_hora:entrega?.fecha_hora||`${datos.fecha_inicio}T12:00:00-03:00`,medio_pago:entrega?.medio_pago||'no_especificado',usuario_id:actor});
     }
+    await avisarCorreccionCaja(first.negocio_id,id,datos.entrega_inicial_centavos-before.credito.entrega_inicial_centavos,actor);
     await recalcularEstadoCredito(id,negocio,todayAR(),actor);
     await auditar('credito',id,'corregir_financiacion',before,{solicitud_id,requestHash,datos,despues:await vistaFinanciacion(id)},actor,motivo.trim());
     return {id};

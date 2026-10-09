@@ -79,6 +79,6 @@ test('Corrección documental de entrega no duplica efectivo',async()=>{
  const v=await crearVenta({negocio_id:a.id,cliente_id:cliente.id,fecha:todayAR(),modalidad:'cuotas',monto_total_centavos:10000,entrega_inicial_centavos:1000,usuario_id:admin.id,plan:{cantidad_cuotas:1,valor_cuota_centavos:9000,fecha_primera_cuota:addDays(todayAR(),10)}});
  const old=await vistaFinanciacion(v.credito.id);const before=(await detalleCaja(c.id)).movimientos.length;
  await corregirFinanciacion(v.credito.id,{version:old.version,motivo:'QA corrección documental',solicitud_id:randomUUID(),confirmar_correccion_pagos:true,datos:{monto_total_centavos:10000,entrega_inicial_centavos:2000,fecha_inicio:todayAR(),producto_descripcion:'QA',condiciones:'QA',cuotas:old.cuotas.map(q=>({id:q.id,monto_centavos:8000,fecha_vencimiento:q.fecha_vencimiento}))}},admin.id);
- assert.equal((await detalleCaja(c.id)).movimientos.length,before);
+ const after=await detalleCaja(c.id);assert.equal(after.movimientos.filter(m=>m.tipo!=='correccion').length,before);assert.equal(after.movimientos.find(m=>m.tipo==='correccion').sesion_id,null);
  await cerrarCaja(s.id,{},admin.id);
 });

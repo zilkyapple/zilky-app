@@ -105,8 +105,14 @@ export async function resolverPendiente(aid,input,actor){return db.transaction(a
  if(a.resuelto){if(a.resolucion!==resolucion||a.resuelto_por!==actor)throw error('El movimiento ya fue conciliado',409);return a;}
  if(a.sesion_id)throw error('El movimiento ya pertenece a un período',409);
  let sid=null;
+ if(input.aplicar&&a.tipo==='correccion')throw error('La corrección es documental: registrá un ingreso o egreso manual si hubo movimiento real y conciliá este aviso sin afectar el período');
  if(input.aplicar){const s=await sesion(input.sesion_id);if(s.caja_id!==a.caja_id||s.cierre)throw error('Elegí un período abierto de esta caja');sid=s.id;}
  await db.prepare('UPDATE caja_asientos SET sesion_id=?,resuelto=true,resuelto_por=?,resolucion=? WHERE id=?').run(sid,actor,resolucion,aid);
  await auditar('caja',a.caja_id,'conciliar',a,{...input,motivo},actor,motivo);
  return db.prepare('SELECT * FROM caja_asientos WHERE id=?').get(aid);
 });}
+export async function avisarCorreccionCaja(negocioId,creditoId,delta,actor){
+ if(!delta)return;
+ await lock();const c=await db.prepare('SELECT c.* FROM caja_config c JOIN caja_negocios n ON n.caja_id=c.id WHERE n.negocio_id=? AND c.activa').get(negocioId);if(!c)return;
+ await db.prepare("INSERT INTO caja_asientos(id,caja_id,negocio_id,tipo,monto,medio,concepto,actor) VALUES(?,?,?,'correccion',?,'otro',?,?)").run(id(),c.id,negocioId,delta,'Corrección documental de entrega inicial ('+creditoId+'). No presume movimiento de dinero; revisar si requiere ajuste manual.',actor);
+}
