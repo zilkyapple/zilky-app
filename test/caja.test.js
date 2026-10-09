@@ -20,7 +20,7 @@ const a=await crearNegocio({nombre:'Caja A',mora_valor:0}),b=await crearNegocio(
 const admin=await crearUsuario({email:'admin@caja.invalid',password_hash:'unused'}),employee=await crearUsuario({email:'employee@caja.invalid',password_hash:'unused',rol:'empleado'});
 const input={nombre:'Compartida',activa:false,arqueo:false,modalidad:'negocio',negocios:[a.id,b.id]};
 let c=await guardarCaja(null,input,admin.id);
-const cliente=await crearCliente({nombre:'QA Caja',negocio_id:a.id});
+const cliente=await crearCliente({nombre:'Caja',apellido:'QA',negocio_id:a.id});
 const sale=await crearVenta({negocio_id:a.id,cliente_id:cliente.id,fecha:todayAR(),modalidad:'cuotas',monto_total_centavos:100000,plan:{cantidad_cuotas:2,valor_cuota_centavos:50000,fecha_primera_cuota:addDays(todayAR(),10)}});
 const server=await new Promise(r=>{const s=app.listen(0,'127.0.0.1',()=>r(s));});
 test.after(async()=>{await new Promise(r=>server.close(r));await pool.end();});

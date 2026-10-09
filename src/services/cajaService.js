@@ -15,7 +15,7 @@ export async function guardarCaja(cid,input,actor){return db.transaction(async()
  const nombre=texto(input.nombre);
  if(typeof input.activa!=='boolean'||typeof input.arqueo!=='boolean'||!['negocio','empleado'].includes(input.modalidad))throw error('Configuración inválida');
  const ns=input.negocios;
- if(!Array.isArray(ns)||!ns.length||ns.length>100||ns.some(x=>typeof x!=='string')||new Set(ns).size!==ns.length)throw error('Elegí uno o más negocios');
+ if(!Array.isArray(ns)||(!ns.length&&input.activa)||ns.length>100||ns.some(x=>typeof x!=='string')||new Set(ns).size!==ns.length)throw error('Elegí uno o más negocios');
  if(before&&input.version!==before.version)throw error('La configuración cambió; actualizá la página',409);
  if(before&&(await db.prepare('SELECT id FROM caja_sesiones WHERE caja_id=? AND cierre IS NULL').get(cid)))throw error('Cerrá los períodos abiertos antes de cambiar la configuración',409);
  const found=await db.query('SELECT id,organizacion_id FROM negocios WHERE id=ANY($1::text[])',[ns]);
