@@ -5,7 +5,7 @@ import {randomUUID} from 'node:crypto';
 import {db,pool} from '../src/db/connection.js';
 import {migrate} from '../src/db/migrate.js';
 import {crearNegocio} from '../src/repositories/negocios.js';
-import {crearUsuario} from '../src/repositories/usuarios.js';
+import {crearUsuario,asignarNegocio} from '../src/repositories/usuarios.js';
 import {crearCliente} from '../src/repositories/clientes.js';
 import {crearVenta} from '../src/services/ventasService.js';
 import {registrarPago} from '../src/services/pagosService.js';
@@ -81,4 +81,22 @@ test('Corrección documental de entrega no duplica efectivo',async()=>{
  await corregirFinanciacion(v.credito.id,{version:old.version,motivo:'QA corrección documental',solicitud_id:randomUUID(),confirmar_correccion_pagos:true,datos:{monto_total_centavos:10000,entrega_inicial_centavos:2000,fecha_inicio:todayAR(),producto_descripcion:'QA',condiciones:'QA',cuotas:old.cuotas.map(q=>({id:q.id,monto_centavos:8000,fecha_vencimiento:q.fecha_vencimiento}))}},admin.id);
  const after=await detalleCaja(c.id);assert.equal(after.movimientos.filter(m=>m.tipo!=='correccion').length,before);assert.equal(after.movimientos.find(m=>m.tipo==='correccion').sesion_id,null);
  await cerrarCaja(s.id,{},admin.id);
+});
+
+test('Períodos por empleado: cada cobro se asigna a su responsable sin compartir saldo',async()=>{
+ await asignarNegocio(employee.id,a.id,{'pagos.registrar':true});await asignarNegocio(employee.id,b.id,{'pagos.registrar':true});
+ c=await guardarCaja(c.id,{...input,activa:true,modalidad:'empleado',version:c.version},admin.id);
+ const sa=await abrirCaja(c.id,{inicial:0,solicitud_id:randomUUID()},admin.id);
+ const se=await abrirCaja(c.id,{inicial:0,responsable_id:employee.id,solicitud_id:randomUUID()},admin.id);
+ await payment();await registrarPago({credito_id:sale.credito.id,monto_centavos:700,medio_pago:'efectivo',usuario_id:employee.id});
+ const d=await detalleCaja(c.id);assert.equal(d.sesiones.find(s=>s.id===sa.id).efectivo_esperado,1000);assert.equal(d.sesiones.find(s=>s.id===se.id).efectivo_esperado,700);
+ await assert.rejects(guardarCaja(c.id,{...input,version:c.version},admin.id),/abiertos/);
+ await cerrarCaja(sa.id,{},admin.id);await cerrarCaja(se.id,{},admin.id);
+});
+test('Fallo de auditoría revierte el movimiento de caja',async()=>{
+ const se=await abrirCaja(c.id,{inicial:0,solicitud_id:randomUUID()},admin.id);
+ await db.exec("CREATE OR REPLACE FUNCTION caja_audit_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.entidad='caja' AND NEW.accion='movimiento' THEN RAISE EXCEPTION 'CAJA_AUDIT_FAIL'; END IF; RETURN NEW; END $$; CREATE TRIGGER caja_fail BEFORE INSERT ON auditoria FOR EACH ROW EXECUTE FUNCTION caja_audit_fail()");
+ const before=(await detalleCaja(c.id)).movimientos.length;
+ try{await assert.rejects(movimientoCaja(se.id,{solicitud_id:randomUUID(),negocio_id:a.id,tipo:'egreso',monto:100,medio:'efectivo',concepto:'QA rollback'},admin.id),/CAJA_AUDIT_FAIL/);assert.equal((await detalleCaja(c.id)).movimientos.length,before);}finally{await db.exec('DROP TRIGGER caja_fail ON auditoria; DROP FUNCTION caja_audit_fail()');}
+ await cerrarCaja(se.id,{},admin.id);
 });

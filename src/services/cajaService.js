@@ -75,7 +75,8 @@ export async function cerrarCaja(sid,input,actor){return db.transaction(async()=
  const notas=typeof input.notas==='string'?input.notas.trim():'';if(notas.length>1000)throw error('Observación demasiado larga');
  if(s.cierre){if(s.contado!==contado||s.notas!==notas||s.cerrado_por!==actor)throw error('El cierre ya está guardado',409);return s;}
  const sum=await db.prepare("SELECT COALESCE(SUM(monto),0) total FROM caja_asientos WHERE sesion_id=? AND medio='efectivo'").get(sid);
- const esperado=s.inicial+sum.total;
+ const esperado=s.inicial+Number(sum.total);
+ if(!Number.isSafeInteger(esperado))throw error('Saldo fuera de rango');
  if(s.arqueo&&contado!==esperado&&!notas)throw error('Agregá una observación para la diferencia de arqueo');
  await db.prepare('UPDATE caja_sesiones SET cierre=now(),contado=?,esperado=?,diferencia=?,cerrado_por=?,notas=? WHERE id=?').run(contado,esperado,contado===null?null:contado-esperado,actor,notas,sid);
  await auditar('caja',s.caja_id,'cerrar',s,{sesion_id:sid,esperado,contado,notas},actor);
