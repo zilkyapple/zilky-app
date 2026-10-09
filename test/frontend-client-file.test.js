@@ -419,3 +419,11 @@ test('Financiación UI: carga el plan editable y confirma pagos antes de enviar 
     assert.equal(d.querySelector('#corGuardar').disabled,false);
   }finally{b.w.close();}
 });
+
+test('Etapa6 UI: historial muestra antes/después exactos y neutraliza texto malicioso',()=>{
+ const b=browser({admin:true});try{
+ b.w.setHTML(b.view,b.w.correccionFinanciacionHtml({fecha_hora:'2026-10-09',autor:'QA',motivo:'<img src=x onerror=alert(1)>',cambios:[{etiqueta:'Entrega inicial',tipo:'dinero',anterior:100001,nuevo:200002},{etiqueta:'Condiciones',tipo:'texto',anterior:'Antes',nuevo:'<script>bad()</script>'}]}));
+ assert.match(b.view.textContent,/Antes:.*1\.000,01/);assert.match(b.view.textContent,/Después:.*2\.000,02/);
+ assert.equal(b.view.querySelector('img,script,[onerror]'),null);
+ }finally{b.w.close();}
+});

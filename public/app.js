@@ -610,7 +610,7 @@ function creditoCardHtml(cr) {
         </div>
       `).join('')}
       ${atrasos.length ? `<details><summary>Historial de atrasos (${esc(atrasos.length)})</summary>${atrasos.map(c => `<p>Cuota ${esc(c.numero)} · Vencimiento: ${esc(fmtFecha(c.fecha_vencimiento))} · ${c.saldo_pendiente_centavos <= 0 ? `Regularizada el ${esc(fmtFecha(c.fecha_saldada))} tras ${esc(c.dias_atraso_al_pagar)} días de atraso` : `${esc(c.diasAtraso)} días de atraso actual`}</p>`).join('')}</details>` : ''}
-      ${(cr.correcciones||[]).length ? `<details><summary>Correcciones de financiación</summary>${cr.correcciones.map(e=>`<p>${esc(e.fecha_hora)} · ${esc(e.autor||'Administrador')} · ${esc(e.motivo)}</p>`).join('')}</details>` : ''}
+      ${(cr.correcciones||[]).length ? `<details><summary>Correcciones de financiación</summary>${cr.correcciones.map(correccionFinanciacionHtml).join('')}</details>` : ''}
       ${(cr.moraHistorial||[]).length ? `<details><summary>Decisiones de mora</summary>${cr.moraHistorial.map(e=>`<p>Cuota ${esc(e.numero)} · ${esc(e.fecha_hora)} · ${esc(e.autor||'Administrador')} · ${esc(e.motivo)}</p>`).join('')}</details>` : ''}
       ${incidenciasHtml(cr)}
       ${state.usuario?.rol==='administrador' ? `<button class="btn btn-secondary" data-action="corregir-financiacion" data-credito="${esc(cr.id)}" data-negocio="${esc(cr.negocio_id)}">Corregir financiación</button>` : ''}
@@ -1789,4 +1789,15 @@ async function abrirPreparacionWhatsApp(clienteId,negocioId) {
       ${data.contactos.length?data.contactos.map(c=>`<div class="card"><strong>Cuota ${esc(c.numero)} · vence ${esc(fmtFecha(c.fecha_vencimiento))}</strong><p>Contacto: ${esc(fmtFecha(c.fecha_contacto))}</p><p>${c.motivos.map(m=>esc(razones[m]||m)).join(' · ')}</p>${c.mensaje?`<p style="white-space:pre-wrap">${esc(c.mensaje)}</p>`:'<p>Sin importe pendiente para reclamar.</p>'}</div>`).join(''):'<p>No hay contactos programados para previsualizar.</p>'}
       <button class="btn btn-secondary" data-action="cerrar-sheet">Cerrar</button>`);
   }catch(e){if(vigente())setHTML(sheet,`<p>${esc(e.message)}</p><button class="btn btn-secondary" data-action="cerrar-sheet">Cerrar</button>`);}
+}
+
+function correccionFinanciacionHtml(evento) {
+  const valor = (v,tipo) => {
+    if(v===null||v===undefined)return '—';
+    if(tipo==='dinero')return new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',minimumFractionDigits:2,maximumFractionDigits:2}).format(v/100);
+    if(tipo==='fecha')return fmtFecha(v);
+    return String(v);
+  };
+  return `<div class="card"><p>${esc(evento.fecha_hora)} · ${esc(evento.autor||'Administrador')} · ${esc(evento.motivo)}</p>
+    ${(evento.cambios||[]).length?evento.cambios.map(c=>`<div class="field"><strong>${esc(c.etiqueta)}</strong><div style="white-space:pre-wrap;overflow-wrap:anywhere">Antes: ${esc(valor(c.anterior,c.tipo))}</div><div style="white-space:pre-wrap;overflow-wrap:anywhere">Después: ${esc(valor(c.nuevo,c.tipo))}</div></div>`).join(''):'<p>Sin diferencias de campos disponibles en este registro.</p>'}</div>`;
 }
