@@ -54,7 +54,7 @@ export async function anularComprobante(comprobanteId, { motivo, usuarioId }) {
     await sumarSaldoFavor(pago.cliente_id, pago.negocio_id, -remanenteOriginal);
   }
 
-  await anularPago(pago.id, motivo);
+  await anularPago(pago.id, motivo, usuarioId);
   const fecha = nowAR();
   await anularComprobanteRow(comprobanteId, { motivo, usuarioId, fecha });
 
