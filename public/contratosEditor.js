@@ -1,4 +1,4 @@
-import {tags,escape,documentHTML,printHTML} from './contratoDocumento.js';
+import {tags,escape,documentHTML,printHTML,normalizeDocument,pageSettings} from './contratoDocumento.js';
 export function readDocument(root){
  const walk=n=>{if(n.nodeType===3)return n.textContent;if(n.nodeType!==1)return '';const tag=n.tagName.toLowerCase();if(['script','style','iframe','object','img','svg'].includes(tag))return '';const children=[...n.childNodes].map(walk);return {tag:tags.has(tag)?tag:'div',children,...(['left','center','right','justify'].includes(n.style.textAlign)?{align:n.style.textAlign}:{})};};
  return [...root.childNodes].map(walk);
@@ -11,7 +11,8 @@ export async function contractsEditor(view,{api,setHTML,negocios,negocioActual,t
  setHTML(view,`<h2>Contratos</h2><p>Documentos de este negocio. El texto no cambia cuotas, intereses ni pagos.</p><button class="btn" id="docNew">Hoja en blanco</button><label>Modelos<select id="docModels"><option value="">Elegir modelo</option>${data.modelos.map(m=>`<option value="${e(m.id)}">${e(m.nombre)}</option>`).join('')}</select></label><button class="btn" id="docUse">Usar modelo</button><div id="docWorkspace"></div><h3>Documentos guardados</h3>${data.contratos.map(c=>`<button class="btn btn-block" data-doc="${e(c.id)}">${e(c.titulo||'Contrato anterior')} · ${e(c.nombre)} ${e(c.apellido||'')} · ${e(c.estado)} · v${c.revision}</button>`).join('')||'<p>No hay documentos guardados.</p>'}`);
  const workspace=view.querySelector('#docWorkspace');
  const beforeUnload=event=>{if(dirty&&view.isConnected){event.preventDefault();event.returnValue='';}};window.addEventListener('beforeunload',beforeUnload);
- const observer=new MutationObserver(()=>{if(!view.isConnected){window.removeEventListener('beforeunload',beforeUnload);observer.disconnect();}});observer.observe(view.parentNode,{childList:true});
+ const leaveClick=event=>{if(dirty&&view.isConnected&&event.target.closest('a[href^="#"],[aria-label="Cambiar de negocio"],[data-action="logout"]')&&!confirm('Hay cambios sin guardar. ¿Salir sin guardarlos?')){event.preventDefault();event.stopImmediatePropagation();}};document.addEventListener('click',leaveClick,true);
+ const observer=new MutationObserver(()=>{if(!view.isConnected){window.removeEventListener('beforeunload',beforeUnload);document.removeEventListener('click',leaveClick,true);observer.disconnect();}});observer.observe(view.parentNode,{childList:true});
  const okLeave=()=>!dirty||confirm('Hay cambios sin guardar. ¿Descartarlos?');
  async function editor(doc=[],page={size:'A4',orientation:'portrait'},titulo='Contrato'){
   const clientes=await api('/clientes?negocio_id='+encodeURIComponent(n));if(!view.isConnected)return;
@@ -39,7 +40,7 @@ export async function contractsEditor(view,{api,setHTML,negocios,negocioActual,t
    }catch(err){$('#docStatus').textContent=err.message;}finally{busy=false;buttons.forEach(b=>b.disabled=false);paper.contentEditable='true';fields.forEach(([el,disabled])=>el.disabled=disabled);if(current){$('#docClient').disabled=true;$('#docCredit').disabled=true;}}}
   $('#docSaveModel').onclick=()=>save('modelo');$('#docSave').onclick=()=>save('borrador');$('#docIssue').onclick=()=>save('emitido');
   function print(doc,page,title,draft){const f=document.createElement('iframe');f.setAttribute('sandbox','allow-same-origin allow-modals');f.style.cssText='position:fixed;width:1px;height:1px;left:-10000px';f.srcdoc=printHTML(doc,page,title,{draft});f.onload=()=>{f.contentWindow.focus();f.contentWindow.print();};document.body.appendChild(f);setTimeout(()=>f.remove(),120000);}
-  $('#docPrint').onclick=()=>{const v=current?.versiones[0];print(readDocument(paper),pageValue(),$('#docTitle').value,v?.estado!=='emitido'||JSON.stringify(v.documento)!==JSON.stringify(readDocument(paper))||v.titulo!==$('#docTitle').value||JSON.stringify(v.pagina)!==JSON.stringify(pageValue()));};
+  $('#docPrint').onclick=()=>{const v=current?.versiones[0];print(readDocument(paper),pageValue(),$('#docTitle').value,v?.estado!=='emitido'||JSON.stringify(normalizeDocument(v.documento))!==JSON.stringify(normalizeDocument(readDocument(paper)))||v.titulo!==$('#docTitle').value||JSON.stringify(pageSettings(v.pagina))!==JSON.stringify(pageValue()));};
   function history(){setHTML($('#docVersions'),current?'<h3>Versiones conservadas</h3>'+current.versiones.map(v=>`<button class="btn" data-version="${v.revision}">Imprimir v${v.revision} · ${e(v.estado)}</button>`).join(''):'');for(const b of workspace.querySelectorAll('[data-version]'))b.onclick=()=>{const v=current.versiones.find(x=>x.revision===Number(b.dataset.version));print(v.documento,v.pagina,v.titulo,v.estado!=='emitido');};}history();dirty=false;
  }
  view.querySelector('#docNew').onclick=()=>{if(!okLeave())return;current=null;model=null;editor().catch(err=>toast(err.message,true));};
