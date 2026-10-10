@@ -1,5 +1,6 @@
+import {nuevoProducto,editarProducto,moverStock,historialProducto} from '../services/productosService.js';
 import { Router } from 'express';
-import { crearProducto, listProductos, getProducto } from '../repositories/productos.js';
+import { listProductos, getProducto } from '../repositories/productos.js';
 import { requirePermiso, requireAdmin, exigirPermisoNegocio, tienePermisoEnNegocio } from '../middleware/authorize.js';
 
 export const productosRouter = Router();
@@ -19,7 +20,7 @@ productosRouter.get('/', requirePermiso('productos.ver'), async (req, res, next)
 productosRouter.post('/', requireAdmin, async (req, res, next) => {
   try {
     if (!req.body.negocio_id || !req.body.nombre) return res.status(400).json({ error: 'negocio_id y nombre son obligatorios' });
-    res.status(201).json(await crearProducto(req.body));
+    res.status(201).json(await nuevoProducto(req.body,req.usuarioId));
   } catch (err) { next(err); }
 });
 
@@ -33,3 +34,8 @@ productosRouter.get('/:id', requirePermiso('productos.ver'), async (req, res, ne
     res.json(p);
   } catch (err) { next(err); }
 });
+
+const wrap=f=>async(req,res,next)=>{try{await f(req,res);}catch(e){next(e);}};
+productosRouter.put('/:id',requireAdmin,wrap(async(req,res)=>res.json(await editarProducto(req.params.id,req.body.negocio_id,req.body,req.usuarioId))));
+productosRouter.post('/:id/stock',requireAdmin,wrap(async(req,res)=>res.json(await moverStock(req.params.id,req.body.negocio_id,req.body,req.usuarioId))));
+productosRouter.get('/:id/historial',requireAdmin,wrap(async(req,res)=>res.json(await historialProducto(req.params.id,req.query.negocio_id))));

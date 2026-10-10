@@ -57,7 +57,7 @@ export async function crearVenta(input) {
       const producto = await getProducto(it.producto_id);
       if (!producto) throw badRequest('Producto no encontrado');
       if (producto.negocio_id !== negocio_id) throw badRequest('Ese producto pertenece a otro negocio.');
-      const { advertencia } = await descontarStock(it.producto_id, it.cantidad || 1);
+      const { advertencia } = await descontarStock(it.producto_id, it.cantidad || 1, input.usuario_id || null, ventaId);
       if (advertencia) advertencias.push(advertencia);
     }
   }

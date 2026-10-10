@@ -30,13 +30,14 @@ export async function listProductos(negocioId) {
 // (stock=null) no toca nada; si lleva control y no alcanza, igual descuenta (puede
 // quedar en negativo, a propósito, para que se note que hay que reponer) y devuelve
 // una advertencia en vez de tirar un error.
-export async function descontarStock(pId, cantidad) {
+export async function descontarStock(pId, cantidad, actor=null, ventaId=null) {
   const p = await db.prepare('SELECT * FROM productos WHERE id = ? FOR UPDATE').get(pId);
   if (!p) return { producto: null, advertencia: null };
   if (p.stock === null) return { producto: p, advertencia: null };
 
   const nuevoStock = p.stock - cantidad;
   await db.prepare('UPDATE productos SET stock = ? WHERE id = ?').run(nuevoStock, pId);
+  await db.prepare(`INSERT INTO producto_historial(id,producto_id,negocio_id,tipo,stock_anterior,stock_nuevo,motivo,usuario_id,venta_id) VALUES(?,?,?,?,?,?,?,?,?)`).run(id(),pId,p.negocio_id,'venta',p.stock,nuevoStock,'Venta',actor,ventaId);
   const actualizado = await getProducto(pId);
   const advertencia = nuevoStock < 0 ? `Quedaste sin stock de "${p.nombre}" (stock: ${nuevoStock}). Revisalo cuando puedas.` : null;
   return { producto: actualizado, advertencia };
