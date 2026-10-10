@@ -1045,23 +1045,27 @@ async function submitVenta() {
 }
 
 // ---------------- Vista: Productos ----------------
+function productoContexto() {
+  const negocio=state.negocioActual, usuario=state.usuario, token=getToken();
+  return {api,openSheet,closeSheet,toast,refresh:render,negocio,negocios:state.negocios,
+    valid:()=>state.usuario===usuario && getToken()===token && state.negocioActual===negocio};
+}
 async function viewProductos(view) {
   if (!state.negocioActual) { setHTML(view, `<div class="empty-state"><p>Elegí un negocio arriba para ver su catálogo.</p></div>`); return; }
+  const ctx=productoContexto();
   const productos = await api(`/productos?negocio_id=${state.negocioActual}`);
-  if (!view.isConnected) return;
-  setHTML(view, `
-    <div class="section-title">Productos · ${esc(negocioNombre(state.negocioActual))}</div>${state.usuario?.rol==='administrador'?'<a class="btn" href="#/comisiones">Configurar comisiones por producto</a>':''}
-    ${productos.length === 0 ? '<div class="empty-state"><p>Sin productos cargados.</p></div>' : productos.map((p) => `
-      <div class="list-item">
-        <span class="avatar">${esc(p.nombre[0])}</span>
-        <div class="list-item-body">
-          <div class="list-item-title">${esc(p.nombre)}</div>
-          <div class="list-item-sub">${esc(p.variante || p.categoria || '')} · Stock: ${esc(p.stock === null ? 'sin control' : p.stock)}${esc(p.stock !== null && p.stock <= p.stock_minimo ? ' ⚠️' : '')}</div>
-        </div>
-        <div class="list-item-trail"><div class="list-item-amount">${esc(formatARS(p.precio_financiado_centavos))}</div></div>
-      </div>
-    `).join('')}
-  `);
+  if (!view.isConnected || !ctx.valid()) return;
+  const admin=state.usuario?.rol==='administrador';
+  setHTML(view, `<div class="section-title">Productos · ${esc(negocioNombre(state.negocioActual))}</div>
+    ${admin?'<div class="product-actions"><button class="btn btn-primary" id="product-new">Nuevo producto</button><a class="btn btn-secondary" href="#/comisiones">Comisiones</a></div>':''}
+    ${productos.length===0?'<div class="empty-state"><p>Sin productos cargados.</p></div>':productos.map(p=>`
+      <article class="product-card"><div class="list-item">
+        ${p.foto_url?`<img class="product-thumbnail" src="${esc(p.foto_url)}" alt="${esc(p.nombre)}" loading="lazy" referrerpolicy="no-referrer">`:`<span class="avatar">${esc(p.nombre[0])}</span>`}
+        <div class="list-item-body"><div class="list-item-title">${esc(p.nombre)}</div><div class="list-item-sub">${esc(p.variante||p.categoria||'')} · Stock: ${esc(p.stock===null?'sin control':p.stock)}${p.stock!==null&&p.stock<=p.stock_minimo?' · Stock bajo':''}</div></div>
+        <div class="list-item-trail"><div class="list-item-amount">${esc(formatARS(p.precio_financiado_centavos))}</div></div></div>
+        ${admin?`<div class="product-actions"><button class="btn btn-secondary" data-product-edit="${esc(p.id)}">Editar</button><button class="btn btn-secondary" data-product-stock="${esc(p.id)}">Reponer / Ajustar</button><button class="btn btn-secondary" data-product-history="${esc(p.id)}">Historial</button></div>`:''}</article>`).join('')}`);
+  const action=(selector,method)=>view.querySelectorAll(selector).forEach(el=>el.addEventListener('click',async()=>{try{const mod=await import('./productosEditor.js');if(ctx.valid())await mod[method](ctx,el.dataset.productEdit||el.dataset.productStock||el.dataset.productHistory||null);}catch(err){toast(err.message,true);}}));
+  action('#product-new','productoEditor');action('[data-product-edit]','productoEditor');action('[data-product-stock]','productoStock');action('[data-product-history]','productoHistorial');
 }
 
 // ---------------- Vista: Comprobantes ----------------
@@ -1562,45 +1566,8 @@ function abrirCrearCliente() {
 }
 
 function abrirCrearProducto() {
-  setTimeout(() => openSheet(`
-    <div class="sheet-handle"></div>
-    <div class="sheet-title">Producto nuevo</div>
-    <div class="field"><label>Negocio</label><select id="npNegocio">${state.negocios.map((n) => `<option value="${esc(n.id)}">${esc(n.nombre)}</option>`).join('')}</select></div>
-    <div class="field"><label>Nombre</label><input id="npNombre" placeholder="Ej: iPhone 13 128GB" /></div>
-    <div class="field-row">
-      <div class="field"><label>Categoría</label><input id="npCategoria" /></div>
-      <div class="field"><label>Variante</label><input id="npVariante" placeholder="Talle / color / IMEI" /></div>
-    </div>
-    <div class="field-row">
-      <div class="field"><label>Precio contado</label><input type="number" id="npContado" /></div>
-      <div class="field"><label>Precio financiado</label><input type="number" id="npFinanciado" /></div>
-    </div>
-    <div class="field"><label>Stock (dejalo vacío si no querés controlarlo)</label><input type="number" id="npStock" placeholder="Sin control" /></div>
-    <div class="sheet-actions">
-      <button class="btn btn-secondary" data-action="cerrar-sheet">Cancelar</button>
-      <button class="btn btn-primary" id="btnGuardarProducto">Guardar</button>
-    </div>
-  `), 210);
-  setTimeout(() => {
-    document.getElementById('btnGuardarProducto')?.addEventListener('click', async () => {
-      const nombre = document.getElementById('npNombre').value.trim();
-      if (!nombre) return toast('El nombre es obligatorio', true);
-      try {
-        await api('/productos', {
-          method: 'POST',
-          body: JSON.stringify({
-            negocio_id: document.getElementById('npNegocio').value, nombre,
-            categoria: document.getElementById('npCategoria').value,
-            variante: document.getElementById('npVariante').value,
-            precio_contado_centavos: toCentavos(document.getElementById('npContado').value),
-            precio_financiado_centavos: toCentavos(document.getElementById('npFinanciado').value),
-            stock: document.getElementById('npStock').value === '' ? null : Number(document.getElementById('npStock').value),
-          }),
-        });
-        closeSheet(); toast('Producto creado ✓'); render();
-      } catch (err) { toast(err.message, true); }
-    });
-  }, 250);
+  const ctx=productoContexto();
+  setTimeout(async()=>{try{const {productoEditor}=await import('./productosEditor.js');if(ctx.valid())await productoEditor(ctx);}catch(err){toast(err.message,true);}},210);
 }
 
 // ---------------- Auth ----------------
