@@ -237,7 +237,7 @@ async function render() {
     ventas: 'ventas.crear', productos: 'productos.ver',
     comprobantes: 'comprobantes.ver', empleados: 'empleados.gestionar',
   };
-  if (['configuracion','caja'].includes(root) && state.usuario?.rol !== 'administrador') {
+  if (['configuracion','caja','contratos'].includes(root) && state.usuario?.rol !== 'administrador') {
     setHTML(view, '<div class="empty-state"><p>Requiere administrador</p></div>');
     return;
   }
@@ -259,6 +259,7 @@ async function render() {
     else if (root === 'configuracion') await viewConfiguracion(view);
     else if (root === 'empleados') await viewEmpleados(view);
     else if (root === 'caja') await viewCaja(view);
+    else if (root === 'contratos') { const {contractsEditor}=await import('./contratosEditor.js'); await contractsEditor(view,{api,setHTML,negocios:state.negocios,negocioActual:state.negocioActual,toast}); }
     else if (root === 'mas') await viewMas(view);
     else setHTML(view, notFound());
   } catch (err) {
@@ -1176,7 +1177,8 @@ async function viewMas(view) {
     <a class="list-item" href="#/configuracion"><span class="avatar">⚙️</span><div class="list-item-body"><div class="list-item-title">Configuración del negocio</div></div><span class="chev">${iconChevron()}</span></a>
     <a class="list-item" href="#/empleados"><span class="avatar">👥</span><div class="list-item-body"><div class="list-item-title">Empleados y permisos</div></div><span class="chev">${iconChevron()}</span></a>
     ${state.usuario?.rol==='administrador'?'<a class="list-item" href="#/caja"><span class="avatar">$</span><div class="list-item-body"><div class="list-item-title">Caja</div></div></a>':''}
-    ${['Contratos', 'Exportaciones'].map((n) => `
+    ${state.usuario?.rol==='administrador'?'<a class="list-item" href="#/contratos">Contratos · Editor de documentos</a>':''}
+    ${['Exportaciones'].map((n) => `
       <div class="list-item" style="opacity:.55"><span class="avatar">✦</span><div class="list-item-body"><div class="list-item-title">${esc(n)}</div><div class="list-item-sub">Próxima etapa</div></div></div>
     `).join('')}
     <div class="section-title">Cuenta</div>

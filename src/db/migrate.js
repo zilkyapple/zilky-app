@@ -1,3 +1,4 @@
+import {contratosSchema} from './contratosSchema.js';
 import {cajaSchema} from './cajaSchema.js';
 import { db, pool } from './connection.js';
 import { createHash } from 'node:crypto';
@@ -475,6 +476,7 @@ export async function migrate() {
     await migrarTokensInvitaciones();
     await db.exec(patches);
     await db.exec(cajaSchema);
+    await db.exec(contratosSchema);
     await db.exec(`
       ALTER TABLE creditos ADD COLUMN IF NOT EXISTS producto_descripcion TEXT;
       ALTER TABLE creditos ADD COLUMN IF NOT EXISTS condiciones TEXT;

@@ -1,0 +1,11 @@
+import {Router} from 'express';
+import {requireAdmin} from '../middleware/authorize.js';
+import {listarContratos,guardarModelo,fuentesContrato,obtenerContrato,guardarContrato} from '../services/contratosService.js';
+export const contratosRouter=Router();
+contratosRouter.use(requireAdmin);
+const run=f=>async(req,res,next)=>{try{res.json(await f(req));}catch(e){next(e);}};
+contratosRouter.get('/',run(r=>listarContratos(r.query.negocio_id)));
+contratosRouter.post('/modelos',run(r=>guardarModelo(r.body,r.usuarioId)));
+contratosRouter.get('/fuentes',run(r=>fuentesContrato(r.query.negocio_id,r.query.cliente_id)));
+contratosRouter.post('/',run(r=>guardarContrato(r.body,r.usuarioId)));
+contratosRouter.get('/:id',run(r=>obtenerContrato(r.params.id)));
