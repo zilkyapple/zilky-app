@@ -5,7 +5,7 @@ import {crearNegocio} from '../src/repositories/negocios.js';import {crearClient
 import {nuevoProducto,editarProducto,moverStock,historialProducto} from '../src/services/productosService.js';
 import {crearVenta} from '../src/services/ventasService.js';import {firmarToken} from '../src/lib/auth.js';import {app} from '../src/app.js';import {todayAR} from '../src/lib/dates.js';
 await migrate();await db.query('TRUNCATE organizaciones,usuarios,negocios,clientes,auditoria,invitaciones RESTART IDENTITY CASCADE');
-const n=await crearNegocio({nombre:'Stock QA'}),other=await crearNegocio({nombre:'Otro'}),client=await crearCliente({nombre:'Cliente QA',negocio_id:n.id});
+const n=await crearNegocio({nombre:'Stock QA'}),other=await crearNegocio({nombre:'Otro'}),client=await crearCliente({nombre:'Cliente',apellido:'QA',negocio_id:n.id});
 const admin=await crearUsuario({email:'admin@stock.invalid',password_hash:'unused'}),employee=await crearUsuario({email:'employee@stock.invalid',password_hash:'unused',rol:'empleado'});
 await db.prepare('INSERT INTO usuario_negocio(usuario_id,negocio_id,permisos,activo) VALUES(?,?,?,1)').run(employee.id,n.id,JSON.stringify({'productos.ver':true}));
 const server=await new Promise(r=>{const s=app.listen(0,'127.0.0.1',()=>r(s));});
