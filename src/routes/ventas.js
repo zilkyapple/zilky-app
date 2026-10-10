@@ -1,3 +1,4 @@
+import {db} from '../db/connection.js';
 import {vistaFinanciacion,corregirFinanciacion} from '../services/financiacionService.js';
 import { Router } from 'express';
 import { crearVenta } from '../services/ventasService.js';
@@ -10,7 +11,12 @@ ventasRouter.post('/', requirePermiso('ventas.crear'), async (req, res, next) =>
     if (!negocio_id) return res.status(400).json({ error: 'negocio_id es obligatorio' });
     exigirPermisoNegocio(req, negocio_id, 'ventas.crear');
     if(req.usuario.rol!=='administrador') await exigirCliente(req,req.body.cliente_id,'clientes.ver');
-    res.status(201).json(await crearVenta({...req.body, usuario_id:req.usuarioId}));
+    let beneficiario=req.usuarioId;
+    if(req.usuario.rol==='administrador'&&req.body.comision_usuario_id){
+      const u=await db.prepare("SELECT u.id FROM usuarios u WHERE u.id=? AND u.activo=1 AND (u.rol='administrador' OR EXISTS(SELECT 1 FROM usuario_negocio un WHERE un.usuario_id=u.id AND un.negocio_id=? AND un.activo=1))").get(req.body.comision_usuario_id,negocio_id);
+      if(!u)return res.status(400).json({error:'Vendedor sin acceso al negocio'});beneficiario=u.id;
+    }
+    res.status(201).json(await crearVenta({...req.body, usuario_id:req.usuarioId,comision_usuario_id:beneficiario}));
   } catch (err) { next(err); }
 });
 

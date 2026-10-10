@@ -1,3 +1,4 @@
+import {acordarComision} from './comisionesService.js';
 import {integer,dateISO} from '../lib/validation.js';
 import { agregarIncidencia } from './incidenciasService.js';
 import {registrarEntregaInicial} from './pagosService.js';
@@ -116,6 +117,7 @@ export async function crearVenta(input) {
   let entregaInicial=null;
   if(entrega_inicial_centavos>0) entregaInicial=await registrarEntregaInicial({credito_id:credito.id,monto_centavos:entrega_inicial_centavos,fecha_hora:`${fecha}T12:00:00-03:00`,medio_pago:input.medio_pago_entrega || 'no_especificado',usuario_id:input.usuario_id || null});
   await auditar('venta',ventaId,'crear',null,{negocio_id,cliente_id,monto_total_centavos,entrega_inicial_centavos,credito_id:credito.id},input.usuario_id||null);
+  await acordarComision(ventaId,input.comision_usuario_id||input.usuario_id);
   const cuotasCreadas=await listCuotasPorCredito(credito.id);
   const estadoInicial=saldoFinanciado===0?'finalizada_correctamente':cuotasCreadas.some(c=>c.fecha_vencimiento<fecha)?'atrasada':'al_dia';
   await agregarIncidencia({creditoId:credito.id,tipo:estadoInicial,fecha,clave:`venta:${ventaId}`,usuarioId:input.usuario_id||null});
