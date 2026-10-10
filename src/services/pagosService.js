@@ -1,9 +1,10 @@
+import {sincronizarComision} from './comisionesService.js';
 import { cancelarContactosSaldados } from './contactosCobranzaService.js';
 import {db} from '../db/connection.js';
 import { registrarHistoriaPago } from './incidenciasService.js';
 import {integer,dateISO} from '../lib/validation.js';
 import {auditar} from '../lib/audit.js';
-import { nowAR, diffDays } from '../lib/dates.js';
+import { nowAR, diffDays, todayAR } from '../lib/dates.js';
 import { distribuirPago, estadoCuota, calcularMora } from '../lib/mora.js';
 import { getCredito, actualizarEstadoCredito } from '../repositories/creditos.js';
 import { listCuotasPorCredito, actualizarCuota } from '../repositories/cuotas.js';
@@ -49,7 +50,8 @@ export async function registrarPago(input) {
       pago_id: pago.id, negocio_id: credito.negocio_id, cliente_id: credito.cliente_id, venta_id: credito.venta_id,
       credito_id, monto_centavos, fecha_hora, medio_pago, saldo_restante_centavos: 0, usuario_id,
     });
-    await auditar('pago',pago.id,'crear',null,pago,usuario_id);
+    await sincronizarComision(credito_id,fecha_hora.slice(0,10),'Pago registrado');
+  await auditar('pago',pago.id,'crear',null,pago,usuario_id);
     return { pago, comprobante, aplicaciones: [], remanente: monto_centavos, saldoAnterior: 0, saldoPosterior: 0 };
   }
 
@@ -92,6 +94,7 @@ export async function registrarPago(input) {
   const estadoCredito = await recalcularEstadoCredito(credito_id, negocio, today, usuario_id);
   await registrarHistoriaPago({credito,antes:cuotasAntesDelPago,despues:await listCuotasPorCredito(credito_id),fecha:today,pagoId:pago.id,usuarioId:usuario_id});
 
+  await sincronizarComision(credito_id,fecha_hora.slice(0,10),'Pago registrado');
   await auditar('pago',pago.id,'crear',null,pago,usuario_id);
   return { pago, comprobante, aplicaciones, remanente, saldoAnterior, saldoPosterior, estadoCredito };
   });
@@ -129,6 +132,7 @@ export async function registrarEntregaInicial({credito_id,monto_centavos,fecha_h
       monto_centavos,fecha_hora,medio_pago,usuario_id,tipo:'entrega_inicial',saldo_anterior_centavos:credito.saldo_financiado_centavos,saldo_posterior_centavos:credito.saldo_financiado_centavos});
     const comprobante=await crearComprobante({pago_id:pago.id,negocio_id:credito.negocio_id,cliente_id:credito.cliente_id,credito_id,venta_id:credito.venta_id,
       monto_centavos,fecha_hora,medio_pago,saldo_restante_centavos:credito.saldo_financiado_centavos,usuario_id});
+    await sincronizarComision(credito_id,todayAR(),'Entrega inicial registrada');
     await auditar('pago',pago.id,'entrega_inicial',null,pago,usuario_id);
     return {pago,comprobante};
   });

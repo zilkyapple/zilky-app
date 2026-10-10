@@ -1,3 +1,5 @@
+import {exportacionesRouter} from './routes/exportaciones.js';
+import {comisionesRouter} from './routes/comisiones.js';
 import {contratosRouter} from './routes/contratos.js';
 import {cajasRouter} from './routes/cajas.js';
 import express from 'express';
@@ -36,6 +38,8 @@ app.use('/api/auth', authRouter);
 app.use('/api', requireAuth); // a partir de acá todo requiere token válido
 
 app.use('/api/cajas', cajasRouter);
+app.use('/api/exportaciones',exportacionesRouter);
+app.use('/api/comisiones', comisionesRouter);
 app.use('/api/contratos', contratosRouter);
 app.use('/api/negocios', negociosRouter);
 app.use('/api/clientes', clientesRouter);

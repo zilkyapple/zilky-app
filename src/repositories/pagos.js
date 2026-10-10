@@ -1,3 +1,4 @@
+import {sincronizarComision} from '../services/comisionesService.js';
 import {capturarPagoCaja} from '../services/cajaService.js';
 import { db } from '../db/connection.js';
 import { id } from '../lib/id.js';
@@ -30,6 +31,7 @@ export async function anularPago(pagoId, motivo, actor) { return db.transaction(
   await db.prepare('UPDATE pagos SET anulado = 1, motivo_anulacion = ? WHERE id = ?').run(motivo || null, pagoId);
   const pago=await getPago(pagoId);
   await capturarPagoCaja(pago,actor,'anulacion');
+  await sincronizarComision(pago.credito_id,undefined,'Anulación de pago');
   return pago;
 });}
 export async function getSaldoFavor(clienteId, negocioId) {

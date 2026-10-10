@@ -237,7 +237,7 @@ async function render() {
     ventas: 'ventas.crear', productos: 'productos.ver',
     comprobantes: 'comprobantes.ver', empleados: 'empleados.gestionar',
   };
-  if (['configuracion','caja','contratos'].includes(root) && state.usuario?.rol !== 'administrador') {
+  if (['configuracion','caja','contratos','exportaciones'].includes(root) && state.usuario?.rol !== 'administrador') {
     setHTML(view, '<div class="empty-state"><p>Requiere administrador</p></div>');
     return;
   }
@@ -259,6 +259,8 @@ async function render() {
     else if (root === 'configuracion') await viewConfiguracion(view);
     else if (root === 'empleados') await viewEmpleados(view);
     else if (root === 'caja') await viewCaja(view);
+    else if (root === 'exportaciones') { const {exportacionesView}=await import('./exportaciones.js'); await exportacionesView(view,{api,setHTML,negocio:state.negocioActual,toast}); }
+    else if (root === 'comisiones') { const {comisionesView}=await import('./comisiones.js'); await comisionesView(view,{api,setHTML,negocio:state.negocioActual,admin:state.usuario?.rol==='administrador',toast}); }
     else if (root === 'contratos') { const {contractsEditor}=await import('./contratosEditor.js'); await contractsEditor(view,{api,setHTML,negocios:state.negocios,negocioActual:state.negocioActual,toast}); }
     else if (root === 'mas') await viewMas(view);
     else setHTML(view, notFound());
@@ -904,6 +906,7 @@ async function viewVentaNueva(view, clientePreId) {
   if (clientePreId) { try { clientePre = await api(`/clientes/${encodeURIComponent(clientePreId)}?negocio_id=${encodeURIComponent(negocioSel)}`); } catch { /* La búsqueda permite elegir otro cliente autorizado. */ } }
   if (!view.isConnected) return;
   const productos = puede('productos.ver', negocioSel) ? await api(`/productos?negocio_id=${encodeURIComponent(negocioSel)}`) : [];
+  const vendedores = state.usuario?.rol==='administrador' ? (await api('/usuarios')).filter(u=>u.activo===1&&(u.rol==='administrador'||(u.negocios||[]).some(n=>n.negocio_id===negocioSel&&n.activo===1))) : [];
   if (!view.isConnected) return;
 
   setHTML(view, `
@@ -920,6 +923,7 @@ async function viewVentaNueva(view, clientePreId) {
         <div id="vClienteResultados"></div>
       </div>
       <div class="field">
+        ${state.usuario?.rol==='administrador'?`<label for="vVendedor">Vendedor (comisión)</label><select id="vVendedor">${vendedores.map(u=>`<option value="${esc(u.id)}" ${u.id===state.usuario.id?'selected':''}>${esc(u.nombre||u.email)}</option>`).join('')}</select>`:''}
         <label>Producto (opcional)</label>
         <select id="vProducto">
           <option value="">— Ingresar monto manualmente —</option>
@@ -1015,6 +1019,7 @@ async function submitVenta() {
 
   const body = {
     negocio_id, cliente_id, modalidad, monto_total_centavos, entrega_inicial_centavos, medio_pago_entrega:document.getElementById('vMedioEntrega').value,
+    comision_usuario_id: document.getElementById('vVendedor')?.value || undefined,
     items: productoSel.value ? [{ producto_id: productoSel.value, cantidad: 1, precio_unitario_centavos: monto_total_centavos }] : [],
     plan: {},
   };
@@ -1045,7 +1050,7 @@ async function viewProductos(view) {
   const productos = await api(`/productos?negocio_id=${state.negocioActual}`);
   if (!view.isConnected) return;
   setHTML(view, `
-    <div class="section-title">Productos · ${esc(negocioNombre(state.negocioActual))}</div>
+    <div class="section-title">Productos · ${esc(negocioNombre(state.negocioActual))}</div>${state.usuario?.rol==='administrador'?'<a class="btn" href="#/comisiones">Configurar comisiones por producto</a>':''}
     ${productos.length === 0 ? '<div class="empty-state"><p>Sin productos cargados.</p></div>' : productos.map((p) => `
       <div class="list-item">
         <span class="avatar">${esc(p.nombre[0])}</span>
@@ -1178,9 +1183,8 @@ async function viewMas(view) {
     <a class="list-item" href="#/empleados"><span class="avatar">👥</span><div class="list-item-body"><div class="list-item-title">Empleados y permisos</div></div><span class="chev">${iconChevron()}</span></a>
     ${state.usuario?.rol==='administrador'?'<a class="list-item" href="#/caja"><span class="avatar">$</span><div class="list-item-body"><div class="list-item-title">Caja</div></div></a>':''}
     ${state.usuario?.rol==='administrador'?'<a class="list-item" href="#/contratos">Contratos · Editor de documentos</a>':''}
-    ${['Exportaciones'].map((n) => `
-      <div class="list-item" style="opacity:.55"><span class="avatar">✦</span><div class="list-item-body"><div class="list-item-title">${esc(n)}</div><div class="list-item-sub">Próxima etapa</div></div></div>
-    `).join('')}
+    <a class="list-item" href="#/comisiones">Comisiones</a>
+    ${state.usuario?.rol==='administrador'?'<a class="list-item" href="#/exportaciones">Exportaciones · Descargar para Excel</a>':''}
     <div class="section-title">Cuenta</div>
     <div class="list-item" data-action="logout"><span class="avatar">⎋</span><div class="list-item-body"><div class="list-item-title">Cerrar sesión</div></div></div>
   `);
