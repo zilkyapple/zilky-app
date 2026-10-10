@@ -1,0 +1,8 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {JSDOM} from 'jsdom';
+import {normalizeDocument,documentHTML,printHTML,pageSettings} from '../public/contratoDocumento.js';
+import {readDocument} from '../public/contratosEditor.js';
+test('Editor escapes text and rejects active or arbitrary HTML nodes',()=>{assert.equal(documentHTML(['<script>alert(1)</script>']),'&lt;script&gt;alert(1)&lt;/script&gt;');for(const tag of ['script','img','iframe','style','svg'])assert.throws(()=>normalizeDocument([{tag,children:[]}]))});
+test('Editor drops pasted scripts, images, links, handlers and unapproved styles',()=>{const d=new JSDOM('<div id="x"><p onclick="alert(1)" style="text-align:center;color:red">Texto</p><script>x</script><img src=x><a href="javascript:x">Link</a></div>').window.document;const html=documentHTML(readDocument(d.querySelector('#x')));assert.equal(html,'<p style="text-align:center">Texto</p><div>Link</div>');});
+test('Print uses selected paper, preserves tables and marks unissued drafts',()=>{const html=printHTML([{tag:'table',children:[{tag:'tr',children:[{tag:'td',children:['Cuota 1']}]}]}],{size:'Legal',orientation:'landscape'},'<title>',{draft:true});assert.match(html,/size:Legal landscape/);assert.match(html,/BORRADOR/);assert.match(html,/&lt;title&gt;/);assert.match(html,/<td>Cuota 1/);assert.throws(()=>pageSettings({size:'A4;url(x)',orientation:'portrait'}));});
+test('Complex and oversized documents rejected before storage',()=>{assert.throws(()=>normalizeDocument(['x'.repeat(70001)]));let n='x';for(let i=0;i<32;i++)n={tag:'div',children:[n]};assert.throws(()=>normalizeDocument([n]));});
