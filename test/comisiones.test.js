@@ -6,7 +6,7 @@ import {crearVenta} from '../src/services/ventasService.js';import {registrarPag
 import {configurarComision,configurarProductoComision,resumenComisiones,liquidarComision} from '../src/services/comisionesService.js';
 import {firmarToken} from '../src/lib/auth.js';import {app} from '../src/app.js';import {todayAR} from '../src/lib/dates.js';
 await migrate();await db.query('TRUNCATE organizaciones,usuarios,negocios,clientes,auditoria,invitaciones RESTART IDENTITY CASCADE');
-const n=await crearNegocio({nombre:'Comisiones QA'}),other=await crearNegocio({nombre:'Otro'}),client=await crearCliente({nombre:'=FORMULA',negocio_id:n.id});
+const n=await crearNegocio({nombre:'Comisiones QA'}),other=await crearNegocio({nombre:'Otro'}),client=await crearCliente({nombre:'=FORMULA',apellido:'QA',negocio_id:n.id});
 const admin=await crearUsuario({email:'admin@commission.invalid',password_hash:'unused'}),employee=await crearUsuario({nombre:'Empleado QA',email:'employee@commission.invalid',password_hash:'unused',rol:'empleado'}),outsider=await crearUsuario({email:'outsider@commission.invalid',password_hash:'unused',rol:'empleado'});
 await db.prepare('INSERT INTO usuario_negocio(usuario_id,negocio_id,permisos,activo) VALUES(?,?,?,1)').run(employee.id,n.id,JSON.stringify({'ventas.crear':true,'clientes.ver':true}));
 const product=await crearProducto({negocio_id:n.id,nombre:'Producto QA',precio_financiado_centavos:100000});

@@ -21,8 +21,9 @@ export async function configurarProductoComision(n,p,b,actor) {
  await db.prepare('INSERT INTO comision_producto(producto_id,tipo,valor) VALUES(?,?,?) ON CONFLICT(producto_id) DO UPDATE SET tipo=excluded.tipo,valor=excluded.valor').run(p,b.tipo,b.valor);
  await auditar('comision_producto',p,'configurar',old,b,actor);return b;});
 }
+const ratio=(a,b,c)=>Number((BigInt(a)*BigInt(b)*2n+BigInt(c))/(2n*BigInt(c)));
 export function calcularComision(items) {
- let total=0;for(const x of items){const importe=x.tipo==='porcentaje'?Math.round(x.precio_unitario_centavos*x.cantidad*x.valor/10000):x.cantidad*x.valor;integer(importe,'importe de comisión');total+=importe;}
+ let total=0;for(const x of items){const importe=x.tipo==='porcentaje'?ratio(x.precio_unitario_centavos*x.cantidad,x.valor,10000):x.cantidad*x.valor;integer(importe,'importe de comisión');total+=importe;}
  integer(total,'total comisión');return total;
 }
 // Called inside sale transaction. Rules and beneficiary are frozen, never inferred from a free-text employee name.
@@ -44,7 +45,7 @@ export async function sincronizarComision(creditoId,fecha=todayAR(),motivo='Actu
  let objetivo=Number(a.total_centavos);
  if(a.momento==='cobro'){
   const row=await db.prepare(`SELECT COALESCE(sum(CASE WHEN p.tipo='entrega_inicial' THEN p.monto_centavos ELSE COALESCE((SELECT sum(pa.capital_centavos) FROM pago_aplicaciones pa WHERE pa.pago_id=p.id),0) END),0) AS capital FROM pagos p WHERE p.credito_id=? AND p.anulado=0`).get(creditoId);
-  objetivo=Math.round(Number(a.total_centavos)*Math.min(Number(row.capital),Number(a.base_centavos))/Number(a.base_centavos));
+  objetivo=ratio(Number(a.total_centavos),Math.min(Number(row.capital),Number(a.base_centavos)),Number(a.base_centavos));
  }
  const old=await db.prepare('SELECT COALESCE(sum(importe_centavos),0) AS total FROM comision_eventos WHERE acuerdo_id=?').get(a.id);
  const delta=objetivo-Number(old.total);if(delta)await db.prepare('INSERT INTO comision_eventos(id,acuerdo_id,fecha,importe_centavos,motivo) VALUES(?,?,?,?,?)').run(id(),a.id,fecha,delta,motivo);
