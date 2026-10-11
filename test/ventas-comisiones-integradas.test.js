@@ -1,5 +1,6 @@
 import './setup-env.js';
 import test from 'node:test';import assert from 'node:assert/strict';import {randomUUID} from 'node:crypto';
+import {ventasComisionesSchema} from '../src/db/ventasComisionesSchema.js';
 import {db,pool} from '../src/db/connection.js';import {migrate} from '../src/db/migrate.js';
 import {crearNegocio} from '../src/repositories/negocios.js';import {crearCliente,buscarClientes} from '../src/repositories/clientes.js';import {crearUsuario} from '../src/repositories/usuarios.js';import {crearProducto,getProducto} from '../src/repositories/productos.js';
 import {crearVenta} from '../src/services/ventasService.js';import {registrarPago} from '../src/services/pagosService.js';import {anularComprobante} from '../src/services/comprobantesService.js';
@@ -129,5 +130,8 @@ test('Sale endpoint requires an idempotency key; staff cannot impersonate a sell
 
 test('Additive migration is repeatable and preserves financial records, agreements and closed snapshots',async()=>{
  const snapshot=async()=>{const result={};for(const table of ['ventas','creditos','cuotas','pagos','comprobantes','comision_acuerdos','comision_cierres','comision_liquidaciones','comision_generaciones','venta_devoluciones'])result[table]=(await db.query('SELECT * FROM '+table+' ORDER BY id')).rows;return result;};
- const before=await snapshot();await migrate();assert.deepEqual(await snapshot(),before);
+ const before=await snapshot();await db.transaction(()=>db.exec(ventasComisionesSchema));await db.transaction(()=>db.exec(ventasComisionesSchema));assert.deepEqual(await snapshot(),before);
+ // The pre-existing migration fills missing organization metadata; it must not
+ // change any financial field, and the second complete execution is identical.
+ await migrate();const normalized=Object.fromEntries(Object.entries(before).map(([table,rows])=>[table,rows.map(row=>Object.hasOwn(row,'organizacion_id')?{...row,organizacion_id:row.organizacion_id??'default'}:row)]));assert.deepEqual(await snapshot(),normalized);await migrate();assert.deepEqual(await snapshot(),normalized);
 });

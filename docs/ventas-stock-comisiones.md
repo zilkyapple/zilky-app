@@ -56,7 +56,7 @@ Se bloquean cambios posteriores del plan financiero o anulaciones de recibos de 
 
 `ventasComisionesSchema` es aditivo y se ejecuta dentro de la transacción y el bloqueo global de migraciones existentes. Agrega tablas de solicitudes, reglas, visibilidad, cierres, generaciones, ajustes, componentes y devoluciones, además de columnas de identificación. Solo incorpora una generación inicial derivada de cada acuerdo histórico mediante `ON CONFLICT DO NOTHING`.
 
-No elimina clientes, ventas, cuotas, pagos, comprobantes, empleados, permisos, acuerdos ni liquidaciones. No se atribuyen ventas históricas a empleados a partir de nombres libres. Por eso el historial personal del empleado no incorpora automáticamente ventas antiguas sin vendedor identificado; el administrador sí las conserva.
+No elimina clientes, ventas, cuotas, pagos, comprobantes, empleados, permisos, acuerdos ni liquidaciones. El ejecutor histórico de migraciones conserva su normalización de `organizacion_id` vacío a `default`; las pruebas distinguen ese metadato de los importes y registros financieros, que deben permanecer idénticos. No se atribuyen ventas históricas a empleados a partir de nombres libres. Por eso el historial personal del empleado no incorpora automáticamente ventas antiguas sin vendedor identificado; el administrador sí las conserva.
 
 Antes de publicar:
 

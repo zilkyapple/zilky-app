@@ -31,7 +31,7 @@ comisionesRouter.get('/productos',requireAdmin,wrap(async(req,res)=>{
 }));
 comisionesRouter.get('/administracion',requireAdmin,wrap(async(req,res)=>{
  const n=negocio(req),cfg=await configuracionComision(n);
- const vendedores=await db.prepare(`SELECT u.id,u.nombre FROM usuarios u WHERE u.activo=1 AND (u.id=? OR EXISTS(SELECT 1 FROM usuario_negocio un WHERE un.usuario_id=u.id AND un.negocio_id=? AND un.activo=1)) ORDER BY u.nombre`).all(req.usuarioId,n);
+ const vendedores=await db.prepare(`SELECT u.id,u.nombre,u.rol FROM usuarios u WHERE u.activo=1 AND (u.id=? OR EXISTS(SELECT 1 FROM usuario_negocio un WHERE un.usuario_id=u.id AND un.negocio_id=? AND un.activo=1)) ORDER BY u.nombre`).all(req.usuarioId,n);
  for(const u of vendedores)u.permisos=await politicaEmpleado(n,u.id,cfg);
  res.json({vendedores,reglas:await db.prepare('SELECT * FROM comision_reglas WHERE negocio_id=?').all(n),combos:await db.prepare('SELECT c.* FROM producto_combo_componentes c JOIN productos p ON p.id=c.combo_id WHERE p.negocio_id=?').all(n)});
 }));
