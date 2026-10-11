@@ -22,7 +22,7 @@ comisionesRouter.get('/',wrap(async(req,res)=>{
  if(admin)return res.json({config:cfg,cierres,...d});
  const result={acceso:p,config:{activa:cfg.activa},cierres,desde:d.desde,hasta:d.hasta};
  if(p.ver_total){result.totales=d.totales;result.balances=d.balances.map(({generado,pagado,pendiente,liquidable,comision_generada,pendiente_cobro})=>({generado,pagado,pendiente,liquidable,comision_generada,pendiente_cobro}));}
- if(p.ver_detalle){result.eventos=d.eventos.map(({fecha,importe_centavos,motivo})=>({fecha,importe_centavos,motivo,usuario_id:req.usuarioId}));result.acuerdos=d.acuerdos.filter(a=>a.fecha>=desde&&a.fecha<=hasta).map(a=>({fecha:a.fecha,detalle:a.detalle.map(x=>({descripcion:x.descripcion,cantidad:x.cantidad,comision_centavos:x.comision_centavos})),generada:a.generada,liquidable:a.liquidable}));}
+ if(p.ver_detalle){result.eventos=d.eventos.map(({fecha,importe_centavos,motivo})=>({fecha,importe_centavos,motivo,usuario_id:req.usuarioId}));result.acuerdos=d.acuerdos.filter(a=>a.fecha>=d.desde&&a.fecha<=d.hasta).map(a=>({fecha:a.fecha,detalle:a.detalle.map(x=>({descripcion:x.descripcion,cantidad:x.cantidad,comision_centavos:x.comision_centavos})),generada:a.generada,liquidable:a.liquidable}));}
  res.json(result);
 }));
 comisionesRouter.get('/productos',requireAdmin,wrap(async(req,res)=>{

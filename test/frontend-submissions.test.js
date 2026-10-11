@@ -22,6 +22,7 @@ function browser() {
 }
 async function sale(b) {
   await b.w.viewVentaNueva(b.view);
+  b.view.querySelector('[data-val="libre"]').click();
   b.view.querySelector('#vClienteId').value = 'cliente-qa';
   b.view.querySelector('#vMontoTotal').value = '1200';
   b.view.querySelector('#vEntrega').value = '300';

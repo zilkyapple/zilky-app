@@ -83,7 +83,7 @@ export async function resumenGeneral(negocioId = null) {
   }
 
   return {
-    vendidoTotalCentavos: ventasVendidoRow.t,
+    vendidoTotalCentavos: Number(ventasVendidoRow.t),
     cobradoHoyCentavos: cajaHoyRow.t,
     cobradoMesCentavos: cajaMesRow.t,
     porCobrarHoyCentavos: porCobrarHoy,

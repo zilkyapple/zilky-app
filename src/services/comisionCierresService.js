@@ -34,7 +34,9 @@ export async function vistaCierre(n,u,mes){
  const generados=await db.prepare(`SELECT g.* FROM comision_generaciones g JOIN comision_acuerdos a ON a.id=g.acuerdo_id WHERE a.negocio_id=? AND a.usuario_id=? AND g.fecha<=? ORDER BY g.fecha,g.id`).all(n,u,hasta);
  const pagos=await db.prepare('SELECT id,COALESCE(fecha_contable,fecha) fecha,importe_centavos,nota FROM comision_liquidaciones WHERE negocio_id=? AND usuario_id=? AND COALESCE(fecha_contable,fecha)<=? ORDER BY COALESCE(fecha_contable,fecha),id').all(n,u,hasta);
  const sum=rows=>rows.reduce((s,x)=>s+Number(x.importe_centavos),0),enMes=rows=>rows.filter(x=>x.fecha>=desde);
- const resumen={mes,usuario_id:u,generada:sum(enMes(generados)),liquidable:sum(enMes(eventos)),pagada:sum(enMes(pagos)),saldo_anterior:sum(eventos.filter(x=>x.fecha<desde))-sum(pagos.filter(x=>x.fecha<desde)),saldo_pendiente:sum(eventos)-sum(pagos),pendiente_cobro:sum(generados)-sum(eventos),eventos:enMes(eventos),pagos:enMes(pagos)};
+ const acuerdos=await db.prepare('SELECT a.id,v.fecha,a.detalle FROM comision_acuerdos a JOIN ventas v ON v.id=a.venta_id WHERE a.negocio_id=? AND a.usuario_id=? AND EXISTS(SELECT 1 FROM comision_eventos e WHERE e.acuerdo_id=a.id AND e.fecha>=? AND e.fecha<=?) ORDER BY v.fecha,a.id').all(n,u,desde,hasta);
+ const productos=acuerdos.flatMap(a=>a.detalle.map(x=>({fecha:a.fecha,descripcion:x.descripcion||'Producto',cantidad:x.cantidad,comision_centavos:x.comision_centavos??(x.tipo==='fijo'?x.valor*x.cantidad:Math.round(x.precio_unitario_centavos*x.cantidad*x.valor/10000))})));
+ const resumen={productos,mes,usuario_id:u,generada:sum(enMes(generados)),liquidable:sum(enMes(eventos)),pagada:sum(enMes(pagos)),saldo_anterior:sum(eventos.filter(x=>x.fecha<desde))-sum(pagos.filter(x=>x.fecha<desde)),saldo_pendiente:sum(eventos)-sum(pagos),pendiente_cobro:sum(generados)-sum(eventos),eventos:enMes(eventos),pagos:enMes(pagos)};
  return {resumen,version:huella({resumen,eventos,generados,pagos})};
 }
 export async function aprobarCierre(n,b,actor){
@@ -62,6 +64,6 @@ export async function cierresVisibles(n,u,{admin=false,historial=false,detalle=f
   const r={id:c.id,mes:c.mes,estado:c.estado,publicado_at:c.publicado_at};
   // Explicit allow-list: closed-only employees never receive live totals, other sellers or per-product rates.
   if(total)Object.assign(r,{liquidable:c.resumen.liquidable,saldo_pendiente:c.resumen.saldo_pendiente,pagado_cierre:Number(paid.importe)});
-  if(detalle)r.eventos=c.resumen.eventos.map(e=>({fecha:e.fecha,importe_centavos:e.importe_centavos,motivo:e.motivo}));return r;
+  if(detalle){r.eventos=c.resumen.eventos.map(e=>({fecha:e.fecha,importe_centavos:e.importe_centavos,motivo:e.motivo}));r.productos=c.resumen.productos||[];}return r;
  }));
 }

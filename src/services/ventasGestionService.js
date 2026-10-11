@@ -16,7 +16,9 @@ export async function detalleVenta(n,v){
  const devoluciones=await db.prepare('SELECT * FROM venta_devoluciones WHERE venta_id=? ORDER BY creado_at').all(v);
  for(const it of items)it.devuelto=devoluciones.reduce((sum,d)=>sum+(d.detalle.items||[]).filter(x=>x.id===it.id).reduce((s,x)=>s+x.cantidad,0),0);
  const credito=await db.prepare('SELECT * FROM creditos WHERE venta_id=?').get(v);
- return {venta,items,devoluciones,credito,version:huella({venta,items,devoluciones})};
+ const cuotas=await db.prepare('SELECT * FROM cuotas WHERE credito_id=? ORDER BY id').all(credito.id);
+ const pagos=await db.prepare('SELECT id,anulado,monto_centavos FROM pagos WHERE credito_id=? ORDER BY id').all(credito.id);
+ return {venta,items,devoluciones,credito,version:huella({venta,items,devoluciones,credito,cuotas,pagos})};
 }
 export async function devolverVenta(n,v,b,actor){
  solicitudId(b.solicitud_id);const motivo=text(b.motivo,'motivo',1000);
@@ -42,7 +44,7 @@ export async function devolverVenta(n,v,b,actor){
  let reducir=baseReducida;const cuotaCambios=[];
  for(const q of cuotas){
    const mora=calcularMora(q,negocio,todayAR()),cap=Math.min(q.saldo_pendiente_centavos,reducir);reducir-=cap;
-   const cancela=b.tipo==='anulacion';
+   const cancela=b.tipo==='anulacion'||importe===restante;
    if(cap||cancela){
     const saldo=q.saldo_pendiente_centavos-cap;
     await db.prepare('UPDATE cuotas SET saldo_pendiente_centavos=?,mora_generada_centavos=?,mora_perdonada_centavos=?,estado_manual=? WHERE id=?').run(saldo,mora.acumulada,cancela?mora.perdonada+mora.pendiente:mora.perdonada,cancela?'anulada':q.estado_manual,q.id);

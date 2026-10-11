@@ -52,7 +52,7 @@ test('Venta global elige únicamente negocios con permiso para vender', async ()
     const select = b.view.querySelector('#vNegocio');
     assert.equal(select?.value, 'b');
     assert.deepEqual([...select.options].map(o => o.value), ['b']);
-    assert.ok(b.calls.some(c => c.url === '/api/productos?negocio_id=b'));
+    assert.ok(b.calls.some(c => c.url === '/api/ventas/catalogo?negocio_id=b'));
     assert.ok(!b.calls.some(c => c.url.includes('negocio_id=a')));
   } finally { b.w.close(); }
 });

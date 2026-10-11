@@ -277,3 +277,101 @@ button:disabled { opacity:.55; cursor:wait; }
 .product-history article { padding:14px 0; border-bottom:1px solid var(--border,#28303a); overflow-wrap:anywhere; }
 .product-history p { margin:6px 0; font-size:14px; }
 @media(max-width:520px) { .product-fields { grid-template-columns:1fr; } .product-card .list-item-amount { font-size:14px; } }
+
+/* Sales and commissions reuse the application tokens. Light preference is scoped
+   to these screens, so the other sections keep their established appearance. */
+@media(prefers-color-scheme:light){
+ body:not([data-theme=dark]):has(.commissions),body:not([data-theme=dark]):has(.sale-form),body:not([data-theme=dark]):has(.sales-history){
+  --bg:#f4f6f8;--bg-elevated:#fff;--surface:#fff;--surface-2:#edf2f5;
+  --border:#cdd7df;--border-soft:#dfe6ec;--text:#182b38;--text-muted:#526575;--text-faint:#657b8d;
+  --accent:#087f70;--accent-ink:#fff;--success:#127448;--info:#175da8;--warning:#956500;--danger:#be233b;
+  --shadow:0 8px 30px rgba(28,48,64,.10);color-scheme:light;
+ }
+}
+.cm-heading,.sales-heading { display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin:20px 0 24px; }
+.cm-heading h1,.sales-heading h1 { font-size:28px;margin:4px 0 8px; }
+.cm-heading p,.sales-heading p { color:var(--text-muted);font-size:14px;line-height:1.5;margin:0; }
+.cm-eyebrow { font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--accent);font-weight:700; }
+.cm-heading>.btn,.sales-heading>.btn { flex-shrink:0; }
+.cm-tabs { display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px; }
+.cm-tabs .btn,.cm-periods .btn { font-size:13px;padding:10px 13px; }
+.cm-filter-panel { margin-bottom:20px; }
+.cm-periods { display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap; }
+.cm-form-row { display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap; }
+.commissions label,.sale-detail label { display:flex;flex-direction:column;gap:7px;font-size:13px;font-weight:500;color:var(--text-muted); }
+.cm-form-row>label { flex:1 1 135px;min-width:0; }
+.commissions input:not([type=checkbox]),.commissions select,.commissions textarea,.sale-detail input:not([type=checkbox]),.sale-detail select,.sale-detail textarea { width:100%;min-width:0;background:var(--bg-elevated);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:11px 12px;font:inherit;min-height:43px; }
+.commissions textarea,.sale-detail textarea { min-height:80px;resize:vertical; }
+.cm-kpis { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:20px 0 12px; }
+.cm-kpis .kpi-value { font-size:24px;overflow-wrap:anywhere; }
+.cm-hint { color:var(--text-muted);font-size:12px;line-height:1.6;margin:10px 0 16px; }
+.cm-section { margin:26px 0; }
+.cm-section>h2,.cm-disclosure h2 { font-size:19px;margin:0 0 12px; }
+.cm-section h3 { font-size:16px;margin:0 0 14px; }
+.cm-balance-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:12px; }
+.cm-balance-grid .card+.card { margin-top:0; }
+.cm-amount-list { margin:0 0 16px;display:grid;gap:10px;font-size:13px; }
+.cm-amount-list>div { display:flex;justify-content:space-between;gap:16px; }
+.cm-amount-list dt { color:var(--text-muted); }
+.cm-amount-list dd { margin:0;text-align:right;font-variant-numeric:tabular-nums; }
+.cm-balance-total { border-top:1px solid var(--border);padding-top:12px;font-size:16px;font-weight:700; }
+.cm-balance-total dd { color:var(--accent); }
+.cm-table-wrap { overflow-x:auto;border:1px solid var(--border);border-radius:12px;margin:12px 0; }
+.cm-table { width:100%;border-collapse:collapse;font-size:13px; }
+.cm-table th { background:var(--surface-2);color:var(--text-muted);font-weight:500;text-align:left;padding:12px;white-space:nowrap; }
+.cm-table td { padding:13px 12px;border-top:1px solid var(--border-soft);vertical-align:top;line-height:1.5; }
+.cm-table td:last-child { text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums; }
+.cm-empty,.sale-empty { color:var(--text-muted);font-size:14px;line-height:1.6;text-align:center;padding:28px 18px;border:1px dashed var(--border);border-radius:12px; }
+.cm-disclosure { background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;margin:16px 0; }
+.cm-disclosure>summary { cursor:pointer;font-weight:600;font-size:14px; }
+.cm-disclosure[open]>summary { margin-bottom:18px; }
+.cm-settings { display:flex;flex-direction:column;gap:14px; }
+.cm-settings>.btn { align-self:flex-start; }
+.cm-settings.card { margin:12px 0; }
+label.cm-check { flex-direction:row;align-items:center;line-height:1.5;gap:10px;color:var(--text); }
+.cm-check input { width:18px;height:18px;flex-shrink:0;accent-color:var(--accent); }
+.cm-settings p { margin:0; }
+.cm-product-rule { display:grid;grid-template-columns:minmax(110px,1fr) 150px 100px auto;gap:12px;align-items:end;margin:10px 0; }
+.cm-product-rule>strong { align-self:center;font-size:14px; }
+.cm-actions { display:flex;gap:10px;flex-wrap:wrap;margin-top:16px; }
+.cm-close-heading { display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px; }
+.cm-close-heading h3 { margin:0; }
+.cm-close details { margin-top:16px;font-size:13px; }
+.cm-agreement { border-top:1px solid var(--border);padding:16px 0; }
+.cm-agreement p { font-size:13px;line-height:1.6;color:var(--text-muted); }
+.cm-component { display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--border-soft);font-size:14px; }
+.cm-component>input,.cm-component>label { max-width:100px; }
+.cm-component small { display:block;color:var(--text-muted);font-size:12px;margin-top:5px; }
+#cmPay:not(:empty) { margin-top:24px; }
+.sale-subtitle { font-size:18px;margin:22px 0 14px; }
+.sale-add-row { display:flex;align-items:flex-end;gap:10px; }
+.sale-add-row>.field:first-child { flex:1;min-width:0; }
+.sale-add-row>.field { margin:0; }
+.sale-quantity { width:80px; }
+.sale-add-row select { margin-top:8px; }
+.sale-cart { margin:16px 0; }
+.sale-line { display:flex;gap:12px;align-items:center;padding:14px 0;border-bottom:1px solid var(--border); }
+.sale-line-name { flex:1;min-width:0;font-size:14px; }
+.sale-line small { display:block;margin-top:4px;color:var(--text-muted);font-size:12px; }
+.sale-line>input { width:64px;min-height:42px;background:var(--bg-elevated);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px;font-size:14px; }
+.sale-line>strong { font-size:14px;white-space:nowrap; }
+.sale-photo { width:42px;height:42px;border-radius:8px;object-fit:cover; }
+.sale-manual { margin:16px 0;padding:14px;border-radius:12px;background:var(--surface-2); }
+.sale-manual>summary { font-size:13px;cursor:pointer;font-weight:600; }
+.sale-manual[open]>summary { margin-bottom:14px; }
+.sale-pending { border-color:var(--warning);margin-bottom:20px; }
+.sale-pending p { color:var(--text-muted);font-size:13px;line-height:1.6; }
+.sale-history-row { width:100%;display:flex;justify-content:space-between;text-align:left;gap:16px;border:1px solid var(--border);background:var(--surface);color:var(--text);padding:16px;border-radius:12px;cursor:pointer;margin-bottom:10px; }
+.sale-history-row small { display:block;color:var(--text-muted);font-size:12px;margin-top:6px;line-height:1.5; }
+.sale-history-row>div:last-child { text-align:right; }
+.sale-detail { margin-top:24px; }
+@media(min-width:1100px){.view:has(.commissions),.view:has(.sale-form),.view:has(.sales-history){max-width:1000px}.cm-kpis{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:600px){
+ .cm-heading,.sales-heading { flex-direction:column;gap:12px; }
+ .cm-heading h1,.sales-heading h1 { font-size:25px; }
+ .cm-product-rule { grid-template-columns:1fr 1fr; }.cm-product-rule>strong { grid-column:1/-1; }.cm-product-rule>.btn { grid-column:1/-1; }
+ .cm-kpis .kpi-value { font-size:20px; }.cm-form-row>.btn { width:100%; }.cm-balance-grid { grid-template-columns:1fr; }
+ .sale-add-row { flex-wrap:wrap; }.sale-add-row>.field:first-child { flex-basis:calc(100% - 90px); }.sale-add-row>.btn { width:100%; }
+ .sale-line { gap:8px;flex-wrap:wrap; }.sale-line-name { flex-basis:calc(100% - 60px); }.sale-line>strong { margin-left:auto; }.sale-line>input { margin-left:0; }
+ .sale-form .segmented { flex-wrap:wrap; }.sale-form .segmented button { flex:1 1 40%; }
+}

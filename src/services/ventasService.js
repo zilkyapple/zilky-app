@@ -1,3 +1,4 @@
+import {lockComisiones} from './comisionCierresService.js';
 import {solicitudId,huella,fail} from '../lib/solicitud.js';
 import {acordarComision} from './comisionesService.js';
 import {integer,dateISO} from '../lib/validation.js';
@@ -67,6 +68,9 @@ export async function crearVenta(input) {
   const ventaId = id();
   const advertencias = [];
 
+  // Shared lock order matches receipts: customer, cash ledger, commissions, catalogue/stock.
+  await db.query("SELECT pg_advisory_xact_lock(hashtextextended('zilky:caja',0))");
+  await lockComisiones(negocio_id);
   // Freeze product descriptions and combo components at sale time; one stock mutation per SKU.
   await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['catalogo:'+negocio_id]);
   const lineas=[],stock=new Map();

@@ -100,3 +100,29 @@ test('Business isolation and manual sales permissions reject crafted requests wi
  await assert.rejects(crearVenta({...body(),items:[{producto_id:ajeno.id,cantidad:1,precio_unitario_centavos:100000}]}),/Producto/);
  assert.equal((await getProducto(ajeno.id)).stock,10);
 });
+
+test('Anonymous full return never credits the shared customer and is not duplicated on retry',async()=>{
+ const d=await detalleVenta(n.id,anon.venta.id),b={solicitud_id:randomUUID(),tipo:'devolucion',motivo:'QA devolución anónima',version:d.version,reponer:true,items:d.items.map(x=>({id:x.id,cantidad:x.cantidad}))};
+ const x=await devolverVenta(n.id,anon.venta.id,b,admin.id);const again=await devolverVenta(n.id,anon.venta.id,b,admin.id);assert.equal(x.id,again.id);assert.equal(x.detalle.destino_reintegro,'pendiente_en_esta_venta');assert.equal(x.saldo_favor_centavos,100000);
+ assert.equal((await detalleVenta(n.id,anon.venta.id)).venta.estado,'devuelta');
+ await assert.rejects(registrarPago({credito_id:anon.credito.id,monto_centavos:100}),/devuelta|anulada/);
+});
+test('A payment made after a return preview invalidates that preview and preserves the payment',async()=>{
+ const s=await crearVenta(body()),d=await detalleVenta(n.id,s.venta.id);const pay=await registrarPago({credito_id:s.credito.id,monto_centavos:10000,usuario_id:admin.id});
+ await assert.rejects(devolverVenta(n.id,s.venta.id,{solicitud_id:randomUUID(),tipo:'anulacion',motivo:'QA vista vencida',version:d.version,reponer:false},admin.id),e=>e.status===409);
+ assert.equal((await db.prepare('SELECT anulado FROM pagos WHERE id=?').get(pay.pago.id)).anulado,0);
+});
+test('Full return cancels both principal and outstanding late fees without erasing quotas',async()=>{
+ const s=await crearVenta({...body(),fecha:'2026-01-01',plan:{plazo_dias:1}});
+ const d=await detalleVenta(n.id,s.venta.id);await devolverVenta(n.id,s.venta.id,{solicitud_id:randomUUID(),tipo:'devolucion',motivo:'QA devolución total',version:d.version,reponer:true,items:d.items.map(x=>({id:x.id,cantidad:x.cantidad}))},admin.id);
+ const q=await db.prepare('SELECT * FROM cuotas WHERE credito_id=?').get(s.credito.id);assert.equal(q.saldo_pendiente_centavos,0);assert.equal(q.estado_manual,'anulada');assert.equal(q.mora_generada_centavos,q.mora_perdonada_centavos+q.mora_pagada_centavos);
+});
+test('Closed detail permission exposes only frozen own product breakdown; full payment cannot overpay',async()=>{
+ await policy('cierre',{ver_detalle:true,ver_historial:true});const r=await (await request(url)).json();assert.ok(r.cierres[0].productos.length);assert.equal(r.cierres[0].productos[0].comision_centavos,2500);assert.equal(JSON.stringify(r).includes('costo'),false);
+ const b={usuario_id:emp.id,importe_centavos:1500,fecha:todayAR(),nota:'QA saldo cierre',solicitud_id:randomUUID(),cierre_id:cerrado.id};await liquidarComision(n.id,b,admin.id);await assert.rejects(liquidarComision(n.id,{...b,solicitud_id:randomUUID(),importe_centavos:1},admin.id),e=>e.status===409||e.status===400);
+ assert.equal(Number((await db.prepare('SELECT sum(importe_centavos) amount FROM comision_liquidaciones WHERE cierre_id=?').get(cerrado.id)).amount),2500);
+});
+test('Sale endpoint requires an idempotency key; staff cannot impersonate a seller',async()=>{
+ const b=body();delete b.solicitud_id;assert.equal((await request('/ventas',emp,'POST',b)).status,400);
+ const r=await request('/ventas',emp,'POST',{...body(),comision_usuario_id:admin.id});assert.equal(r.status,201);const s=await r.json();assert.equal(s.venta.vendedor_id,emp.id);
+});
