@@ -253,6 +253,7 @@ async function render() {
     else if (root === 'clientes') await viewClientes(view);
     else if (root === 'cobrar') await viewCobrar(view);
     else if (root === 'calendario') await viewCalendario(view);
+    else if (root === 'ventas' && parts[1] === 'historial') { const {ventasHistorial}=await import('./ventasHistorial.js'); await ventasHistorial(view,{api,setHTML,negocio:state.negocioActual,admin:state.usuario?.rol==='administrador',toast,usuarioId:state.usuario?.id}); }
     else if (root === 'ventas') await viewVentaNueva(view, parts[1] === 'nueva' ? parts[2] || null : parts[1] || null);
     else if (root === 'productos') await viewProductos(view);
     else if (root === 'comprobantes') await viewComprobantes(view, parts[1] === 'cliente' ? parts[2] || null : null);
@@ -260,7 +261,7 @@ async function render() {
     else if (root === 'empleados') await viewEmpleados(view);
     else if (root === 'caja') await viewCaja(view);
     else if (root === 'exportaciones') { const {exportacionesView}=await import('./exportaciones.js'); await exportacionesView(view,{api,setHTML,negocio:state.negocioActual,toast}); }
-    else if (root === 'comisiones') { const {comisionesView}=await import('./comisiones.js'); await comisionesView(view,{api,setHTML,negocio:state.negocioActual,admin:state.usuario?.rol==='administrador',toast}); }
+    else if (root === 'comisiones') { const {comisionesView}=await import('./comisiones.js'); await comisionesView(view,{api,setHTML,negocio:state.negocioActual,admin:state.usuario?.rol==='administrador',toast,usuarioId:state.usuario?.id}); }
     else if (root === 'contratos') { const {contractsEditor}=await import('./contratosEditor.js'); await contractsEditor(view,{api,setHTML,negocios:state.negocios,negocioActual:state.negocioActual,toast}); }
     else if (root === 'mas') await viewMas(view);
     else setHTML(view, notFound());
@@ -905,13 +906,16 @@ async function viewVentaNueva(view, clientePreId) {
   let clientePre = null;
   if (clientePreId) { try { clientePre = await api(`/clientes/${encodeURIComponent(clientePreId)}?negocio_id=${encodeURIComponent(negocioSel)}`); } catch { /* La búsqueda permite elegir otro cliente autorizado. */ } }
   if (!view.isConnected) return;
-  const productos = puede('productos.ver', negocioSel) ? await api(`/productos?negocio_id=${encodeURIComponent(negocioSel)}`) : [];
+  const catalogo=await api(`/ventas/catalogo?negocio_id=${encodeURIComponent(negocioSel)}`);
+  const productos=catalogo.productos||[],ventaManual=catalogo.venta_manual!==false;
+  const storageKey='zilky-venta-pendiente:'+String(state.usuario?.id||'')+':'+negocioSel;
   const vendedores = state.usuario?.rol==='administrador' ? (await api('/usuarios')).filter(u=>u.activo===1&&(u.rol==='administrador'||(u.negocios||[]).some(n=>n.negocio_id===negocioSel&&n.activo===1))) : [];
   if (!view.isConnected) return;
 
   setHTML(view, `
-    <div class="section-title">Nueva venta</div>
-    <div class="card">
+    <div class="sales-heading"><div><h1>Nueva venta</h1><p>Elegí los productos y confirmá en un solo paso.</p></div><a class="btn btn-secondary" href="#/ventas/historial">Ver ventas</a></div>
+    <div id="vPendiente"></div>
+    <div class="card sale-form" id="vForm">
       <div class="field">
         <label>Negocio</label>
         <select id="vNegocio">${negociosVenta.map((n) => `<option value="${esc(n.id)}" ${esc(n.id === negocioSel ? 'selected' : '')}>${esc(n.nombre)}</option>`).join('')}</select>
@@ -923,24 +927,29 @@ async function viewVentaNueva(view, clientePreId) {
         <div id="vClienteResultados"></div>
       </div>
       <div class="field">
-        ${state.usuario?.rol==='administrador'?`<label for="vVendedor">Vendedor (comisión)</label><select id="vVendedor">${vendedores.map(u=>`<option value="${esc(u.id)}" ${u.id===state.usuario.id?'selected':''}>${esc(u.nombre||u.email)}</option>`).join('')}</select>`:''}
-        <label>Producto (opcional)</label>
-        <select id="vProducto">
-          <option value="">— Ingresar monto manualmente —</option>
-          ${productos.map((p) => `<option value="${esc(p.id)}" data-precio="${esc(p.precio_financiado_centavos)}">${esc(p.nombre)} ${esc(p.variante ? '(' + p.variante + ')' : '')} · ${esc(formatARS(p.precio_financiado_centavos))}</option>`).join('')}
-        </select>
+        ${state.usuario?.rol==='administrador'?`<label for="vVendedor">Vendedor</label><select id="vVendedor">${vendedores.map(u=>`<option value="${esc(u.id)}" ${u.id===state.usuario.id?'selected':''}>${esc(u.nombre||u.email)}</option>`).join('')}</select>`:''}
       </div>
+      <h2 class="sale-subtitle">Productos</h2>
+      <div class="sale-add-row">
+        <div class="field"><label for="vCatalogoBuscar">Buscar en el catálogo</label><input id="vCatalogoBuscar" placeholder="Nombre, variante o categoría"><select id="vProducto" aria-label="Producto"><option value="">Elegir producto</option>${productos.map(p=>`<option value="${esc(p.id)}">${esc(p.nombre)}${p.combo?' · Combo':''}</option>`).join('')}</select></div>
+        <div class="field sale-quantity"><label for="vCantidad">Cantidad</label><input id="vCantidad" type="number" min="1" step="1" value="1"></div>
+        <button type="button" class="btn btn-primary" id="vAgregar">Agregar</button>
+      </div>
+      <div id="vCarrito" class="sale-cart" aria-live="polite"></div>
+      ${ventaManual?`<details class="sale-manual"><summary>Agregar producto sin catálogo</summary><div class="field-row"><div class="field"><label for="vManualNombre">Descripción</label><input id="vManualNombre" maxlength="500" placeholder="Qué vendiste"></div><div class="field"><label for="vManualPrecio">Precio por unidad ($)</label><input id="vManualPrecio" type="number" min="0.01" step="0.01"></div></div><button type="button" id="vManualAgregar" class="btn btn-secondary">Agregar venta manual</button></details>`:''}
+      <div class="field"><label for="vCanal">Tipo de venta</label><select id="vCanal"><option value="minorista">Minorista</option><option value="mayorista">Mayorista</option></select></div>
       <div class="field-row">
         <div class="field"><label>Monto total</label><input type="number" id="vMontoTotal" placeholder="0" /></div>
-        <div class="field"><label>Entrega inicial</label><input type="number" id="vEntrega" placeholder="0" value="0" /></div>
+        <div class="field" id="vEntregaField"><label>Entrega inicial</label><input type="number" id="vEntrega" placeholder="0" value="0" /></div>
       </div>
-      <div class="field"><label>Medio de la entrega inicial</label><select id="vMedioEntrega"><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option><option value="tarjeta">Tarjeta</option><option value="mercado_pago">Mercado Pago</option><option value="otro">Otro</option></select></div>
+      <div class="field"><label>Medio de pago</label><select id="vMedioEntrega"><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option><option value="tarjeta">Tarjeta</option><option value="mercado_pago">Mercado Pago</option><option value="otro">Otro</option></select></div>
       <div class="field">
         <label>Modalidad de pago</label>
         <div class="segmented" id="vModalidad">
-          <button type="button" class="active" data-val="libre">Pago libre</button>
+          <button type="button" class="active" data-val="contado">Contado</button>
+          <button type="button" data-val="libre">Fiado / cuenta</button>
           <button type="button" data-val="cuotas">Cuotas</button>
-          <button type="button" data-val="unico">Único</button>
+          <button type="button" data-val="unico">Pago único pendiente</button>
         </div>
       </div>
       <div id="vCamposModalidad"></div>
@@ -948,16 +957,31 @@ async function viewVentaNueva(view, clientePreId) {
     </div>
   `);
 
-  renderCamposModalidad('libre');
+  const form=view.querySelector('#vForm');form.venta={productos,items:[],storageKey,ventaManual};
+  renderCamposModalidad('contado');
+  const paint=()=>pintarCarritoVenta(form);paint();
+  view.querySelector('#vAgregar').onclick=()=>{
+    const p=productos.find(x=>x.id===view.querySelector('#vProducto').value),qty=Number(view.querySelector('#vCantidad').value);
+    if(!p||!Number.isInteger(qty)||qty<1)return toast('Elegí un producto y una cantidad válida',true);
+    const precio=document.querySelector('#vModalidad button.active').dataset.val==='contado'?p.precio_contado_centavos:p.precio_financiado_centavos||p.precio_contado_centavos;
+    if(!precio)return toast('El producto necesita un precio de venta. Podés cargarlo como venta manual si tenés permiso.',true);
+    const old=form.venta.items.find(x=>x.producto_id===p.id&&x.precio_unitario_centavos===precio);
+    if(old)old.cantidad+=qty;else form.venta.items.push({producto_id:p.id,descripcion:p.nombre,cantidad:qty,precio_unitario_centavos:precio,foto_url:p.foto_url,combo:p.combo});paint();
+  };
+  view.querySelector('#vCatalogoBuscar').oninput=e=>{const q=e.target.value.toLocaleLowerCase();const select=view.querySelector('#vProducto');setHTML(select,'<option value="">Elegir producto</option>'+productos.filter(p=>[p.nombre,p.categoria,p.variante].join(' ').toLocaleLowerCase().includes(q)).map(p=>`<option value="${esc(p.id)}">${esc(p.nombre)}${p.combo?' · Combo':''}</option>`).join(''));};
+  if(ventaManual)view.querySelector('#vManualAgregar').onclick=()=>{const nombre=view.querySelector('#vManualNombre').value.trim(),precio=toCentavos(view.querySelector('#vManualPrecio').value);if(!nombre||precio<=0)return toast('Ingresá descripción y precio',true);form.venta.items.push({descripcion:nombre,cantidad:1,precio_unitario_centavos:precio});view.querySelector('#vManualNombre').value='';view.querySelector('#vManualPrecio').value='';paint();};
+  view.querySelector('#vCarrito').oninput=e=>{const i=Number(e.target.dataset.qty);if(!Number.isInteger(i)||!form.venta.items[i])return;const qty=Number(e.target.value);if(!Number.isInteger(qty)||qty<1)return;form.venta.items[i].cantidad=qty;const amount=e.target.closest('.sale-line').querySelector(':scope > strong');if(amount)amount.textContent=formatARS(qty*form.venta.items[i].precio_unitario_centavos);actualizarTotalVenta(form);};
+  view.querySelector('#vCarrito').onclick=e=>{const b=e.target.closest('[data-remove]');if(!b)return;form.venta.items.splice(Number(b.dataset.remove),1);if(!form.venta.items.length)form.querySelector('#vMontoTotal').value='';paint();};
+  const pending=leerVentaPendiente(storageKey);
+  if(pending){setHTML(view.querySelector('#vPendiente'),'<div class="card sale-pending"><strong>Hay una venta pendiente de confirmar</strong><p>Comprobá su resultado antes de registrar otra. Esto evita duplicados si se cortó la conexión.</p><button type="button" class="btn btn-primary" id="vRecuperar">Comprobar venta pendiente</button></div>');view.querySelector('#btnCrearVenta').disabled=true;view.querySelector('#vRecuperar').onclick=()=>enviarVentaPendiente(form,pending,view.querySelector('#vRecuperar'));}
+
   document.getElementById('vModalidad').addEventListener('click', (e) => {
     const btn = e.target.closest('button'); if (!btn) return;
     document.querySelectorAll('#vModalidad button').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
     renderCamposModalidad(btn.dataset.val);
-  });
-  document.getElementById('vProducto').addEventListener('change', (e) => {
-    const opt = e.target.selectedOptions[0];
-    if (opt?.dataset.precio) document.getElementById('vMontoTotal').value = Number(opt.dataset.precio) / 100;
+    for(const x of form.venta.items){const p=productos.find(p=>p.id===x.producto_id);if(p)x.precio_unitario_centavos=btn.dataset.val==='contado'?p.precio_contado_centavos:p.precio_financiado_centavos||p.precio_contado_centavos;}
+    pintarCarritoVenta(form);
   });
   document.getElementById('vNegocio').addEventListener('change', e => setNegocio(e.target.value));
 
@@ -992,6 +1016,8 @@ async function viewVentaNueva(view, clientePreId) {
 
 function renderCamposModalidad(modalidad) {
   const box = document.getElementById('vCamposModalidad');
+  document.getElementById('vEntregaField').hidden=modalidad==='contado';
+  if(modalidad==='contado'){setHTML(box,'<p class="field-hint">Cobro completo. Podés dejar el cliente sin identificar.</p>');return;}
   if (modalidad === 'cuotas') {
     setHTML(box, `
       <div class="field-row">
@@ -1005,43 +1031,42 @@ function renderCamposModalidad(modalidad) {
   }
 }
 
-async function submitVenta() {
-  const button = document.getElementById('btnCrearVenta');
-  if (!button || button.disabled) return;
-  const negocio_id = document.getElementById('vNegocio').value;
-  const cliente_id = document.getElementById('vClienteId').value;
-  if (!cliente_id) return toast('Elegí un cliente de la lista', true);
-  const monto_total_centavos = toCentavos(document.getElementById('vMontoTotal').value);
-  const entrega_inicial_centavos = toCentavos(document.getElementById('vEntrega').value);
-  if (!monto_total_centavos) return toast('Ingresá el monto total', true);
-  const modalidad = document.querySelector('#vModalidad button.active').dataset.val;
-  const productoSel = document.getElementById('vProducto');
-
-  const body = {
-    negocio_id, cliente_id, modalidad, monto_total_centavos, entrega_inicial_centavos, medio_pago_entrega:document.getElementById('vMedioEntrega').value,
-    comision_usuario_id: document.getElementById('vVendedor')?.value || undefined,
-    items: productoSel.value ? [{ producto_id: productoSel.value, cantidad: 1, precio_unitario_centavos: monto_total_centavos }] : [],
-    plan: {},
-  };
-  if (modalidad === 'cuotas') {
-    body.plan = {
-      cantidad_cuotas: Number(document.getElementById('vCantCuotas').value || 0),
-      valor_cuota_centavos: toCentavos(document.getElementById('vValorCuota').value),
-      fecha_primera_cuota: document.getElementById('vFechaPrimera').value,
-      intervalo_dias: 30,
-    };
-  } else {
-    const f = document.getElementById('vFechaLimite').value;
-    if (f) body.plan.fecha_limite = f;
-  }
-
-  button.disabled = true;
-  try {
-    const r = await api('/ventas', { method: 'POST', body: JSON.stringify(body) });
-    if (r.advertencias?.length) toast(r.advertencias.join(' '));
-    else toast('Venta creada ✓');
-    location.hash = `#/clientes/${cliente_id}`;
-  } catch (err) { button.disabled = false; toast(err.message, true); }
+function pintarCarritoVenta(form){
+ const items=form.venta.items;setHTML(form.querySelector('#vCarrito'),items.map((x,i)=>`<div class="sale-line">${x.foto_url?`<img src="${esc(x.foto_url)}" alt="" class="sale-photo">`:''}<div class="sale-line-name"><strong>${esc(x.descripcion)}</strong><small>${esc(formatARS(x.precio_unitario_centavos))} por unidad${x.combo?' · Combo':''}</small></div><input type="number" data-qty="${i}" value="${x.cantidad}" min="1" step="1" aria-label="Cantidad de ${esc(x.descripcion)}"><strong>${esc(formatARS(x.cantidad*x.precio_unitario_centavos))}</strong><button type="button" class="btn btn-ghost" data-remove="${i}" aria-label="Quitar ${esc(x.descripcion)}">×</button></div>`).join('')||'<p class="sale-empty">Agregá los productos de esta venta.</p>');actualizarTotalVenta(form);
+}
+function actualizarTotalVenta(form){
+ const input=form.querySelector('#vMontoTotal'),items=form.venta.items;
+ input.readOnly=!!items.length||!form.venta.ventaManual;if(items.length)input.value=items.reduce((s,x)=>s+x.cantidad*x.precio_unitario_centavos,0)/100;
+}
+function leerVentaPendiente(key){try{return JSON.parse(sessionStorage.getItem(key)||'null');}catch{return null;}}
+async function enviarVentaPendiente(form,body,button){
+ button.disabled=true;
+ try{
+  const r=await api('/ventas',{method:'POST',body:JSON.stringify(body)});sessionStorage.removeItem(form.venta.storageKey);
+  if(r.advertencias?.length)toast(r.advertencias.join(' '));else toast('Venta registrada ✓');
+  location.hash=body.cliente_id?`#/clientes/${body.cliente_id}`:'#/ventas/historial';
+ }catch(err){
+  button.disabled=false;
+  if(err.status>=400&&err.status<500&&err.status!==409){sessionStorage.removeItem(form.venta.storageKey);document.getElementById('btnCrearVenta').disabled=false;document.getElementById('vPendiente').replaceChildren();}
+  if(!err.status||err.status>=500){button.textContent='Comprobar venta pendiente';toast('No se pudo confirmar el resultado. Reintentá con este botón para evitar duplicados.',true);}
+  else toast(err.message,true);
+ }
+}
+async function submitVenta(){
+ const button=document.getElementById('btnCrearVenta');if(!button||button.disabled)return;
+ const form=document.getElementById('vForm'),pending=leerVentaPendiente(form.venta.storageKey);
+ if(pending)return enviarVentaPendiente(form,pending,button);
+ const negocio_id=document.getElementById('vNegocio').value,cliente_id=document.getElementById('vClienteId').value||null;
+ const seleccion=document.querySelector('#vModalidad button.active').dataset.val;
+ if(!cliente_id&&seleccion!=='contado')return toast('Elegí un cliente de la lista',true);
+ const monto_total_centavos=toCentavos(document.getElementById('vMontoTotal').value);
+ if(monto_total_centavos<=0)return toast('Ingresá el monto total',true);
+ const entrega_inicial_centavos=seleccion==='contado'?monto_total_centavos:toCentavos(document.getElementById('vEntrega').value);
+ if(entrega_inicial_centavos>monto_total_centavos)return toast('La entrega supera el total',true);
+ const body={negocio_id,cliente_id,modalidad:seleccion==='contado'?'unico':seleccion,canal:document.getElementById('vCanal').value,monto_total_centavos,entrega_inicial_centavos,medio_pago_entrega:document.getElementById('vMedioEntrega').value,comision_usuario_id:document.getElementById('vVendedor')?.value||undefined,items:form.venta.items.map(({producto_id,descripcion,cantidad,precio_unitario_centavos})=>({producto_id,descripcion,cantidad,precio_unitario_centavos})),plan:{},solicitud_id:crypto.randomUUID()};
+ if(seleccion==='cuotas')body.plan={cantidad_cuotas:Number(document.getElementById('vCantCuotas').value),valor_cuota_centavos:toCentavos(document.getElementById('vValorCuota').value),fecha_primera_cuota:document.getElementById('vFechaPrimera').value,intervalo_dias:30};
+ else if(seleccion!=='contado'&&document.getElementById('vFechaLimite').value)body.plan.fecha_limite=document.getElementById('vFechaLimite').value;
+ sessionStorage.setItem(form.venta.storageKey,JSON.stringify(body));return enviarVentaPendiente(form,body,button);
 }
 
 // ---------------- Vista: Productos ----------------
@@ -1187,6 +1212,7 @@ async function viewMas(view) {
     <a class="list-item" href="#/empleados"><span class="avatar">👥</span><div class="list-item-body"><div class="list-item-title">Empleados y permisos</div></div><span class="chev">${iconChevron()}</span></a>
     ${state.usuario?.rol==='administrador'?'<a class="list-item" href="#/caja"><span class="avatar">$</span><div class="list-item-body"><div class="list-item-title">Caja</div></div></a>':''}
     ${state.usuario?.rol==='administrador'?'<a class="list-item" href="#/contratos">Contratos · Editor de documentos</a>':''}
+    <a class="list-item" href="#/ventas/historial">Ventas</a>
     <a class="list-item" href="#/comisiones">Comisiones</a>
     ${state.usuario?.rol==='administrador'?'<a class="list-item" href="#/exportaciones">Exportaciones · Descargar para Excel</a>':''}
     <div class="section-title">Cuenta</div>

@@ -30,6 +30,8 @@ export async function registrarPago(input) {
 
   await db.lockClienteNegocio(credito.cliente_id,credito.negocio_id);
   await db.prepare('SELECT id FROM creditos WHERE id=? FOR UPDATE').get(credito_id);
+  const ventaEstado=await db.prepare('SELECT estado FROM ventas WHERE id=?').get(credito.venta_id);
+  if(ventaEstado?.estado==='anulada'||ventaEstado?.estado==='devuelta')throw badRequest('Esta venta fue anulada o devuelta y no admite nuevos cobros');
   const negocio = await getNegocio(credito.negocio_id);
   const today = fecha_hora.slice(0, 10);
 

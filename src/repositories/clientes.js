@@ -35,7 +35,7 @@ export async function getCliente(cId) {
 }
 
 export async function listClientes() {
-  return db.prepare('SELECT * FROM clientes ORDER BY created_at DESC').all();
+  return db.prepare('SELECT * FROM clientes WHERE consumidor_final_negocio IS NULL ORDER BY created_at DESC').all();
 }
 
 // Relación EXPLÍCITA cliente-negocio (no inferida por créditos)
@@ -59,7 +59,7 @@ export async function listClientesPorNegocio(negocioId) {
   return db.prepare(`
     SELECT DISTINCT cl.* FROM clientes cl
     JOIN cliente_negocio cn ON cn.cliente_id = cl.id
-    WHERE cn.negocio_id = ?
+    WHERE cl.consumidor_final_negocio IS NULL AND cn.negocio_id = ?
     ORDER BY cl.nombre ASC
   `).all(negocioId);
 }
@@ -70,7 +70,7 @@ export async function listClientesPorNegocios(negocioIds) {
   return db.prepare(`
     SELECT DISTINCT cl.* FROM clientes cl
     JOIN cliente_negocio cn ON cn.cliente_id = cl.id
-    WHERE cn.negocio_id IN (${placeholders})
+    WHERE cl.consumidor_final_negocio IS NULL AND cn.negocio_id IN (${placeholders})
     ORDER BY cl.nombre ASC
   `).all(...negocioIds);
 }
@@ -83,7 +83,7 @@ export async function buscarClientes(q, negocioId = null) {
     return db.prepare(`
       SELECT DISTINCT cl.* FROM clientes cl
       JOIN cliente_negocio cn ON cn.cliente_id = cl.id
-      WHERE cn.negocio_id IN (${placeholders})
+      WHERE cl.consumidor_final_negocio IS NULL AND cn.negocio_id IN (${placeholders})
         AND (cl.nombre ILIKE ? OR cl.apellido ILIKE ? OR cl.dni ILIKE ? OR cl.telefono ILIKE ? OR cl.instagram ILIKE ?)
       ORDER BY cl.nombre ASC LIMIT 25
     `).all(...negocioId, like, like, like, like, like);
@@ -92,14 +92,14 @@ export async function buscarClientes(q, negocioId = null) {
     return db.prepare(`
       SELECT DISTINCT cl.* FROM clientes cl
       JOIN cliente_negocio cn ON cn.cliente_id = cl.id
-      WHERE cn.negocio_id = ?
+      WHERE cl.consumidor_final_negocio IS NULL AND cn.negocio_id = ?
         AND (cl.nombre ILIKE ? OR cl.apellido ILIKE ? OR cl.dni ILIKE ? OR cl.telefono ILIKE ? OR cl.instagram ILIKE ?)
       ORDER BY cl.nombre ASC LIMIT 25
     `).all(negocioId, like, like, like, like, like);
   }
   return db.prepare(`
     SELECT * FROM clientes
-    WHERE nombre ILIKE ? OR apellido ILIKE ? OR dni ILIKE ? OR telefono ILIKE ? OR instagram ILIKE ?
+    WHERE consumidor_final_negocio IS NULL AND (nombre ILIKE ? OR apellido ILIKE ? OR dni ILIKE ? OR telefono ILIKE ? OR instagram ILIKE ?)
     ORDER BY nombre ASC LIMIT 25
   `).all(like, like, like, like, like);
 }
@@ -130,7 +130,7 @@ export async function listClientesFinalizados(negocioId) {
       (SELECT MAX(v.fecha) FROM ventas v WHERE v.cliente_id = cl.id AND v.negocio_id = ?) AS ultima_compra,
       (SELECT MAX(p.fecha_hora) FROM pagos p WHERE p.cliente_id = cl.id AND p.negocio_id = ? AND p.anulado = 0) AS ultimo_pago
     FROM clientes cl
-    WHERE EXISTS (SELECT 1 FROM creditos cr WHERE cr.cliente_id = cl.id AND cr.negocio_id = ?)
+    WHERE cl.consumidor_final_negocio IS NULL AND EXISTS (SELECT 1 FROM creditos cr WHERE cr.cliente_id = cl.id AND cr.negocio_id = ?)
       AND NOT EXISTS (
         SELECT 1 FROM cuotas cu JOIN creditos cr ON cr.id = cu.credito_id
         WHERE cr.cliente_id = cl.id AND cr.negocio_id = ? AND cu.saldo_pendiente_centavos > 0 AND cu.estado_manual IS NULL

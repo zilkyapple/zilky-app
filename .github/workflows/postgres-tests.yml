@@ -45,3 +45,19 @@ jobs:
         run: npm test
       - name: Dependency security audit
         run: npm audit --audit-level=moderate
+      - name: Browser regression (disposable data)
+        if: matrix.node == 24
+        env:
+          PLAYWRIGHT_MODULE: /tmp/zilky-playwright/node_modules/playwright-core/index.mjs
+          CHROMIUM_EXECUTABLE: /usr/bin/google-chrome
+          BROWSER_ARTIFACTS: /tmp/zilky-sales-browser
+        run: |
+          npm install --prefix /tmp/zilky-playwright --no-save --ignore-scripts --no-fund playwright-core@1.62.1
+          node test/browser-ventas-comisiones.mjs
+      - name: Browser screenshots and results
+        if: always() && matrix.node == 24
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ventas-comisiones-browser
+          path: /tmp/zilky-sales-browser
+          retention-days: 7
