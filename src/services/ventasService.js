@@ -1,3 +1,4 @@
+import {solicitudId,huella,fail} from '../lib/solicitud.js';
 import {acordarComision} from './comisionesService.js';
 import {integer,dateISO} from '../lib/validation.js';
 import { agregarIncidencia } from './incidenciasService.js';
@@ -5,32 +6,36 @@ import {registrarEntregaInicial} from './pagosService.js';
 import {auditar} from '../lib/audit.js';
 import { db } from '../db/connection.js';
 import { id } from '../lib/id.js';
-import { todayAR, addDays, addMonths } from '../lib/dates.js';
+import { nowAR, todayAR, addDays, addMonths } from '../lib/dates.js';
 import { descontarStock, getProducto } from '../repositories/productos.js';
 import { crearCredito, getCredito } from '../repositories/creditos.js';
 import { crearCuota, listCuotasPorCredito } from '../repositories/cuotas.js';
-import { getCliente, vincularClienteNegocio } from '../repositories/clientes.js';
+import { crearCliente, getCliente, vincularClienteNegocio } from '../repositories/clientes.js';
 
 export async function crearVenta(input) {
   return db.transaction(async () => {
-  const {
+  let {
     negocio_id, cliente_id, fecha = todayAR(), modalidad, items = [],
     entrega_inicial_centavos = 0, empleado = null, notas = null, plan = {},
   } = input;
 
-  if (!negocio_id || !cliente_id || !modalidad) throw badRequest('negocio_id, cliente_id y modalidad son obligatorios');
+  if (!negocio_id || !modalidad) throw badRequest('negocio_id y modalidad son obligatorios');
+  if(input.solicitud_id){
+    solicitudId(input.solicitud_id);if(!input.usuario_id)throw badRequest('Falta identificar al vendedor');
+    await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['venta:'+negocio_id+':'+input.usuario_id+':'+input.solicitud_id]);
+    const previo=await db.prepare('SELECT * FROM venta_solicitudes WHERE negocio_id=? AND usuario_id=? AND solicitud_id=?').get(negocio_id,input.usuario_id,input.solicitud_id);
+    if(previo){if(previo.huella!==huella(input))throw fail('La solicitud ya se usó con otros datos',409);return previo.respuesta;}
+  }
+  if(!['minorista','mayorista','combo'].includes(input.canal||'minorista'))throw badRequest('Canal inválido');
   if (!['libre', 'unico', 'cuotas'].includes(modalidad)) throw badRequest(`modalidad inválida: ${modalidad}`);
 
   dateISO(fecha);
-  if(!Array.isArray(items)) throw badRequest('items debe ser una lista');
+  if(!Array.isArray(items)||items.length>100) throw badRequest('items debe ser una lista');
   integer(entrega_inicial_centavos,'entrega inicial');
   for(const it of items) {
     integer(it.cantidad ?? 1,'cantidad',{min:1});
     if(it.precio_unitario_centavos!==undefined) integer(it.precio_unitario_centavos,'precio');
   }
-  await db.lockClienteNegocio(cliente_id,negocio_id);
-  const cliente = await getCliente(cliente_id);
-  if (!cliente) throw badRequest('Cliente no encontrado');
 
   const montoItems = items.reduce((acc, it) => acc + it.precio_unitario_centavos * (it.cantidad || 1), 0);
   const monto_total_centavos = input.monto_total_centavos ?? montoItems;
@@ -38,7 +43,18 @@ export async function crearVenta(input) {
   if (entrega_inicial_centavos < 0 || entrega_inicial_centavos > monto_total_centavos) throw badRequest('entrega_inicial_centavos inválida');
 
   integer(monto_total_centavos,'monto total',{min:1});
+  if(items.length && items.reduce((sum,x)=>sum+(x.cantidad??1)*(x.precio_unitario_centavos??0),0)!==monto_total_centavos)throw badRequest('El total debe coincidir con los productos');
   const saldoFinanciado = monto_total_centavos - entrega_inicial_centavos;
+  if(!cliente_id){
+    if(saldoFinanciado!==0)throw badRequest('Elegí un cliente para registrar saldo pendiente');
+    await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['consumidor-final:'+negocio_id]);
+    let anon=await db.prepare('SELECT id FROM clientes WHERE consumidor_final_negocio=?').get(negocio_id);
+    if(!anon){anon=await crearCliente({nombre:'Consumidor',apellido:'final',negocio_id});await db.prepare('UPDATE clientes SET consumidor_final_negocio=? WHERE id=?').run(negocio_id,anon.id);}
+    cliente_id=anon.id;
+  }
+  await db.lockClienteNegocio(cliente_id,negocio_id);
+  const cliente=await getCliente(cliente_id);if(!cliente)throw badRequest('Cliente no encontrado');
+  if(cliente.consumidor_final_negocio&&(cliente.consumidor_final_negocio!==negocio_id||saldoFinanciado!==0))throw badRequest('El cliente anónimo solo admite contado en su negocio');
   if(saldoFinanciado>0 && modalidad==='cuotas') {
     integer(plan.cantidad_cuotas,'cantidad de cuotas',{min:1,max:600});
     integer(plan.valor_cuota_centavos,'valor de cuota',{min:1});
@@ -51,29 +67,24 @@ export async function crearVenta(input) {
   const ventaId = id();
   const advertencias = [];
 
-  // 1) Descontar stock de los items que tengan producto_id — nunca bloquea la venta.
-  for (const it of [...items].sort((a,b)=>String(a.producto_id||'').localeCompare(String(b.producto_id||'')))) {
-    if (it.producto_id) {
-      const producto = await getProducto(it.producto_id);
-      if (!producto) throw badRequest('Producto no encontrado');
-      if (producto.negocio_id !== negocio_id) throw badRequest('Ese producto pertenece a otro negocio.');
-      const { advertencia } = await descontarStock(it.producto_id, it.cantidad || 1, input.usuario_id || null, ventaId);
-      if (advertencia) advertencias.push(advertencia);
-    }
+  // Freeze product descriptions and combo components at sale time; one stock mutation per SKU.
+  await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['catalogo:'+negocio_id]);
+  const lineas=[],stock=new Map();
+  for(const it of items){
+    let producto=null,componentes=[];
+    if(it.producto_id){
+      producto=await getProducto(it.producto_id);
+      if(!producto||producto.negocio_id!==negocio_id)throw badRequest('Producto no encontrado en este negocio');
+      componentes=await db.prepare(`SELECT c.producto_id,c.cantidad,p.nombre FROM producto_combo_componentes c JOIN productos p ON p.id=c.producto_id WHERE c.combo_id=? AND p.negocio_id=? ORDER BY c.producto_id`).all(producto.id,negocio_id);
+      for(const c of (componentes.length?componentes:[{producto_id:producto.id,cantidad:1}]))stock.set(c.producto_id,(stock.get(c.producto_id)||0)+c.cantidad*(it.cantidad??1));
+    } else if(it.descripcion!==undefined&&(typeof it.descripcion!=='string'||it.descripcion.length>500))throw badRequest('Descripción inválida');
+    lineas.push({...it,id:id(),descripcion:producto?.nombre||it.descripcion||'Venta manual',categoria:producto?.categoria||null,componentes});
   }
-
-  // 2) Registrar venta + detalle
-  await db.prepare(`
-    INSERT INTO ventas (id, negocio_id, cliente_id, fecha, modalidad, monto_total_centavos, entrega_inicial_centavos, notas, empleado)
-    VALUES (?,?,?,?,?,?,?,?,?)
-  `).run(ventaId, negocio_id, cliente_id, fecha, modalidad, monto_total_centavos, entrega_inicial_centavos, notas, empleado);
-
-  for (const it of items) {
-    await db.prepare(`
-      INSERT INTO venta_detalle (id, venta_id, producto_id, descripcion, cantidad, precio_unitario_centavos)
-      VALUES (?,?,?,?,?,?)
-    `).run(id(), ventaId, it.producto_id || null, it.descripcion || null, it.cantidad || 1, it.precio_unitario_centavos);
+  for(const [p,cantidad] of [...stock].sort((a,b)=>a[0].localeCompare(b[0]))){
+    integer(cantidad,'unidades de stock',{min:1});const {advertencia}=await descontarStock(p,cantidad,input.usuario_id||null,ventaId);if(advertencia)advertencias.push(advertencia);
   }
+  await db.prepare(`INSERT INTO ventas(id,negocio_id,cliente_id,fecha,modalidad,monto_total_centavos,entrega_inicial_centavos,notas,empleado,usuario_id,vendedor_id,canal) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).run(ventaId,negocio_id,cliente_id,fecha,modalidad,monto_total_centavos,entrega_inicial_centavos,notas,empleado,input.usuario_id||null,input.comision_usuario_id||input.usuario_id||null,input.canal||'minorista');
+  for(const it of lineas)await db.prepare(`INSERT INTO venta_detalle(id,venta_id,producto_id,descripcion,cantidad,precio_unitario_centavos,categoria,componentes) VALUES(?,?,?,?,?,?,?,?::jsonb)`).run(it.id,ventaId,it.producto_id||null,it.descripcion,it.cantidad??1,it.precio_unitario_centavos,it.categoria,JSON.stringify(it.componentes));
 
   // 3) Vincular explícitamente cliente con el negocio (relación cliente_negocio)
   await vincularClienteNegocio(cliente_id, negocio_id);
@@ -115,19 +126,21 @@ export async function crearVenta(input) {
 
   if(saldoFinanciado===0) await db.prepare("UPDATE creditos SET estado='finalizado' WHERE id=?").run(credito.id);
   let entregaInicial=null;
-  if(entrega_inicial_centavos>0) entregaInicial=await registrarEntregaInicial({credito_id:credito.id,monto_centavos:entrega_inicial_centavos,fecha_hora:`${fecha}T12:00:00-03:00`,medio_pago:input.medio_pago_entrega || 'no_especificado',usuario_id:input.usuario_id || null});
+  if(entrega_inicial_centavos>0) entregaInicial=await registrarEntregaInicial({credito_id:credito.id,monto_centavos:entrega_inicial_centavos,fecha_hora:fecha===todayAR()?nowAR():`${fecha}T12:00:00-03:00`,medio_pago:input.medio_pago_entrega || 'no_especificado',usuario_id:input.usuario_id || null});
   await auditar('venta',ventaId,'crear',null,{negocio_id,cliente_id,monto_total_centavos,entrega_inicial_centavos,credito_id:credito.id},input.usuario_id||null);
   await acordarComision(ventaId,input.comision_usuario_id||input.usuario_id);
   const cuotasCreadas=await listCuotasPorCredito(credito.id);
   const estadoInicial=saldoFinanciado===0?'finalizada_correctamente':cuotasCreadas.some(c=>c.fecha_vencimiento<fecha)?'atrasada':'al_dia';
   await agregarIncidencia({creditoId:credito.id,tipo:estadoInicial,fecha,clave:`venta:${ventaId}`,usuarioId:input.usuario_id||null});
-  return {
+  const respuesta = {
     entregaInicial,
     venta: await db.prepare('SELECT * FROM ventas WHERE id = ?').get(ventaId),
     credito: await getCredito(credito.id),
     cuotas: cuotasCreadas,
     advertencias,
   };
+  if(input.solicitud_id)await db.prepare('INSERT INTO venta_solicitudes(negocio_id,usuario_id,solicitud_id,huella,respuesta) VALUES(?,?,?,?,?::jsonb)').run(negocio_id,input.usuario_id,input.solicitud_id,huella(input),JSON.stringify(respuesta));
+  return respuesta;
   });
 }
 

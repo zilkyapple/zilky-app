@@ -29,6 +29,7 @@ export async function anularComprobante(comprobanteId, { motivo, usuarioId }) {
   if (comprobante.estado === 'anulado') throw badRequest('Ese comprobante ya estaba anulado');
   if (!motivo) throw badRequest('El motivo de anulación es obligatorio');
 
+  if(await db.prepare('SELECT 1 FROM venta_devoluciones WHERE venta_id=?').get(comprobante.venta_id))throw Object.assign(new Error('La venta tiene devoluciones. Requiere conciliación antes de anular un pago'),{status:409});
   const pago = await getPago(comprobante.pago_id);
   if(pago.tipo==='entrega_inicial') throw Object.assign(new Error('La entrega inicial no puede anularse desde pagos. Usá Corregir financiación en la ficha del cliente para conservar y auditar los comprobantes originales.'),{status:409});
   if(pago.anulado) throw badRequest('El pago ya fue anulado');

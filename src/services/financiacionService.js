@@ -44,6 +44,7 @@ export async function corregirFinanciacion(id,input,actor) {
     const requestHash=createHash('sha256').update(JSON.stringify({version,datos,motivo:motivo.trim()})).digest('hex');
     const log=logs.find(l=>JSON.parse(l.datos_nuevos).solicitud_id===solicitud_id);
     if(log){const old=JSON.parse(log.datos_nuevos);if(old.requestHash!==requestHash||log.empleado!==actor)throw err('Solicitud reutilizada con otros datos',409);return {id,reintentado:true};}
+    if(await db.prepare('SELECT 1 FROM venta_devoluciones WHERE venta_id=?').get(first.venta_id))throw err('La venta tiene devoluciones. Requiere conciliación antes de corregir el plan',409);
     const before=await vistaFinanciacion(id);if(before.version!==version)throw err('La financiación cambió. Volvé a revisar el plan.',409);
     if(before.pagos.length&&input.confirmar_correccion_pagos!==true)throw err('Confirmá que revisaste los pagos y comprobantes existentes');
     if(before.cuotas.some(q=>q.estado_manual))throw err('Esta operación tiene cuotas con estado manual y requiere conciliación',409);

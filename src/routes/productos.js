@@ -11,7 +11,7 @@ productosRouter.get('/', requirePermiso('productos.ver'), async (req, res, next)
     if (!negocio_id) return res.status(400).json({ error: 'negocio_id es requerido' });
     exigirPermisoNegocio(req, negocio_id, 'productos.ver');
     const productos = await listProductos(negocio_id);
-    const puedeVerCosto = req.usuario.rol === 'administrador' || tienePermisoEnNegocio(req, negocio_id, 'costos.ver');
+    const puedeVerCosto = req.usuario.rol === 'administrador';
     if (!puedeVerCosto) for (const p of productos) delete p.costo_centavos;
     res.json(productos);
   } catch (err) { next(err); }
@@ -29,7 +29,7 @@ productosRouter.get('/:id', requirePermiso('productos.ver'), async (req, res, ne
     const p = await getProducto(req.params.id);
     if (!p) return res.status(404).json({ error: 'Producto no encontrado' });
     exigirPermisoNegocio(req, p.negocio_id, 'productos.ver');
-    const puedeVerCosto = req.usuario.rol === 'administrador' || tienePermisoEnNegocio(req, p.negocio_id, 'costos.ver');
+    const puedeVerCosto = req.usuario.rol === 'administrador';
     if (!puedeVerCosto) delete p.costo_centavos;
     res.json(p);
   } catch (err) { next(err); }
