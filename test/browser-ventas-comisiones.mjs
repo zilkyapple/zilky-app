@@ -41,7 +41,7 @@ page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
 const check=async(name,fn)=>{await fn();results.push({name,passed:true});console.log('PASS '+name);};
 const login=async(p,email)=>{await p.goto(base);await p.locator('#authEmail').fill(email);await p.locator('#authPassword').fill(password);await p.locator('#authSubmit').click();await p.locator('#root').waitFor({state:'visible'});await p.locator('#negocioNombre').waitFor();await p.locator('.negocio-switch').click();await p.locator(`[data-action="elegir-negocio"][data-id="${n.id}"]`).click();await p.locator('#activeSheet').waitFor({state:'detached'});};
 const route=async(p,hash,selector)=>{await p.evaluate(h=>{location.hash=h;},hash);await p.locator(selector).waitFor();};
-const capture=async(name)=>{await page.screenshot({path:path.join(output,name+'.png'),fullPage:true});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Horizontal overflow: '+name);};
+const capture=async(name)=>{await page.evaluate(()=>window.scrollTo(0,0));await page.waitForFunction(()=>!document.querySelector('.toast'));await page.screenshot({path:path.join(output,name+'.png'),fullPage:true});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Horizontal overflow: '+name);};
 try{
  await check('Administrator registers a multi-product cash sale in one screen',async()=>{
   await login(page,admin.email);await route(page,'#/ventas/nueva','#vAgregar');await page.locator('#vVendedor').selectOption(lucas.id);

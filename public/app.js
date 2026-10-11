@@ -253,7 +253,7 @@ async function render() {
     else if (root === 'clientes') await viewClientes(view);
     else if (root === 'cobrar') await viewCobrar(view);
     else if (root === 'calendario') await viewCalendario(view);
-    else if (root === 'ventas' && parts[1] === 'historial') { const {ventasHistorial}=await import('./ventasHistorial.js'); await ventasHistorial(view,{api,setHTML,negocio:state.negocioActual,admin:state.usuario?.rol==='administrador',toast}); }
+    else if (root === 'ventas' && parts[1] === 'historial') { const {ventasHistorial}=await import('./ventasHistorial.js'); await ventasHistorial(view,{api,setHTML,negocio:state.negocioActual,admin:state.usuario?.rol==='administrador',toast,usuarioId:state.usuario?.id}); }
     else if (root === 'ventas') await viewVentaNueva(view, parts[1] === 'nueva' ? parts[2] || null : parts[1] || null);
     else if (root === 'productos') await viewProductos(view);
     else if (root === 'comprobantes') await viewComprobantes(view, parts[1] === 'cliente' ? parts[2] || null : null);
@@ -261,7 +261,7 @@ async function render() {
     else if (root === 'empleados') await viewEmpleados(view);
     else if (root === 'caja') await viewCaja(view);
     else if (root === 'exportaciones') { const {exportacionesView}=await import('./exportaciones.js'); await exportacionesView(view,{api,setHTML,negocio:state.negocioActual,toast}); }
-    else if (root === 'comisiones') { const {comisionesView}=await import('./comisiones.js'); await comisionesView(view,{api,setHTML,negocio:state.negocioActual,admin:state.usuario?.rol==='administrador',toast}); }
+    else if (root === 'comisiones') { const {comisionesView}=await import('./comisiones.js'); await comisionesView(view,{api,setHTML,negocio:state.negocioActual,admin:state.usuario?.rol==='administrador',toast,usuarioId:state.usuario?.id}); }
     else if (root === 'contratos') { const {contractsEditor}=await import('./contratosEditor.js'); await contractsEditor(view,{api,setHTML,negocios:state.negocios,negocioActual:state.negocioActual,toast}); }
     else if (root === 'mas') await viewMas(view);
     else setHTML(view, notFound());

@@ -126,3 +126,8 @@ test('Sale endpoint requires an idempotency key; staff cannot impersonate a sell
  const b=body();delete b.solicitud_id;assert.equal((await request('/ventas',emp,'POST',b)).status,400);
  const r=await request('/ventas',emp,'POST',{...body(),comision_usuario_id:admin.id});assert.equal(r.status,201);const s=await r.json();assert.equal(s.venta.vendedor_id,emp.id);
 });
+
+test('Additive migration is repeatable and preserves financial records, agreements and closed snapshots',async()=>{
+ const snapshot=async()=>{const result={};for(const table of ['ventas','creditos','cuotas','pagos','comprobantes','comision_acuerdos','comision_cierres','comision_liquidaciones','comision_generaciones','venta_devoluciones'])result[table]=(await db.query('SELECT * FROM '+table+' ORDER BY id')).rows;return result;};
+ const before=await snapshot();await migrate();assert.deepEqual(await snapshot(),before);
+});

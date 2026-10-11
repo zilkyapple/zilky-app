@@ -281,7 +281,7 @@ button:disabled { opacity:.55; cursor:wait; }
 /* Sales and commissions reuse the application tokens. Light preference is scoped
    to these screens, so the other sections keep their established appearance. */
 @media(prefers-color-scheme:light){
- body:not([data-theme=dark]):has(.commissions),body:not([data-theme=dark]):has(.sale-form),body:not([data-theme=dark]):has(.sales-history){
+ html:not(:has(body[data-theme=dark])):has(.commissions),html:not(:has(body[data-theme=dark])):has(.sale-form),html:not(:has(body[data-theme=dark])):has(.sales-history){
   --bg:#f4f6f8;--bg-elevated:#fff;--surface:#fff;--surface-2:#edf2f5;
   --border:#cdd7df;--border-soft:#dfe6ec;--text:#182b38;--text-muted:#526575;--text-faint:#657b8d;
   --accent:#087f70;--accent-ink:#fff;--success:#127448;--info:#175da8;--warning:#956500;--danger:#be233b;
@@ -374,4 +374,8 @@ label.cm-check { flex-direction:row;align-items:center;line-height:1.5;gap:10px;
  .sale-add-row { flex-wrap:wrap; }.sale-add-row>.field:first-child { flex-basis:calc(100% - 90px); }.sale-add-row>.btn { width:100%; }
  .sale-line { gap:8px;flex-wrap:wrap; }.sale-line-name { flex-basis:calc(100% - 60px); }.sale-line>strong { margin-left:auto; }.sale-line>input { margin-left:0; }
  .sale-form .segmented { flex-wrap:wrap; }.sale-form .segmented button { flex:1 1 40%; }
+}
+
+@media(prefers-color-scheme:light){
+ html:not(:has(body[data-theme=dark])):is(:has(.commissions),:has(.sale-form),:has(.sales-history)) .bottomnav{background:var(--bg-elevated)}
 }

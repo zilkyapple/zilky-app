@@ -66,7 +66,7 @@ export async function resumenGeneral(negocioId = null) {
   const capitalColocadoRow = await db.prepare(`SELECT COALESCE(SUM(saldo_financiado_centavos),0) t FROM creditos WHERE 1=1 ${nf.replace('cr.negocio_id', 'negocio_id')}`).get(...np);
   const ventasVendidoRow = await db.prepare(`SELECT COALESCE(SUM(monto_total_centavos-devolucion_centavos),0) t FROM ventas WHERE 1=1 ${nf.replace('cr.negocio_id', 'negocio_id')}`).get(...np);
   const clientesTotalesRow = negocioId
-    ? await db.prepare(`SELECT COUNT(DISTINCT cliente_id)::int t FROM creditos WHERE 1=1 ${nf.replace('cr.negocio_id', 'negocio_id')}`).get(...np)
+    ? await db.prepare(`SELECT COUNT(DISTINCT cr.cliente_id)::int t FROM creditos cr JOIN clientes cl ON cl.id=cr.cliente_id WHERE cl.consumidor_final_negocio IS NULL ${nf}`).get(...np)
     : await db.prepare(`SELECT COUNT(*)::int t FROM clientes WHERE consumidor_final_negocio IS NULL`).get();
   const ventasActivasRow = await db.prepare(`SELECT COUNT(*)::int t FROM creditos WHERE estado != 'finalizado' ${nf.replace('cr.negocio_id', 'negocio_id')}`).get(...np);
   const ventasFinalizadasRow = await db.prepare(`SELECT COUNT(*)::int t FROM creditos WHERE estado = 'finalizado' ${nf.replace('cr.negocio_id', 'negocio_id')}`).get(...np);

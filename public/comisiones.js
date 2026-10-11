@@ -1,3 +1,4 @@
+import {pendingMutation} from './pendingMutation.js';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS'}).format(Number(n||0)/100);
 const hoy=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Argentina/Buenos_Aires'}).format(new Date());
@@ -5,10 +6,11 @@ const options=(xs,selected='')=>xs.map(x=>`<option value="${esc(x.id)}" ${x.id==
 const kpi=(label,value,extra='')=>`<div class="kpi"><div class="kpi-label">${esc(label)}</div><div class="kpi-value ${extra}">${esc(money(value))}</div></div>`;
 const empty=t=>`<div class="cm-empty">${esc(t)}</div>`;
 const rows=(headers,data)=>`<div class="cm-table-wrap"><table class="cm-table"><thead><tr>${headers.map(x=>`<th>${esc(x)}</th>`).join('')}</tr></thead><tbody>${data.map(r=>`<tr>${r.map(x=>`<td>${x}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-export async function comisionesView(view,{api,setHTML,negocio,admin,toast}) {
+export async function comisionesView(view,{api,setHTML,negocio,admin,toast,usuarioId}) {
  if(!negocio){setHTML(view,empty('Elegí un negocio para consultar comisiones.'));return;}
  let desde=hoy(),hasta=hoy(),usuario='',producto='',categoria='',tab='resumen',data,settings,products=[],preview=null;
- const post=(path,body,method='POST')=>api(path,{method,body:JSON.stringify({negocio_id:negocio,...body})});
+ const guard=pendingMutation({key:'zilky-comision-pendiente:'+usuarioId+':'+negocio,api,setHTML,toast,container:()=>view.querySelector('#cmPending'),onSuccess:()=>load()});
+ const post=(path,body,method='POST')=>method==='POST'&&(path==='/comisiones/liquidaciones'||path==='/comisiones/ajustes')?guard.run(path,{negocio_id:negocio,...body},method):api(path,{method,body:JSON.stringify({negocio_id:negocio,...body})});
  const run=f=>async e=>{e?.preventDefault();const b=e?.submitter||e?.currentTarget;if(b?.tagName==='BUTTON')b.disabled=true;try{await f(e);}catch(err){toast(err.message,true);}finally{if(b?.tagName==='BUTTON')b.disabled=false;}};
  async function load(){
   const query=`?negocio_id=${encodeURIComponent(negocio)}&desde=${desde}&hasta=${hasta}${usuario?'&usuario_id='+encodeURIComponent(usuario):''}`;
@@ -18,8 +20,8 @@ export async function comisionesView(view,{api,setHTML,negocio,admin,toast}) {
  }
  function paint(){
   const closed=data.acceso?.modo==='cierre';
-  setHTML(view,`<section class="commissions"><header class="cm-heading"><div><span class="cm-eyebrow">${admin?'Administración':'Mi actividad'}</span><h1>Comisiones</h1><p>${closed?'Tus liquidaciones, una vez revisadas y publicadas.':admin?'Ventas, comisiones y pagos en un solo lugar.':'Consultá la información habilitada por el negocio.'}</p></div><a class="btn btn-primary" href="#/ventas/nueva">Nueva venta</a></header>${admin?`<nav class="cm-tabs" aria-label="Comisiones"><button class="btn ${tab==='resumen'?'btn-primary':'btn-secondary'}" data-tab="resumen">Resumen</button><button class="btn ${tab==='cierres'?'btn-primary':'btn-secondary'}" data-tab="cierres">Liquidaciones</button><button class="btn ${tab==='configuracion'?'btn-primary':'btn-secondary'}" data-tab="configuracion">Configuración y productos</button></nav>`:''}<div id="cmContent"></div><div id="cmPay"></div></section>`);
-  const box=view.querySelector('#cmContent');
+  setHTML(view,`<section class="commissions"><header class="cm-heading"><div><span class="cm-eyebrow">${admin?'Administración':'Mi actividad'}</span><h1>Comisiones</h1><p>${closed?'Tus liquidaciones, una vez revisadas y publicadas.':admin?'Ventas, comisiones y pagos en un solo lugar.':'Consultá la información habilitada por el negocio.'}</p></div><a class="btn btn-primary" href="#/ventas/nueva">Nueva venta</a></header>${admin?`<nav class="cm-tabs" aria-label="Comisiones"><button class="btn ${tab==='resumen'?'btn-primary':'btn-secondary'}" data-tab="resumen">Resumen</button><button class="btn ${tab==='cierres'?'btn-primary':'btn-secondary'}" data-tab="cierres">Liquidaciones</button><button class="btn ${tab==='configuracion'?'btn-primary':'btn-secondary'}" data-tab="configuracion">Configuración y productos</button></nav>`:''}<div id="cmPending"></div><div id="cmContent"></div><div id="cmPay"></div></section>`);
+  guard.show();const box=view.querySelector('#cmContent');
   if(closed){setHTML(box,renderCierres());return;}
   if(tab==='configuracion'&&admin){setHTML(box,renderConfig());bindConfig();}
   else if(tab==='cierres'&&admin){setHTML(box,renderCierrePanel()+renderCierres());bindCierres();}
