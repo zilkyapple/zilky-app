@@ -24,10 +24,17 @@ Las pruebas usan importes ficticios y no crean planes ni cobros reales.
 
 ## Dependencias antes de una integración cobrable
 
-1. Confirmar con el titular: cobrar efectivamente USD 20 o el equivalente ARS.
-   Si ARS, acordar fuente/cotización, vigencia y regla para futuras renovaciones.
-   No usar ARS 20 ni una conversión supuesta. Conservar los términos aceptados;
-   cualquier actualización debe seguir el consentimiento y reglas del proveedor.
+1. Confirmado por el titular el 15/10/2026: cobrar ARS equivalentes a USD20,
+   actualizados según dólar blue. Se prepara blue vendedor de DolarAPI, sin fijar
+   permanentemente el 1555 mencionado por el usuario (a esa tasa son ARS31100).
+   `suscripcionCotizacionService.js` consulta la fuente con timeout, valida moneda,
+   tipo, importe y antigüedad y conserva fuente/fecha/tasa/versionado. Si falla o la
+   tasa tiene más de cuatro días, bloquea la cotización; no inventa un reemplazo.
+   Falta conectar este servicio al checkout y al proceso mensual: antes de cada
+   renovación preparar/avisar el nuevo importe y actualizar el contrato con el
+   proveedor; no cambiar pagos pasados ni recalcular reintentos de una misma cuota.
+   La fecha de corte/aviso y aceptación de la política deben quedar en la pantalla
+   de contratación. No presentar esta base como renovación automática terminada.
 2. Conectar cuenta receptora de Mercado Pago y verificar moneda y métodos
    recurrentes disponibles. Guardar secretos sólo en entorno del servidor, nunca
    en frontend, repositorio ni chat. Probar con cuentas de prueba del proveedor.
@@ -61,6 +68,8 @@ Las pruebas usan importes ficticios y no crean planes ni cobros reales.
 - https://www.mercadopago.com.ar/developers/en/docs/subscriptions/integration-configuration/subscription-no-associated-plan/pending-payments
 - https://www.mercadopago.com.ar/developers/es/reference/online-payments/subscriptions/create-preapproval/post
 - https://www.mercadopago.com.ar/developers/es/docs/your-integrations/notifications/webhooks
+- https://dolarapi.com/docs/argentina/operations/get-dolar-blue
+- https://www.mercadopago.com.ar/developers/es/docs/subscriptions/subscription-management
 
 La documentación muestra checkout `pending` e `init_point` y ejemplos ARS.
 Eso no prueba que cualquier cuenta acepte USD ni todos los medios recurrentes.
