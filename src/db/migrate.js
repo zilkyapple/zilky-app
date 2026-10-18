@@ -1,4 +1,5 @@
 import {ventasComisionesSchema} from './ventasComisionesSchema.js';
+import {financiacionCorreccionesSchema} from './financiacionCorreccionesSchema.js';
 import {stockSchema} from './stockSchema.js';
 import {comisionesSchema} from './comisionesSchema.js';
 import {contratosSchema} from './contratosSchema.js';
@@ -491,6 +492,7 @@ export async function migrate() {
       ALTER TABLE cuotas ADD COLUMN IF NOT EXISTS mora_generada_centavos BIGINT NOT NULL DEFAULT 0 CHECK (mora_generada_centavos >= 0);
       ALTER TABLE cuotas ADD COLUMN IF NOT EXISTS mora_perdonada_centavos BIGINT NOT NULL DEFAULT 0 CHECK (mora_perdonada_centavos >= 0);
     `);
+    await db.exec(financiacionCorreccionesSchema);
   });
   console.log('✔ Migraciones aplicadas.');
 }

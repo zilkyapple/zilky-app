@@ -90,7 +90,17 @@ export async function capturarPagoCaja(pago,actor,tipo='cobro'){
  await lock();
  let c;
  if(tipo==='anulacion'){
-  const original=await db.prepare("SELECT caja_id FROM caja_asientos WHERE pago_id=? AND tipo='cobro'").get(pago.id);if(!original)return;
+  // Documentary replacements have no physical cash entry. Follow the immutable
+  // receipt chain to its original collection, staying within this customer and
+  // business. UNION also terminates safely if legacy data contains a cycle.
+  const original=await db.prepare(`WITH RECURSIVE origenes AS (
+    SELECT id,comprobante_original_id,pago_id FROM comprobantes WHERE pago_id=? AND negocio_id=? AND cliente_id=?
+    UNION
+    SELECT c.id,c.comprobante_original_id,c.pago_id FROM comprobantes c JOIN origenes o ON c.id=o.comprobante_original_id
+      WHERE c.negocio_id=? AND c.cliente_id=?
+  ) SELECT a.caja_id FROM caja_asientos a
+    WHERE a.negocio_id=? AND a.tipo='cobro' AND (a.pago_id=? OR a.pago_id IN (SELECT pago_id FROM origenes))
+    ORDER BY CASE WHEN a.pago_id=? THEN 0 ELSE 1 END,a.fecha DESC LIMIT 1`).get(pago.id,pago.negocio_id,pago.cliente_id,pago.negocio_id,pago.cliente_id,pago.negocio_id,pago.id,pago.id);if(!original)return;
   c=await config(original.caja_id);
  }else c=await db.prepare('SELECT c.* FROM caja_config c JOIN caja_negocios n ON n.caja_id=c.id WHERE n.negocio_id=? AND c.activa').get(pago.negocio_id);
  if(!c)return;

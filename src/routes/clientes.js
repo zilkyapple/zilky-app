@@ -1,4 +1,4 @@
-import { resumenCorreccion } from '../lib/historialFinanciacion.js';
+import { resumenCorreccion, resumenCorreccionPago } from '../lib/historialFinanciacion.js';
 import { prepararWhatsApp } from '../services/whatsappPreparacionService.js';
 import { contactosCliente, cambiarModo, guardarContacto, actualizarContacto } from '../services/contactosCobranzaService.js';
 import { Router } from 'express';
@@ -235,8 +235,18 @@ clientesRouter.get('/:id', requirePermiso('clientes.ver'), async (req, res, next
     let pagos = await listPagosPorCliente(req.params.id);
     if (negociosPermitidos) pagos = pagos.filter((p) => negociosPermitidos.includes(p.negocio_id));
 
+    let correccionesPagos = [];
+    if (req.usuario.rol === 'administrador' && pagos.length) {
+      const ids = pagos.map(p => p.id);
+      correccionesPagos = (await db.query(`SELECT a.entidad_id,a.fecha_hora,a.motivo,
+        a.datos_anteriores,a.datos_nuevos,u.nombre AS autor
+        FROM auditoria a LEFT JOIN usuarios u ON u.id=a.empleado
+        WHERE a.entidad='pago' AND a.accion='corregir_pago' AND a.entidad_id=ANY($1::text[])
+        ORDER BY a.fecha_hora,a.id`, [ids])).rows.map(resumenCorreccionPago);
+    }
+
     res.json({
-      ...cliente, finanzasAutorizadas:true, creditos: creditosConDetalle, pagos,
+      ...cliente, finanzasAutorizadas:true, creditos: creditosConDetalle, pagos, correccionesPagos,
       deudaTotalCentavos: deudaTotal,
       ...resumenVencimientos(creditosConDetalle.flatMap(cr => cr.cuotas), today),
       riesgo: await perfilRiesgoCliente(req.params.id, negociosPermitidos),
