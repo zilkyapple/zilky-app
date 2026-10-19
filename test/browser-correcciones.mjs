@@ -96,7 +96,7 @@ try {
   await check('Owner previews and corrects one receipt without creating a second debt', async () => {
     await page.locator('summary').filter({ hasText: 'Historial de pagos (' }).click();
     await page.locator(`[data-action="corregir-pago"][data-id="${paid.pago.id}"]`).click();
-    await page.locator('#corPagoFecha').fill(`${day(-144)}T14:30:00`);
+    await page.locator('#corPagoFecha').fill(`${day(-144)}T14:30`);
     await page.locator('#corPagoMedio').selectOption('transferencia');
     await page.locator('#corPagoMotivo').fill('Fecha y medio del pago corregidos, prueba QA');
     await page.setViewportSize({ width: 390, height: 844 });
