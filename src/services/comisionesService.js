@@ -62,6 +62,10 @@ export async function sincronizarComision(creditoId,fecha=todayAR(),motivo='Actu
   const row=await db.prepare(`SELECT COALESCE(sum(CASE WHEN p.tipo='entrega_inicial' THEN p.monto_centavos ELSE COALESCE((SELECT sum(pa.capital_centavos) FROM pago_aplicaciones pa WHERE pa.pago_id=p.id),0) END),0) AS capital FROM pagos p WHERE p.credito_id=? AND p.anulado=0`).get(creditoId);
   objetivo=base?ratio(total,Math.min(Number(row.capital),base),base):0;
  }
+ // Las correcciones de carga también anulan ventas sin crear devoluciones.
+ // Sus comisiones no pueden reaparecer en sincronizaciones posteriores.
+ const venta=await db.prepare('SELECT estado FROM ventas WHERE id=?').get(a.venta_id);
+ if(venta?.estado==='anulada')objetivo=0;
  const old=await db.prepare("SELECT COALESCE(sum(importe_centavos),0) AS total FROM comision_eventos WHERE acuerdo_id=? AND tipo='devengo'").get(a.id);
  const delta=objetivo-Number(old.total);if(delta)await db.prepare('INSERT INTO comision_eventos(id,acuerdo_id,fecha,importe_centavos,motivo,fecha_origen) VALUES(?,?,?,?,?,?)').run(id(),a.id,await fechaContable(a.negocio_id,a.usuario_id,fecha),delta,motivo,fecha);
 }

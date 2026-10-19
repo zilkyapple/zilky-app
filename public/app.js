@@ -262,7 +262,7 @@ async function render() {
     else if (root === 'clientes') await viewClientes(view);
     else if (root === 'cobrar') await viewCobrar(view);
     else if (root === 'calendario') await viewCalendario(view);
-    else if (root === 'ventas' && parts[1] === 'historial') { const {ventasHistorial}=await import('./ventasHistorial.js'); await ventasHistorial(view,{api,setHTML,negocio:state.negocioActual,admin:state.usuario?.rol==='administrador',toast,usuarioId:state.usuario?.id}); }
+    else if (root === 'ventas' && parts[1] === 'historial') await viewHistorialVentas(view);
     else if (root === 'ventas') await viewVentaNueva(view, parts[1] === 'nueva' ? parts[2] || null : parts[1] || null);
     else if (root === 'productos') await viewProductos(view);
     else if (root === 'comprobantes') await viewComprobantes(view, parts[1] === 'cliente' ? parts[2] || null : null);
@@ -279,6 +279,25 @@ async function render() {
   }
 }
 const notFound = () => '<div class="empty-state"><p>No encontrado.</p></div>';
+
+async function viewHistorialVentas(view) {
+  const token=getToken(),negocio=state.negocioActual,usuarioId=state.usuario?.id,rol=state.usuario?.rol;
+  const isCurrent=()=>view.isConnected&&getToken()===token&&state.negocioActual===negocio&&state.usuario?.id===usuarioId&&state.usuario?.rol===rol;
+  const {ventasHistorial}=await import('./ventasHistorial.js?v=20261019-venta-error');
+  if(isCurrent())await ventasHistorial(view,{api,setHTML,negocio,admin:rol==='administrador',toast,usuarioId,isCurrent});
+}
+
+async function abrirEliminarVentaError(ventaId,negocio) {
+  if(state.usuario?.rol!=='administrador')return toast('Requiere administrador',true);
+  const token=getToken(),scope=state.negocioActual,usuarioId=state.usuario.id;
+  openSheet('<div id="ventaErrorPanel"><p>Cargando revisión…</p></div><button class="btn btn-secondary" style="margin-top:14px" data-action="cerrar-sheet">Cancelar</button>');
+  const sheet=document.getElementById('activeSheet'),view=sheet.querySelector('#ventaErrorPanel');
+  const isCurrent=()=>view.isConnected&&sheet.isConnected&&document.getElementById('activeSheet')===sheet&&document.getElementById('sheetBackdrop').classList.contains('open')&&getToken()===token&&state.negocioActual===scope&&state.usuario?.id===usuarioId&&state.usuario?.rol==='administrador';
+  try{
+    const {eliminarVentaPorError}=await import('./ventaError.js?v=20261019-venta-error');
+    if(isCurrent())await eliminarVentaPorError(view,{api,setHTML,negocio,ventaId,usuarioId,admin:true,toast,isCurrent,onSuccess:()=>{if(isCurrent()){closeSheet();render();}}});
+  }catch(error){if(isCurrent())setHTML(view,`<p>${esc(error.message)}</p><button class="btn btn-secondary" data-action="cerrar-sheet">Cerrar</button>`);}
+}
 
 // ---------------- Vista: Inicio (dashboard) ----------------
 async function viewInicio(view) {
@@ -710,6 +729,7 @@ async function abrirMensajeEspecial(clienteId,negocioId) {
 
 function creditoCardHtml(cr) {
   const negocio = state.negocios.find((n) => n.id === cr.negocio_id);
+  if(['anulada','devuelta'].includes(cr.venta_estado))return `<details class="card credito-card" data-venta-anulada="${esc(cr.venta_id)}"><summary><strong>${cr.venta_estado==='anulada'?'Venta anulada':'Venta devuelta'}</strong> · ${esc(fmtFecha(cr.fecha_inicio))} · ${esc(negocio?.nombre||'')}</summary><p>Esta operación no tiene deuda activa. Se conserva el registro para consultar el historial.</p>${(cr.items||[]).map(it=>`<p>${esc(it.descripcion||it.producto_nombre||'Producto')} · Cantidad: ${esc(it.cantidad)}</p>`).join('')}</details>`;
   const pendientes = cr.cuotas.filter(c => (c.saldo_pendiente_centavos > 0 || c.moraPendiente > 0) && !c.estado_manual);
   const pendiente = pendientes.length > 0;
   const estadoOperacion = !pendiente ? cr.estado : pendientes.some(c => c.diasAtraso > 0) ? 'atrasada' : 'al_dia';
@@ -726,6 +746,7 @@ function creditoCardHtml(cr) {
       <div class="field-hint">Compra: ${esc(fmtFecha(cr.fecha_inicio))} · Total: ${esc(formatARS(cr.monto_total_centavos))} · Entrega inicial: ${esc(formatARS(cr.entrega_inicial_centavos))}</div>
       <div class="field-hint">Entrega / retiro del producto por el cliente: ${cr.fecha_entrega_producto ? esc(fmtFecha(cr.fecha_entrega_producto)) : 'Sin fecha registrada'}</div>
       ${state.usuario?.rol==='administrador' ? `<button class="btn btn-secondary" style="margin-top:10px" data-action="corregir-financiacion" data-credito="${esc(cr.id)}" data-negocio="${esc(cr.negocio_id)}">Editar fechas y cuotas</button>` : ''}
+      ${state.usuario?.rol==='administrador'&&cr.venta_id?`<button class="btn btn-secondary" style="margin-top:10px" data-action="eliminar-venta-error" data-venta="${esc(cr.venta_id)}" data-negocio="${esc(cr.negocio_id)}">Eliminar venta cargada por error</button>`:''}
       ${cr.producto_descripcion ? `<p>Producto/equipo corregido: ${esc(cr.producto_descripcion)}</p>` : ''}${cr.condiciones ? `<p>Condiciones: ${esc(cr.condiciones)}</p>` : ''}
       ${(cr.items || []).length ? `<ul>${cr.items.map(it => `<li>${esc(it.descripcion || it.producto_nombre || 'Producto')} · Cantidad: ${esc(it.cantidad)}${it.producto_variante ? ` · ${esc(it.producto_variante)}` : ''}${it.producto_imei ? ` · IMEI: ${esc(it.producto_imei)}` : ''}</li>`).join('')}</ul>` : '<p class="field-hint">Sin detalle de producto registrado.</p>'}
       <p class="field-hint">Cuotas pagadas: ${esc(cr.cuotas.filter(c => c.saldo_pendiente_centavos <= 0 && !c.estado_manual).length)}/${esc(cr.cuotas.length)} · Saldo pendiente: ${esc(formatARS(pendientes.reduce((s,c) => s+c.saldo_pendiente_centavos+(c.moraPendiente || 0),0)))}</p>
@@ -1590,6 +1611,7 @@ document.addEventListener('click', async (e) => {
   else if (action === 'perdonar-mora') abrirPerdonarMora(el.dataset.cuota,el.dataset.negocio);
   else if (action === 'editar-cliente') abrirEditarCliente(id);
   else if (action === 'eliminar-cliente') abrirEliminarCliente(id);
+  else if (action === 'eliminar-venta-error') abrirEliminarVentaError(el.dataset.venta,el.dataset.negocio);
   else if (action === 'gestion-cliente') abrirGestionCliente(id,el.dataset.negocio,el.dataset.tipo);
   else if (action === 'whatsapp-preparacion') abrirPreparacionWhatsApp(id,el.dataset.negocio);
   else if (action === 'contactos-cobranza') abrirContactosCobranza(id,el.dataset.negocio);

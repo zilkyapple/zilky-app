@@ -38,6 +38,21 @@ explícita en un entorno controlado.
 
 ## Integridad financiera
 
+En **Clientes → ficha → compra → Eliminar venta cargada por error**, o desde
+**Más → Ventas**, el administrador puede corregir una venta duplicada. Antes de
+confirmar se muestran los productos que vuelven al stock y los pagos registrados.
+Por ejemplo: con ocho unidades, dos cargas dejan seis; eliminar una carga devuelve
+una unidad y deja siete. La otra venta se conserva.
+
+Esta opción corrige una carga que no correspondía a una venta ni a un cobro real.
+Si hay pagos, exige confirmar que también fueron registros erróneos. Anula la
+venta, sus cuotas y esos pagos, sin crear un reintegro ni saldo a favor ficticio.
+Sólo repone stock que fue efectivamente descontado. Los originales y su auditoría
+se conservan; los períodos de caja y las liquidaciones cerradas no se reescriben.
+Los casos con devoluciones o ajustes financieros que requieren conciliación se
+identifican antes de confirmar. Las devoluciones reales siguen en las opciones
+avanzadas de la venta.
+
 **Inicio** es el Dashboard. **Cobros previstos** aparece al principio de esa
 pantalla, antes de los indicadores históricos. Es exclusivo del administrador, tanto en la
 pantalla como en la API. Muestra capital pendiente de cuotas ya vendidas: este

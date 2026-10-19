@@ -1,12 +1,24 @@
 import {solicitudId} from '../lib/solicitud.js';
 import {detalleVenta,devolverVenta} from '../services/ventasGestionService.js';
+import {vistaVentaError,eliminarVentaError} from '../services/ventaErrorService.js';
 import {politicaEmpleado} from '../services/comisionReglasService.js';
 import {db} from '../db/connection.js';
 import {vistaFinanciacion,corregirFinanciacion} from '../services/financiacionService.js';
 import { Router } from 'express';
 import { crearVenta } from '../services/ventasService.js';
-import { requirePermiso, exigirPermisoNegocio, exigirCliente, requireAdmin } from '../middleware/authorize.js';
+import { requirePermiso, exigirPermisoNegocio, exigirCliente, requireAdmin, negocioSolicitado } from '../middleware/authorize.js';
 export const ventasRouter = Router();
+
+ventasRouter.get('/:id/eliminar-error',requireAdmin,async(req,res,next)=>{
+  try{const n=negocioSolicitado(req);if(!n)return res.status(400).json({error:'Seleccioná el negocio de la venta'});
+    exigirPermisoNegocio(req,n,'ventas.crear');res.json(await vistaVentaError(n,req.params.id));
+  }catch(e){next(e);}
+});
+ventasRouter.post('/:id/eliminar-error',requireAdmin,async(req,res,next)=>{
+  try{const n=negocioSolicitado(req);if(!n)return res.status(400).json({error:'Seleccioná el negocio de la venta'});
+    exigirPermisoNegocio(req,n,'ventas.crear');res.json(await eliminarVentaError(n,req.params.id,req.body,req.usuarioId));
+  }catch(e){next(e);}
+});
 
 ventasRouter.post('/', requirePermiso('ventas.crear'), async (req, res, next) => {
   try {

@@ -14,6 +14,7 @@ const err=(m,status=400)=>Object.assign(new Error(m),{status});
 export async function vistaFinanciacion(id) {
   const credito=await getCredito(id);if(!credito)throw err('Financiación no encontrada',404);
   const venta=await db.prepare('SELECT * FROM ventas WHERE id=?').get(credito.venta_id);
+  if(['anulada','devuelta','devolucion_parcial'].includes(venta?.estado))throw err('Esta venta fue anulada o tiene devoluciones y no permite modificar la financiación',409);
   const cuotas=await listCuotasPorCredito(id);
   const pagos=await db.prepare('SELECT * FROM pagos WHERE credito_id=? ORDER BY id').all(id);
   const aplicaciones=await db.prepare('SELECT pa.* FROM pago_aplicaciones pa JOIN cuotas cu ON cu.id=pa.cuota_id WHERE cu.credito_id=? ORDER BY pa.id').all(id);
