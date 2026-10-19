@@ -15,6 +15,7 @@ export function resumenCorreccion(evento) {
       ['monto_total_centavos', 'Importe de la operación', 'dinero'],
       ['entrega_inicial_centavos', 'Entrega inicial', 'dinero'],
       ['fecha_inicio', 'Fecha de compra', 'fecha'],
+      ['fecha_entrega_producto', 'Entrega / retiro del producto por el cliente', 'fecha'],
       ['producto_descripcion', 'Producto/equipo', 'texto'],
       ['condiciones', 'Condiciones de financiación', 'texto'],
     ]) agregar(campo, etiqueta, tipo, antes.credito[campo], despues.credito[campo]);
@@ -32,3 +33,4 @@ export function resumenCorreccion(evento) {
   }
   return {fecha_hora:evento.fecha_hora, motivo:evento.motivo, autor:evento.autor, cambios};
 }
+

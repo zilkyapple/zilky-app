@@ -18,18 +18,25 @@ export async function vistaFinanciacion(id) {
   const pagos=await db.prepare('SELECT * FROM pagos WHERE credito_id=? ORDER BY id').all(id);
   const aplicaciones=await db.prepare('SELECT pa.* FROM pago_aplicaciones pa JOIN cuotas cu ON cu.id=pa.cuota_id WHERE cu.credito_id=? ORDER BY pa.id').all(id);
   const data={credito,venta,cuotas,pagos,aplicaciones};
-  return {...data,version:createHash('sha256').update(JSON.stringify(data)).digest('hex')};
+  const negocio=await getNegocio(credito.negocio_id);
+  const recordatorios=await db.prepare('SELECT cuota_id FROM recordatorios WHERE cuota_id IN (SELECT id FROM cuotas WHERE credito_id=?)').all(id);
+  const cuotasConPermisos=cuotas.map(q=>({...q,puede_quitar:!q.fecha_saldada&&!aplicaciones.some(a=>a.cuota_id===q.id)&&calcularMora(q,negocio,todayAR()).acumulada===0&&!recordatorios.some(r=>r.cuota_id===q.id)}));
+  return {...data,cuotas:cuotasConPermisos,version:createHash('sha256').update(JSON.stringify(data)).digest('hex')};
 }
 export async function corregirFinanciacion(id,input,actor) {
   const {version,motivo,solicitud_id,datos}=input;
   if(typeof motivo!=='string'||!motivo.trim()||motivo.length>2000)throw err('Indicá un motivo de corrección');
   if(typeof solicitud_id!=='string'||!/^[a-f0-9-]{36}$/i.test(solicitud_id))throw err('Solicitud inválida');
   if(!datos||typeof datos!=='object'||Array.isArray(datos))throw err('Datos inválidos');
-  const keys=['monto_total_centavos','entrega_inicial_centavos','fecha_inicio','producto_descripcion','condiciones','cuotas'];
+  const keys=['monto_total_centavos','entrega_inicial_centavos','fecha_inicio','fecha_entrega_producto','producto_descripcion','condiciones','cuotas'];
   if(Object.keys(datos).some(k=>!keys.includes(k)))throw err('Campo no editable');
   integer(datos.monto_total_centavos,'importe',{min:1});integer(datos.entrega_inicial_centavos,'entrega');
   if(datos.entrega_inicial_centavos>datos.monto_total_centavos)throw err('La entrega supera el importe');
   dateISO(datos.fecha_inicio);if(datos.fecha_inicio>todayAR())throw err('La compra no puede estar en el futuro');
+  if(datos.fecha_entrega_producto!==undefined&&datos.fecha_entrega_producto!==null){
+    dateISO(datos.fecha_entrega_producto);
+    if(datos.fecha_entrega_producto<datos.fecha_inicio||datos.fecha_entrega_producto>todayAR())throw err('La entrega o retiro del producto debe estar entre la compra y hoy');
+  }
   for(const key of ['producto_descripcion','condiciones'])if(typeof datos[key]!=='string'||datos[key].length>4000)throw err('Descripción o condiciones inválidas');
   if(!Array.isArray(datos.cuotas)||datos.cuotas.length>600)throw err('Plan inválido');
   for(const q of datos.cuotas){integer(q.monto_centavos,'importe de cuota',{min:1});dateISO(q.fecha_vencimiento);if(q.fecha_vencimiento<datos.fecha_inicio)throw err('El vencimiento no puede ser anterior a la compra');}
@@ -46,6 +53,9 @@ export async function corregirFinanciacion(id,input,actor) {
     if(log){const old=JSON.parse(log.datos_nuevos);if(old.requestHash!==requestHash||log.empleado!==actor)throw err('Solicitud reutilizada con otros datos',409);return {id,reintentado:true};}
     if(await db.prepare('SELECT 1 FROM venta_devoluciones WHERE venta_id=?').get(first.venta_id))throw err('La venta tiene devoluciones. Requiere conciliación antes de corregir el plan',409);
     const before=await vistaFinanciacion(id);if(before.version!==version)throw err('La financiación cambió. Volvé a revisar el plan.',409);
+    const fechaEntrega=datos.fecha_entrega_producto===undefined?before.credito.fecha_entrega_producto:datos.fecha_entrega_producto;
+    if(fechaEntrega&&fechaEntrega<datos.fecha_inicio)throw err('La compra no puede ser posterior a la entrega o retiro del producto');
+    if(await db.prepare("SELECT 1 FROM credito_incidencias WHERE credito_id=? AND tipo IN ('equipo_entregado','equipo_retirado') AND fecha<?").get(id,datos.fecha_inicio))throw err('La compra no puede ser posterior a una entrega o retiro de equipo registrado',409);
     if(before.pagos.length&&input.confirmar_correccion_pagos!==true)throw err('Confirmá que revisaste los pagos y comprobantes existentes');
     if(before.cuotas.some(q=>q.estado_manual))throw err('Esta operación tiene cuotas con estado manual y requiere conciliación',409);
     if(before.pagos.some(p=>!p.anulado&&String(p.fecha_hora).slice(0,10)<datos.fecha_inicio))throw err('La compra no puede ser posterior a un pago existente',409);
@@ -78,6 +88,7 @@ export async function corregirFinanciacion(id,input,actor) {
       else await crearCuota({credito_id:id,numero:i+1,monto_centavos:q.monto_centavos,fecha_vencimiento:q.fecha_vencimiento});
     }
     await db.prepare('UPDATE creditos SET monto_total_centavos=?,entrega_inicial_centavos=?,saldo_financiado_centavos=?,fecha_inicio=?,producto_descripcion=?,condiciones=? WHERE id=?').run(datos.monto_total_centavos,datos.entrega_inicial_centavos,datos.monto_total_centavos-datos.entrega_inicial_centavos,datos.fecha_inicio,datos.producto_descripcion.trim(),datos.condiciones.trim(),id);
+    await db.prepare('UPDATE creditos SET fecha_entrega_producto=? WHERE id=?').run(fechaEntrega??null,id);
     await db.prepare('UPDATE ventas SET monto_total_centavos=?,entrega_inicial_centavos=?,fecha=? WHERE id=?').run(datos.monto_total_centavos,datos.entrega_inicial_centavos,datos.fecha_inicio,first.venta_id);
     if(datos.entrega_inicial_centavos!==before.credito.entrega_inicial_centavos){
       const entrega=before.pagos.find(p=>p.tipo==='entrega_inicial'&&!p.anulado);
@@ -94,3 +105,4 @@ export async function corregirFinanciacion(id,input,actor) {
     return {id};
   });
 }
+

@@ -11,7 +11,7 @@ import { estadoCuota, calcularMora } from '../lib/mora.js';
 import { getNegocio } from '../repositories/negocios.js';
 import { todayAR, diffDays } from '../lib/dates.js';
 import { perfilRiesgoCliente, historialFinancieroCliente } from '../services/dashboardService.js';
-import { listIncidencias, registrarIncidenciaEquipo } from '../services/incidenciasService.js';
+import { listIncidencias, registrarIncidenciaEquipo, vistaIncidenciaEquipo, corregirFechaIncidenciaEquipo } from '../services/incidenciasService.js';
 import { gestionCliente, registrarGestion } from '../services/gestionCobranzaService.js';
 import { editarDatosCliente, puedeEditarIdentidad } from '../services/clientDataService.js';
 import { datosBasicos, versionDatos } from '../lib/clientData.js';
@@ -162,6 +162,21 @@ clientesRouter.patch('/:id/contactos/:contactoId', requirePermiso('clientes.ver'
 });
 
 // Detalle: por defecto muestra operaciones del cliente filtradas al scope del usuario.
+clientesRouter.get('/:id/creditos/:creditoId/incidencias/:incidenciaId', requireAdmin, async (req,res,next)=>{
+  try {
+    const negocioId=negocioSolicitado(req);
+    if(!negocioId)return res.status(400).json({error:'negocio_id es requerido'});
+    res.json(await vistaIncidenciaEquipo({creditoId:req.params.creditoId,clienteId:req.params.id,negocioId,incidenciaId:req.params.incidenciaId}));
+  }catch(e){next(e);}
+});
+clientesRouter.patch('/:id/creditos/:creditoId/incidencias/:incidenciaId', requireAdmin, async (req,res,next)=>{
+  try {
+    const negocioId=negocioSolicitado(req);
+    if(!negocioId)return res.status(400).json({error:'negocio_id es requerido'});
+    res.json(await corregirFechaIncidenciaEquipo({creditoId:req.params.creditoId,clienteId:req.params.id,negocioId,incidenciaId:req.params.incidenciaId,
+      version:req.body.version,fecha:req.body.fecha,motivo:req.body.motivo,solicitudId:req.body.solicitud_id,usuarioId:req.usuarioId}));
+  }catch(e){next(e);}
+});
 clientesRouter.post('/:id/creditos/:creditoId/incidencias', requireAdmin, async (req,res,next)=>{
   try {
     const negocioId=negocioSolicitado(req);
@@ -247,3 +262,4 @@ clientesRouter.get('/:id', requirePermiso('clientes.ver'), async (req, res, next
     });
   } catch (err) { next(err); }
 });
+

@@ -50,6 +50,31 @@ explícita en un entorno controlado.
 
 ## Migraciones
 
+### Corregir fechas y cuotas
+
+Un administrador puede abrir **Clientes → ficha → Editar fechas y cuotas** en la
+compra del negocio correspondiente. También hay un acceso **Editar cuota** en
+cada cuota pendiente. Permite corregir la fecha de compra, los importes y los
+vencimientos pendientes, y registrar o corregir la fecha en que el cliente recibió
+o retiró el producto (celular, ropa u otro artículo). Esta última fecha es opcional
+y se guarda separada del anticipo de dinero; las ventas anteriores quedan sin fecha
+física hasta que se complete el dato. Vaciar el campo borra una fecha mal cargada.
+
+En **Historial de incidencias**, **Corregir fecha** permite corregir la entrega
+voluntaria del equipo por el cliente o el retiro por falta de pago. Conserva el
+hecho, su motivo y su responsable originales. Cada corrección registra motivo,
+responsable y valores anteriores/nuevos; las versiones evitan pisar otros cambios.
+
+Las cuotas saldadas y los pagos se conservan. Las cuotas con pagos, mora o contactos
+no pueden quitarse del plan. Corregir un vencimiento conserva la mora ya generada;
+si también hubo un error en ese importe, se revisa con **Perdonar mora**. No hace
+falta eliminar al cliente para corregir una compra. La eliminación sigue reservada
+a fichas sin actividad en ninguno de sus negocios.
+
+La migración agrega `creditos.fecha_entrega_producto` como texto opcional sin
+completar fechas históricas ni cambiar pagos, stock o deudas existentes. Se aplica
+con el comando de migración habitual antes de ejecutar la versión nueva.
+
 Los parches son aditivos y usan `IF NOT EXISTS`. La migración de invitaciones conserva
 la columna/token legacy y crea/usa `token_hash`; si encuentra registros sin hash se
 detiene antes de cambiar restricciones. Se agrega `pagos.tipo` con valor `cuota` y un
@@ -115,6 +140,12 @@ Opcionales: `CHROMIUM_EXECUTABLE` para un binario de Chromium existente y
 `BROWSER_ARTIFACTS` para elegir dónde guardar las capturas/resultados (por defecto `/tmp/zilky-stage2-browser`).
 No se agrega Playwright como dependencia necesaria para ejecutar Zilky ni la suite habitual.
 
+`test/browser-fechas-cuotas.mjs` usa las mismas variables y restricciones de base
+local descartable para comprobar el editor de fechas y cuotas en escritorio y
+móvil, la persistencia al recargar, las cuotas saldadas, las fechas de incidencias
+y el aislamiento de pagos y negocios. Sus capturas y `resultado.json` se guardan
+en `BROWSER_ARTIFACTS` (por defecto `/tmp/zilky-fechas-browser`).
+
 ## Fuera de alcance de esta entrega
 
 Etapa 3 y posteriores: clientes reorganizados, cobranza avanzada, WhatsApp Cloud API,
@@ -133,3 +164,4 @@ src/
 public/          frontend HTML/CSS/JS y DOMPurify vendorizado
 test/            regresiones, seguridad, atomicidad y frontend
 ```
+
