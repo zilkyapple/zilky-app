@@ -88,6 +88,15 @@ const fmtFecha = (iso) => {
   const [y, m, d] = iso.slice(0, 10).split('-');
   return `${d}/${m}/${y}`;
 };
+function fechaHoraPagoAR(iso) {
+  const fecha = new Date(iso);
+  if (!Number.isFinite(fecha.getTime())) return {fecha:String(iso||'').slice(0,10),hora:String(iso||'').slice(11,19)};
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone:'America/Argentina/Buenos_Aires',year:'numeric',month:'2-digit',day:'2-digit',
+    hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23',
+  }).formatToParts(fecha).reduce((acc,p)=>({...acc,[p.type]:p.value}),{});
+  return {fecha:`${partes.year}-${partes.month}-${partes.day}`,hora:`${partes.hour}:${partes.minute}:${partes.second}`};
+}
 const iniciales = (n = '', a = '') => `${(n[0] || '').toUpperCase()}${(a[0] || '').toUpperCase()}` || '?';
 const todayISO = () => {
   // La fecha operativa debe coincidir con todayAR() del backend, aun de noche.
@@ -495,16 +504,30 @@ async function viewClienteDetail(view, id) {
     <summary>Historial de pagos (${esc(c.pagos.length)})</summary>
     ${c.pagos.length === 0 ? `<div class="empty-state"><p>Sin pagos registrados.</p></div>` : `
       <div class="card">
-        ${c.pagos.map((p) => `
-          <div class="hist-row">
-            <div><div class="hd">${esc(p.tipo==='entrega_inicial'?'Entrega inicial · ':'Pago de cuota · ')}${esc(p.medio_pago)}${p.anulado ? ' · <span style="color:var(--danger)">ANULADO</span>' : ''}</div><div class="hm">${esc(fmtFecha(p.fecha_hora))} ${esc(p.fecha_hora.slice(11, 16))}</div></div>
-            <div class="amt" style="${esc(p.anulado ? 'color:var(--text-faint);text-decoration:line-through' : '')}">+${esc(formatARS(p.monto_centavos))}</div>
-          </div>
-        `).join('')}
+        ${c.pagos.map(p=>pagoHistorialHtml(p)).join('')}
       </div>
     `}
     </details>
   `);
+}
+
+function pagoHistorialHtml(p) {
+  const momento=fechaHoraPagoAR(p.fecha_hora);
+  const desglose=Number.isSafeInteger(p.capital_aplicado_centavos)&&Number.isSafeInteger(p.mora_aplicada_centavos);
+  return `<div class="hist-row" style="display:block">
+    <div style="display:flex;justify-content:space-between;align-items:start;gap:12px;flex-wrap:wrap">
+      <div style="min-width:0;flex:1 1 150px"><div class="hd">${esc(p.tipo==='entrega_inicial'?'Entrega inicial · ':'Pago de cuota · ')}${esc(p.medio_pago)}${p.anulado?' · <span style="color:var(--danger)">ANULADO</span>':''}</div>
+        <div class="hm">${esc(fmtFecha(momento.fecha))} ${esc(momento.hora.slice(0,5))}</div></div>
+      <div class="amt" style="white-space:nowrap;${esc(p.anulado?'color:var(--text-faint);text-decoration:line-through':'')}">+${esc(formatARS(p.monto_centavos))}</div>
+    </div>
+    ${p.tipo!=='entrega_inicial'&&desglose?`<p class="field-hint" style="margin:8px 0">Aplicado a capital: ${esc(formatARS(p.capital_aplicado_centavos))} · A mora: ${esc(formatARS(p.mora_aplicada_centavos))}${p.remanente_centavos>0?` · A saldo a favor: ${esc(formatARS(p.remanente_centavos))}`:''}${p.anulado?' · Aplicación anulada.':''}</p>`:''}
+    ${(p.aplicaciones||[]).length?`<details style="margin-top:8px"><summary>Ver aplicación del pago</summary>${p.aplicaciones.map(a=>`<p class="field-hint">Cuota ${esc(a.numero)} · Capital: ${esc(formatARS(a.capital_centavos))} · Mora: ${esc(formatARS(a.interes_mora_centavos))}</p>`).join('')}</details>`:''}
+    ${state.usuario?.rol==='administrador'&&!p.anulado&&p.id&&p.negocio_id?`<button class="btn btn-secondary" style="margin-top:10px" data-action="corregir-fecha-pago" data-id="${esc(p.id)}" data-negocio="${esc(p.negocio_id)}">Corregir fecha del pago</button>`:''}
+    ${(p.correcciones_fecha||[]).length?`<details style="margin-top:10px"><summary>Correcciones de fecha (${esc(p.correcciones_fecha.length)})</summary>${p.correcciones_fecha.map(c=>{
+      const anterior=fechaHoraPagoAR(c.fecha_anterior),nueva=fechaHoraPagoAR(c.fecha_nueva);
+      return `<p class="field-hint">${esc(fmtFecha(c.fecha_hora))} · ${esc(c.autor||'Administrador')}<br>${esc(fmtFecha(anterior.fecha))} ${esc(anterior.hora)} → ${esc(fmtFecha(nueva.fecha))} ${esc(nueva.hora)} (Argentina)<br>${esc(c.motivo)}</p>`;
+    }).join('')}</details>`:''}
+  </div>`;
 }
 
 function gestionCobranzaHtml(c) {
@@ -629,6 +652,7 @@ function creditoCardHtml(cr) {
 function incidenciasHtml(cr) {
   const nombres={al_dia:'Al día',atrasada:'Atrasada',regularizada:'Regularizada',finalizada_correctamente:'Finalizada correctamente',cancelada_anticipadamente:'Cancelada anticipadamente',equipo_entregado:'Equipo entregado voluntariamente',equipo_retirado:'Equipo retirado por falta de pago',pago_anulado:'Pago anulado'};
   return `<details><summary>Historial de incidencias (${esc((cr.incidencias||[]).length)})</summary>
+    ${cr.ultima_correccion_pagos?`<p class="field-hint" data-payment-correction-notice="true">Hay pagos corregidos el ${esc(fmtFecha(fechaHoraPagoAR(cr.ultima_correccion_pagos.fecha_hora).fecha))}. Las incidencias anteriores conservan la carga original; consultá las cuotas y pagos actualizados.</p>`:''}
     ${(cr.incidencias||[]).length ? `<ol>${cr.incidencias.map(e=>`<li><strong>${esc(nombres[e.tipo]||e.tipo)}</strong> · ${esc(fmtFecha(e.fecha))}${e.motivo?`<p>${esc(e.motivo)}</p>`:''}${state.usuario?.rol==='administrador' && ['equipo_entregado','equipo_retirado'].includes(e.tipo) ? `<button class="btn btn-secondary" data-action="corregir-fecha-incidencia" data-id="${esc(cr.cliente_id)}" data-credito="${esc(cr.id)}" data-negocio="${esc(cr.negocio_id)}" data-incidencia="${esc(e.id)}">Corregir fecha</button>` : ''}</li>`).join('')}</ol>` : '<p class="field-hint">Sin incidencias registradas. No se reconstruyen hechos que no fueron guardados.</p>'}
     ${cr.seguimientoEquipos && state.usuario?.rol==='administrador' ? `<button class="btn btn-secondary" data-action="incidencia-equipo" data-credito="${esc(cr.id)}" data-id="${esc(cr.cliente_id)}" data-negocio="${esc(cr.negocio_id)}">Registrar entrega o retiro de equipo</button>` : ''}
   </details>`;
@@ -768,14 +792,14 @@ async function abrirRegistrarPago(creditoId, montoSugerido = null) {
   openSheet(`
     <div class="sheet-handle"></div>
     <div class="sheet-title">Registrar pago</div>
-    <div class="sheet-sub">Se aplica automáticamente: primero mora vencida, después capital de la cuota más antigua. Genera comprobante.</div>
+    <div class="sheet-sub">Indicá la fecha real en que el cliente entregó el dinero, también al cargar pagos antiguos. La mora se calcula según esa fecha y el dinero se distribuye según la configuración del negocio. Genera comprobante.</div>
     <div class="field"><label>Monto entregado</label><input type="number" inputmode="decimal" id="pagoMonto" placeholder="0" value="${esc(montoSugerido ?? '')}" autofocus /></div>
     <div class="field-row">
       <div class="field">
         <label>Medio de pago</label>
         <select id="pagoMedio"><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option><option value="tarjeta">Tarjeta</option><option value="mercado_pago">Mercado Pago</option><option value="otro">Otro</option></select>
       </div>
-      <div class="field"><label>Fecha</label><input type="date" id="pagoFecha" value="${esc(todayISO())}" /></div>
+      <div class="field"><label>Fecha real del pago</label><input type="date" id="pagoFecha" value="${esc(todayISO())}" /></div>
     </div>
     <div class="field"><label>Nota (opcional)</label><input type="text" id="pagoNota" placeholder="Ej: entrega parcial" /></div>
     <div class="sheet-actions">
@@ -796,7 +820,7 @@ async function abrirRegistrarPago(creditoId, montoSugerido = null) {
         body: JSON.stringify({
           credito_id: creditoId, monto_centavos: monto,
           medio_pago: document.getElementById('pagoMedio').value,
-          fecha_hora: `${fecha}T${new Date().toTimeString().slice(0, 8)}-03:00`,
+          fecha_hora: `${fecha}T${fechaHoraPagoAR(new Date().toISOString()).hora}-03:00`,
           nota: document.getElementById('pagoNota').value || null,
         }),
       });
@@ -1463,6 +1487,7 @@ document.addEventListener('click', async (e) => {
   else if (action === 'ver-cliente-negocio') { setNegocio(id || null); const parts = parseHash(); if (parts[1]) render(); }
   else if (action === 'editar-seguimiento') abrirEditarSeguimiento(id);
   else if (action === 'corregir-financiacion') abrirCorreccionFinanciacion(credito,el.dataset.negocio,el.dataset.cuota);
+  else if (action === 'corregir-fecha-pago') abrirCorreccionFechaPago(id,el.dataset.negocio);
   else if (action === 'perdonar-mora') abrirPerdonarMora(el.dataset.cuota,el.dataset.negocio);
   else if (action === 'editar-cliente') abrirEditarCliente(id);
   else if (action === 'eliminar-cliente') abrirEliminarCliente(id);
@@ -1693,6 +1718,98 @@ async function arrancarApp() {
   if (!getToken()) { showAuthScreen(); return; }
   await arrancarApp();
 })();
+
+async function abrirCorreccionFechaPago(pagoId,negocioId) {
+  if(state.usuario?.rol!=='administrador')return toast('Requiere administrador',true);
+  const token=getToken(),scope=state.negocioActual,solicitud=crypto.randomUUID();
+  openSheet('<div class="sheet-title">Corregir fecha del pago</div><p>Cargando…</p><button class="btn btn-secondary" data-action="cerrar-sheet">Cancelar</button>');
+  const sheet=document.getElementById('activeSheet');
+  const vigente=()=>sheet.isConnected&&document.getElementById('activeSheet')===sheet&&document.getElementById('sheetBackdrop').classList.contains('open')&&getToken()===token&&state.negocioActual===scope&&state.usuario?.rol==='administrador';
+  const ruta=`/pagos/${encodeURIComponent(pagoId)}/correccion-fecha?negocio_id=${encodeURIComponent(negocioId)}`;
+  const conflicto=error=>setHTML(sheet,`<div class="sheet-title">Revisá nuevamente el pago</div><p>${esc(error.message)}</p><p>La cuenta cambió. Cerrá y abrí la corrección para revisar los datos actuales antes de guardar.</p><button class="btn btn-secondary" data-action="cerrar-sheet">Cerrar</button>`);
+  try {
+    const v=await api(ruta);
+    if(!vigente())return;
+    if(!v.pago||v.pago.anulado)return setHTML(sheet,'<p>Este pago no está disponible para corregir su fecha.</p><button class="btn btn-secondary" data-action="cerrar-sheet">Cerrar</button>');
+    const p=v.pago,momento=fechaHoraPagoAR(p.fecha_hora),esEntrega=p.tipo==='entrega_inicial';
+    const puedeRecalcular=!esEntrega&&v.recalculo_disponible===true;
+    const avisos=items=>(items||[]).map(a=>`<p class="field-hint">${esc(a)}</p>`).join('');
+    setHTML(sheet,`<div class="sheet-title">Corregir fecha del pago</div>
+      <p><strong>${esc(esEntrega?'Entrega inicial':'Pago de cuota')} · ${esc(formatARS(p.monto_centavos))}</strong><br>${esc(negocioNombre(negocioId))} · ${esc(p.medio_pago)}<br>Fecha registrada: ${esc(fmtFecha(momento.fecha))} ${esc(momento.hora.slice(0,5))}</p>
+      <p>Indicá cuándo el cliente entregó el dinero. La corrección queda en el historial con su motivo y responsable. No registra un nuevo cobro.</p>
+      <div class="field-row"><div class="field"><label for="pagoCorFecha">Fecha real del pago</label><input id="pagoCorFecha" type="date" min="${esc(v.credito?.fecha_inicio||'')}" max="${esc(todayISO())}" value="${esc(momento.fecha)}" required></div>
+        <div class="field"><label for="pagoCorHora">Hora del pago (Argentina)</label><input id="pagoCorHora" type="time" step="1" value="${esc(momento.hora)}" required></div></div>
+      ${puedeRecalcular?'<label style="display:flex;gap:10px;align-items:start;margin:12px 0"><input id="pagoCorRecalcular" type="checkbox" checked> Recalcular capital y mora con las fechas reales de los pagos de esta financiación.</label>':`<p class="field-hint">${esc(esEntrega?'La entrega inicial no se distribuye entre las cuotas. Se corrige únicamente la fecha del dinero recibido.':v.motivo_no_recalculo||'Se conserva la aplicación actual del dinero a capital y mora.')}</p>`}
+      ${puedeRecalcular?'<p class="field-hint">Antes de confirmar vas a ver cómo quedan los saldos. Si desmarcás esta opción, se conserva la aplicación actual del dinero.</p>':''}
+      ${avisos(v.advertencias)}
+      <div class="field"><label for="pagoCorMotivo">Motivo de la corrección</label><textarea id="pagoCorMotivo" maxlength="2000" required></textarea></div>
+      <p id="pagoCorEstado" role="status"></p><div id="pagoCorPreview" aria-live="polite"></div>
+      <div class="sheet-actions"><button class="btn btn-secondary" data-action="cerrar-sheet">Cancelar</button><button id="pagoCorRevisar" class="btn btn-secondary">Revisar corrección</button></div>
+      <button id="pagoCorConfirmar" class="btn btn-primary btn-block" style="margin-top:12px" hidden disabled>Confirmar corrección</button>`);
+    const el=id=>sheet.querySelector('#'+id),inputs=()=>sheet.querySelectorAll('input,textarea');
+    let busy=false,preview=null,datosRevisados=null,enviado=null;
+    const bloquear=valor=>{inputs().forEach(input=>input.disabled=valor);el('pagoCorRevisar').disabled=valor;};
+    const invalidar=()=>{
+      if(enviado)return;
+      preview=null;datosRevisados=null;setHTML(el('pagoCorPreview'),'');
+      el('pagoCorConfirmar').hidden=true;el('pagoCorConfirmar').disabled=true;
+      el('pagoCorEstado').textContent='Revisá la corrección antes de confirmar.';
+    };
+    inputs().forEach(input=>{input.addEventListener('input',invalidar);input.addEventListener('change',invalidar);});
+    const leer=()=>{
+      const fecha=el('pagoCorFecha').value,hora=el('pagoCorHora').value,motivo=el('pagoCorMotivo').value.trim();
+      if(!fecha||!/^\d{2}:\d{2}(?::\d{2})?$/.test(hora))throw new Error('Completá la fecha y hora reales del pago.');
+      if(fecha>todayISO())throw new Error('La fecha del pago no puede estar en el futuro.');
+      if(!motivo)throw new Error('Indicá el motivo de la corrección.');
+      return {fecha_hora:`${fecha}T${hora.length===5?hora+':00':hora}-03:00`,recalcular:el('pagoCorRecalcular')?.checked===true,motivo};
+    };
+    const mostrarPreview=data=>{
+      const filas=[['Capital pendiente','capital_pendiente_centavos'],['Mora pendiente','mora_pendiente_centavos'],['Saldo a favor','saldo_favor_centavos']];
+      const cuotas=(data.cuotas||[]).filter(q=>q.capital_antes_centavos!==q.capital_despues_centavos||q.mora_antes_centavos!==q.mora_despues_centavos);
+      setHTML(el('pagoCorPreview'),`<div class="card" style="padding:12px;margin:14px 0"><h3 style="font-size:16px;margin:0 0 12px">Revisá cómo queda esta financiación</h3>
+        <table style="width:100%;font-size:13px;table-layout:fixed"><thead><tr><th scope="col" style="text-align:left">Saldo</th><th scope="col">Antes</th><th scope="col">Después</th></tr></thead><tbody>${filas.map(([nombre,key])=>`<tr><th scope="row" style="text-align:left;font-weight:400;padding:8px 2px">${esc(nombre)}</th><td style="text-align:center;padding:8px 2px">${esc(formatARS(data.antes?.[key]))}</td><td style="text-align:center;padding:8px 2px"><strong>${esc(formatARS(data.despues?.[key]))}</strong></td></tr>`).join('')}</tbody></table>
+        <p class="field-hint">${data.recalcular?'Se recalcula la distribución del dinero según las fechas reales.':'Se conserva la aplicación actual del dinero a capital y mora.'} Pagos revisados: ${esc(data.pagos_afectados??0)}.</p>
+        ${cuotas.length?`<div><strong>Cuotas afectadas</strong>${cuotas.map(q=>`<p class="field-hint">Cuota ${esc(q.numero)}<br>Capital pendiente: ${esc(formatARS(q.capital_antes_centavos))} → ${esc(formatARS(q.capital_despues_centavos))}<br>Mora pendiente: ${esc(formatARS(q.mora_antes_centavos))} → ${esc(formatARS(q.mora_despues_centavos))}</p>`).join('')}</div>`:'<p class="field-hint">Los saldos de las cuotas se conservan.</p>'}
+        ${avisos(data.advertencias)}</div>`);
+    };
+    el('pagoCorRevisar').addEventListener('click',async()=>{
+      if(busy||enviado||!vigente())return;
+      let datos;try{datos=leer();}catch(error){el('pagoCorEstado').textContent=error.message;return;}
+      invalidar();busy=true;bloquear(true);el('pagoCorEstado').textContent='Calculando la corrección…';
+      try {
+        const data=await api(`/pagos/${encodeURIComponent(pagoId)}/correccion-fecha/previsualizar?negocio_id=${encodeURIComponent(negocioId)}`,{method:'POST',body:JSON.stringify({version:v.version,fecha_hora:datos.fecha_hora,recalcular:datos.recalcular})});
+        if(!vigente())return;
+        // Una respuesta tardía no confirma datos modificados durante el cálculo.
+        if(JSON.stringify(leer())!==JSON.stringify(datos)){invalidar();return;}
+        preview=data;datosRevisados=datos;mostrarPreview(data);
+        el('pagoCorEstado').textContent='Revisión lista. Confirmá para guardar la corrección.';
+        el('pagoCorConfirmar').hidden=false;el('pagoCorConfirmar').disabled=false;
+      }catch(error){if(vigente()){if(error.status===409)conflicto(error);else el('pagoCorEstado').textContent=error.message;}}
+      finally{busy=false;if(vigente()&&el('pagoCorRevisar'))bloquear(false);}
+    });
+    el('pagoCorConfirmar').addEventListener('click',async()=>{
+      if(busy||!vigente()||!preview||!datosRevisados)return;
+      if(!enviado){
+        let actuales;try{actuales=leer();}catch(error){invalidar();el('pagoCorEstado').textContent=error.message;return;}
+        if(JSON.stringify(actuales)!==JSON.stringify(datosRevisados))return invalidar();
+        enviado={version:preview.version||v.version,version_preview:preview.version_preview,fecha_hora:datosRevisados.fecha_hora,recalcular:datosRevisados.recalcular,motivo:datosRevisados.motivo,solicitud_id:solicitud,confirmar:true,negocio_id:negocioId};
+      }
+      busy=true;bloquear(true);el('pagoCorConfirmar').disabled=true;el('pagoCorEstado').textContent='Guardando corrección…';
+      try {
+        await api(ruta,{method:'PATCH',body:JSON.stringify(enviado)});
+        if(vigente()){closeSheet();toast('Fecha del pago corregida; revisá los saldos actualizados');render();}
+      }catch(error){if(vigente()){
+        if(error.status===409)conflicto(error);
+        else if(error.status&&error.status<500){
+          enviado=null;bloquear(false);invalidar();el('pagoCorEstado').textContent=error.message+' Revisá los datos y volvé a previsualizar.';
+        }else{
+          el('pagoCorEstado').textContent=error.message+' No pudimos confirmar la respuesta. Reintentá con los mismos datos sin duplicar la corrección.';
+          el('pagoCorConfirmar').textContent='Reintentar corrección';el('pagoCorConfirmar').disabled=false;
+        }
+      }}finally{busy=false;}
+    });
+  }catch(error){if(vigente())setHTML(sheet,`<p>${esc(error.message)}</p><button class="btn btn-secondary" data-action="cerrar-sheet">Cancelar</button>`);}
+}
 
 async function abrirPerdonarMora(cuotaId, negocioId) {
   if(state.usuario?.rol!=='administrador') return toast('Requiere administrador',true);

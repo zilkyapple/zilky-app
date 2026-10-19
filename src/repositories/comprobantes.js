@@ -28,7 +28,7 @@ export async function getComprobante(cId) {
 }
 
 export async function getComprobantePorPago(pagoId) {
-  return db.prepare('SELECT c.*, p.tipo AS tipo_pago FROM comprobantes c JOIN pagos p ON p.id=c.pago_id WHERE c.pago_id = ?').get(pagoId);
+  return db.prepare("SELECT c.*, p.tipo AS tipo_pago FROM comprobantes c JOIN pagos p ON p.id=c.pago_id WHERE c.pago_id = ? ORDER BY (c.estado<>'anulado') DESC,c.fecha_hora DESC,c.id DESC LIMIT 1").get(pagoId);
 }
 
 export async function listComprobantes(negocioId, { clienteId = null, limit = 50 } = {}) {

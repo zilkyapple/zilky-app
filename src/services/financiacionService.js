@@ -83,7 +83,15 @@ export async function corregirFinanciacion(id,input,actor) {
           if(!saldada)throw err('No se pudo conciliar la fecha del capital cobrado',409);
           atraso=Math.max(0,diffDays(saldada,old.fecha_vencimiento));
         }
-        await db.prepare('UPDATE cuotas SET numero=?,monto_centavos=?,saldo_pendiente_centavos=?,fecha_vencimiento=?,mora_generada_centavos=?,fecha_saldada=?,dias_atraso_al_pagar=? WHERE id=?').run(i+1,q.monto_centavos,saldo,q.fecha_vencimiento,calcularMora(old,negocio,todayAR()).acumulada,saldada,atraso,q.id);
+        // A documentary correction must not turn today's forecast into historical
+        // interest before backdated receipts have been entered. Preserve amounts
+        // already recorded/collected/forgiven; freeze new interest only when an
+        // installment with payment activity is financially changed.
+        const cambiaCuota=q.monto_centavos!==old.monto_centavos||q.fecha_vencimiento!==old.fecha_vencimiento;
+        const tieneActividad=before.aplicaciones.some(a=>a.cuota_id===q.id);
+        const moraRegistrada=Math.max(old.mora_generada_centavos||0,(old.mora_pagada_centavos||0)+(old.mora_perdonada_centavos||0));
+        const moraGenerada=cambiaCuota&&tieneActividad?calcularMora(old,negocio,todayAR()).acumulada:moraRegistrada;
+        await db.prepare('UPDATE cuotas SET numero=?,monto_centavos=?,saldo_pendiente_centavos=?,fecha_vencimiento=?,mora_generada_centavos=?,fecha_saldada=?,dias_atraso_al_pagar=? WHERE id=?').run(i+1,q.monto_centavos,saldo,q.fecha_vencimiento,moraGenerada,saldada,atraso,q.id);
       }
       else await crearCuota({credito_id:id,numero:i+1,monto_centavos:q.monto_centavos,fecha_vencimiento:q.fecha_vencimiento});
     }

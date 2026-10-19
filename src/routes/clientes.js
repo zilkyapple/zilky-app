@@ -236,6 +236,9 @@ clientesRouter.get('/:id', requirePermiso('clientes.ver'), async (req, res, next
           FROM auditoria a JOIN cuotas cu ON cu.id=a.entidad_id LEFT JOIN usuarios u ON u.id=a.empleado
           WHERE cu.credito_id=? AND a.entidad='cuota' AND a.accion='perdonar_mora' ORDER BY a.fecha_hora`).all(cr.id),
         correcciones: (await db.prepare(`SELECT a.fecha_hora,a.motivo,a.datos_anteriores,a.datos_nuevos,u.nombre AS autor FROM auditoria a LEFT JOIN usuarios u ON u.id=a.empleado WHERE a.entidad='credito' AND a.entidad_id=? AND a.accion='corregir_financiacion' ORDER BY a.fecha_hora,a.id`).all(cr.id)).map(resumenCorreccion),
+        ultima_correccion_pagos: await db.prepare(`SELECT a.fecha_hora,a.motivo,u.nombre AS autor FROM auditoria a LEFT JOIN usuarios u ON u.id=a.empleado
+          WHERE (a.entidad='pago' AND a.entidad_id IN (SELECT id FROM pagos WHERE credito_id=?) AND a.accion='corregir_fecha_pago')
+          OR (a.entidad='credito' AND a.entidad_id=? AND a.accion='reconstruir_pagos_historicos') ORDER BY a.fecha_hora DESC,a.id DESC LIMIT 1`).get(cr.id,cr.id) || null,
         incidencias: await listIncidencias(cr.id) });
     }
 
@@ -249,6 +252,23 @@ clientesRouter.get('/:id', requirePermiso('clientes.ver'), async (req, res, next
 
     let pagos = await listPagosPorCliente(req.params.id);
     if (negociosPermitidos) pagos = pagos.filter((p) => negociosPermitidos.includes(p.negocio_id));
+    for(const pago of pagos){
+      pago.aplicaciones=await db.prepare(`SELECT pa.cuota_id,cu.numero,pa.capital_centavos,pa.interes_mora_centavos
+        FROM pago_aplicaciones pa JOIN cuotas cu ON cu.id=pa.cuota_id
+        WHERE pa.pago_id=? AND cu.credito_id=? ORDER BY cu.numero,pa.id`).all(pago.id,pago.credito_id);
+      pago.capital_aplicado_centavos=pago.aplicaciones.reduce((s,a)=>s+a.capital_centavos,0);
+      pago.mora_aplicada_centavos=pago.aplicaciones.reduce((s,a)=>s+a.interes_mora_centavos,0);
+      pago.remanente_centavos=pago.tipo==='entrega_inicial'?0:Math.max(0,pago.monto_centavos-pago.capital_aplicado_centavos-pago.mora_aplicada_centavos);
+      const cambios=await db.prepare(`SELECT a.fecha_hora,a.motivo,a.datos_anteriores,a.datos_nuevos,u.nombre autor
+        FROM auditoria a LEFT JOIN usuarios u ON u.id=a.empleado
+        WHERE a.entidad='pago' AND a.entidad_id=? AND a.accion='corregir_fecha_pago' ORDER BY a.fecha_hora,a.id`).all(pago.id);
+      pago.correcciones_fecha=cambios.map(c=>{
+        const anterior=JSON.parse(c.datos_anteriores||'{}'),nuevo=JSON.parse(c.datos_nuevos||'{}');
+        const original=anterior.pago||anterior.pagos?.find(p=>p.id===pago.id);
+        const posterior=nuevo.despues?.pago||nuevo.despues?.pagos?.find(p=>p.id===pago.id);
+        return {fecha_hora:c.fecha_hora,motivo:c.motivo,autor:c.autor,fecha_anterior:original?.fecha_hora||null,fecha_nueva:nuevo.fecha_hora||posterior?.fecha_hora||null};
+      });
+    }
 
     res.json({
       ...cliente, finanzasAutorizadas:true, creditos: creditosConDetalle, pagos,
