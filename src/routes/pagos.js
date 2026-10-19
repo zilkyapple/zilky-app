@@ -2,8 +2,26 @@ import { vistaMora, perdonarMora } from '../services/moraService.js';
 import { Router } from 'express';
 import { registrarPago } from '../services/pagosService.js';
 import { getCredito } from '../repositories/creditos.js';
+import { getPago } from '../repositories/pagos.js';
+import { vistaCorreccionPago, previsualizarCorreccionPago, corregirPago } from '../services/pagoCorreccionService.js';
 import { requirePermiso, exigirPermisoNegocio, requireAdmin } from '../middleware/authorize.js';
 export const pagosRouter = Router();
+
+async function exigirPagoEditable(req) {
+  const pago = await getPago(req.params.id);
+  if (!pago) throw Object.assign(new Error('Pago no encontrado'), { status: 404 });
+  exigirPermisoNegocio(req, pago.negocio_id, 'pagos.registrar');
+}
+
+pagosRouter.get('/:id/correccion', requireAdmin, async (req, res, next) => {
+  try { await exigirPagoEditable(req); res.json(await vistaCorreccionPago(req.params.id)); } catch (e) { next(e); }
+});
+pagosRouter.post('/:id/correccion/vista', requireAdmin, async (req, res, next) => {
+  try { await exigirPagoEditable(req); res.json(await previsualizarCorreccionPago(req.params.id, req.body)); } catch (e) { next(e); }
+});
+pagosRouter.patch('/:id/correccion', requireAdmin, async (req, res, next) => {
+  try { await exigirPagoEditable(req); res.json(await corregirPago(req.params.id, req.body, req.usuarioId)); } catch (e) { next(e); }
+});
 
 pagosRouter.post('/', requirePermiso('pagos.registrar'), async (req, res, next) => {
   try {

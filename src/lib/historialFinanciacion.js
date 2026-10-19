@@ -14,10 +14,14 @@ export function resumenCorreccion(evento) {
     for (const [campo, etiqueta, tipo] of [
       ['monto_total_centavos', 'Importe de la operación', 'dinero'],
       ['entrega_inicial_centavos', 'Entrega inicial', 'dinero'],
-      ['fecha_inicio', 'Fecha de compra', 'fecha'],
+      ['fecha_inicio', 'Fecha de compra / retiro', 'fecha'],
       ['producto_descripcion', 'Producto/equipo', 'texto'],
       ['condiciones', 'Condiciones de financiación', 'texto'],
     ]) agregar(campo, etiqueta, tipo, antes.credito[campo], despues.credito[campo]);
+    const modo = cr => cr.mora_modo === 'sin_interes' ? 'Sin interés por atraso' : 'Según el negocio';
+    agregar('mora_modo', 'Interés por atraso', 'texto', modo(antes.credito), modo(despues.credito));
+    const fechaEntrega = vista => (vista.pagos || []).find(p => p.tipo === 'entrega_inicial' && !p.anulado)?.fecha_hora?.slice(0,10) || null;
+    agregar('fecha_entrega_inicial', 'Fecha de entrega inicial', 'fecha', fechaEntrega(antes), fechaEntrega(despues));
     const previas = Array.isArray(antes.cuotas) ? antes.cuotas : [];
     const actuales = Array.isArray(despues.cuotas) ? despues.cuotas : [];
     agregar('cantidad_cuotas', 'Cantidad de cuotas', 'numero', previas.length, actuales.length);
@@ -31,4 +35,22 @@ export function resumenCorreccion(evento) {
     }
   }
   return {fecha_hora:evento.fecha_hora, motivo:evento.motivo, autor:evento.autor, cambios};
+}
+
+// Only the owner's correction summary is exposed, never the complete credit snapshot.
+export function resumenCorreccionPago(evento) {
+  const antes = parse(evento.datos_anteriores), nuevo = parse(evento.datos_nuevos);
+  const pago = antes.pago || {}, datos = nuevo.datos || {};
+  const cambios = [];
+  for (const [campo, etiqueta, tipo] of [
+    ['monto_centavos', 'Importe del pago', 'dinero'],
+    ['fecha_hora', 'Fecha del pago', 'fecha'],
+    ['medio_pago', 'Medio de pago', 'texto'],
+    ['nota', 'Nota', 'texto'],
+  ]) {
+    const anterior = pago[campo] ?? null, actual = datos[campo] ?? null;
+    if (anterior !== actual) cambios.push({campo, etiqueta, tipo, anterior, nuevo:actual});
+  }
+  return {pago_id:evento.entidad_id, reemplazo_id:nuevo.reemplazo_id,
+    fecha_hora:evento.fecha_hora, motivo:evento.motivo, autor:evento.autor, cambios};
 }

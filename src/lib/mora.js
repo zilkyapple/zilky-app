@@ -31,7 +31,10 @@ export function calcularMora(cuota, negocio, today) {
   const perdonada = cuota.mora_perdonada_centavos || 0;
   const registrada = Math.max(cuota.mora_generada_centavos || 0, pagada + perdonada);
   const resultado = (generada, diasEnMora) => ({ acumulada: generada, pendiente: cuota.estado_manual ? 0 : Math.max(0, generada-pagada-perdonada), pagada, perdonada, diasEnMora });
-  if (cuota.estado_manual || cuota.saldo_pendiente_centavos <= 0) return resultado(registrada, 0);
+  // Disabling interest stops further accrual; already paid/forgiven amounts
+  // remain part of the ledger. The correction service explicitly forgives any
+  // outstanding amount when the owner chooses this option.
+  if (cuota.estado_manual || cuota.saldo_pendiente_centavos <= 0 || cuota.mora_modo === 'sin_interes') return resultado(registrada, 0);
 
   const diasGracia = negocio.dias_gracia ?? 7;
   const inicioMora = addDays(cuota.fecha_vencimiento, diasGracia + 1);

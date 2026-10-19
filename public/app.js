@@ -498,11 +498,12 @@ async function viewClienteDetail(view, id) {
         ${c.pagos.map((p) => `
           <div class="hist-row">
             <div><div class="hd">${esc(p.tipo==='entrega_inicial'?'Entrega inicial · ':'Pago de cuota · ')}${esc(p.medio_pago)}${p.anulado ? ' · <span style="color:var(--danger)">ANULADO</span>' : ''}</div><div class="hm">${esc(fmtFecha(p.fecha_hora))} ${esc(p.fecha_hora.slice(11, 16))}</div></div>
-            <div class="amt" style="${esc(p.anulado ? 'color:var(--text-faint);text-decoration:line-through' : '')}">+${esc(formatARS(p.monto_centavos))}</div>
+            <div class="hist-actions"><div class="amt" style="${esc(p.anulado ? 'color:var(--text-faint);text-decoration:line-through' : '')}">+${esc(formatARS(p.monto_centavos))}</div>${state.usuario?.rol==='administrador'&&!p.anulado?`<button class="btn btn-ghost" data-action="corregir-pago" data-id="${esc(p.id)}" data-negocio="${esc(p.negocio_id)}">Corregir pago</button>`:''}</div>
           </div>
         `).join('')}
       </div>
     `}
+    ${(c.correccionesPagos||[]).length?`<details class="cor-history"><summary>Correcciones de pagos (${esc(c.correccionesPagos.length)})</summary>${c.correccionesPagos.map(correccionFinanciacionHtml).join('')}</details>`:''}
     </details>
   `);
 }
@@ -618,7 +619,7 @@ function creditoCardHtml(cr) {
       ${(cr.correcciones||[]).length ? `<details><summary>Correcciones de financiación</summary>${cr.correcciones.map(correccionFinanciacionHtml).join('')}</details>` : ''}
       ${(cr.moraHistorial||[]).length ? `<details><summary>Decisiones de mora</summary>${cr.moraHistorial.map(e=>`<p>Cuota ${esc(e.numero)} · ${esc(e.fecha_hora)} · ${esc(e.autor||'Administrador')} · ${esc(e.motivo)}</p>`).join('')}</details>` : ''}
       ${incidenciasHtml(cr)}
-      ${state.usuario?.rol==='administrador' ? `<button class="btn btn-secondary" data-action="corregir-financiacion" data-credito="${esc(cr.id)}" data-negocio="${esc(cr.negocio_id)}">Corregir financiación</button>` : ''}
+      ${state.usuario?.rol==='administrador' ? `<button class="btn btn-secondary" data-action="corregir-financiacion" data-credito="${esc(cr.id)}" data-negocio="${esc(cr.negocio_id)}">Corregir fechas y cuotas</button>` : ''}
       ${pendiente ? `<button class="btn btn-primary btn-block" style="margin-top:12px" data-action="registrar-pago" data-negocio="${esc(cr.negocio_id)}" data-credito="${esc(cr.id)}">${iconCobrar()}Registrar pago</button>` : ''}
     </div>
   `;
@@ -1417,6 +1418,7 @@ document.addEventListener('click', async (e) => {
   else if (action === 'ver-cliente-negocio') { setNegocio(id || null); const parts = parseHash(); if (parts[1]) render(); }
   else if (action === 'editar-seguimiento') abrirEditarSeguimiento(id);
   else if (action === 'corregir-financiacion') abrirCorreccionFinanciacion(credito,el.dataset.negocio);
+  else if (action === 'corregir-pago') abrirCorreccionPago(id,el.dataset.negocio);
   else if (action === 'perdonar-mora') abrirPerdonarMora(el.dataset.cuota,el.dataset.negocio);
   else if (action === 'editar-cliente') abrirEditarCliente(id);
   else if (action === 'eliminar-cliente') abrirEliminarCliente(id);
@@ -1670,47 +1672,22 @@ async function abrirPerdonarMora(cuotaId, negocioId) {
   }catch(e){if(vigente())setHTML(sheet,`<p>${esc(e.message)}</p>`);}
 }
 
+function contextoCorrecciones() {
+  const token=getToken(),scope=state.negocioActual,hash=location.hash,usuarioId=state.usuario?.id;
+  return {api,setHTML,openSheet,closeSheet,toast,refresh:render,usuarioId,admin:state.usuario?.rol==='administrador',
+    valid:()=>getToken()===token&&state.negocioActual===scope&&location.hash===hash&&state.usuario?.id===usuarioId&&state.usuario?.rol==='administrador'};
+}
 async function abrirCorreccionFinanciacion(creditoId,negocioId) {
   if(state.usuario?.rol!=='administrador')return toast('Requiere administrador',true);
-  const token=getToken(),scope=state.negocioActual,solicitud=crypto.randomUUID();
-  openSheet('<div class="sheet-title">Corregir financiación</div><p>Cargando…</p>');
-  const sheet=document.getElementById('activeSheet');
-  const vigente=()=>sheet.isConnected&&document.getElementById('activeSheet')===sheet&&document.getElementById('sheetBackdrop').classList.contains('open')&&getToken()===token&&state.negocioActual===scope&&state.usuario?.rol==='administrador';
-  try {
-    const v=await api(`/ventas/creditos/${encodeURIComponent(creditoId)}/correccion?negocio_id=${encodeURIComponent(negocioId)}`);
-    if(!vigente())return;
-    const cr=v.credito;
-    setHTML(sheet,`<div class="sheet-title">Corregir financiación</div><p>Los cambios quedan auditados con motivo y responsable. Los pagos de cuotas se conservan. Las cuotas saldadas no se modifican.</p>
-      <div class="field"><label>Importe de la operación ($)</label><input id="corTotal" type="number" min="0" step="0.01" value="${esc(cr.monto_total_centavos/100)}"></div>
-      <div class="field"><label>Entrega inicial ($)</label><input id="corEntrega" type="number" min="0" step="0.01" value="${esc(cr.entrega_inicial_centavos/100)}"></div>
-      <p>Si corregís la entrega, el comprobante anterior quedará anulado y se emitirá el corregido. Es una corrección de carga, no un nuevo cobro ni una devolución.</p>
-      <div class="field"><label>Fecha de compra</label><input id="corFecha" type="date" value="${esc(cr.fecha_inicio)}"></div>
-      <div class="field"><label>Descripción correcta del producto/equipo</label><input id="corProducto" maxlength="4000" value="${esc(cr.producto_descripcion||'')}"></div>
-      <div class="field"><label>Condiciones de financiación</label><textarea id="corCondiciones" maxlength="4000">${esc(cr.condiciones||'')}</textarea></div>
-      <p>Cuotas: podés agregar, corregir importes y vencimientos, o quitar cuotas sin pagos ni mora. Revisá el plan completo antes de guardar.</p><div id="corCuotas"></div><button id="corAgregar" class="btn btn-secondary">Agregar cuota</button>
-      <div class="field"><label>Motivo de la corrección</label><textarea id="corMotivo" maxlength="2000"></textarea></div>
-      ${v.pagos.length?'<label><input type="checkbox" id="corConfirmar"> Revisé los pagos existentes y confirmo esta corrección de carga.</label>':''}
-      <button id="corGuardar" class="btn btn-primary">Guardar corrección</button>`);
-    const lista=sheet.querySelector('#corCuotas');
-    function add(q={}) {
-      const row=document.createElement('div');row.className='field';row.dataset.id=q.id||'';
-      setHTML(row,`<label>Cuota · importe ($) y vencimiento</label><input class="corMonto" type="number" min="0.01" step="0.01" value="${esc((q.monto_centavos||0)/100)}"><input class="corVence" type="date" value="${esc(q.fecha_vencimiento||'')}"><button class="btn btn-secondary corQuitar">Quitar cuota</button>`);
-      row.querySelector('.corQuitar').addEventListener('click',()=>{if(vigente()&&!row.querySelector('button').disabled)row.remove();});lista.appendChild(row);
-    }
-    v.cuotas.forEach(add);sheet.querySelector('#corAgregar').addEventListener('click',()=>{if(vigente())add();});
-    let busy=false,payload=null;
-    sheet.querySelector('#corGuardar').addEventListener('click',async()=>{
-      if(busy||!vigente())return;
-      const read=id=>sheet.querySelector('#'+id).value;
-      const datos={monto_total_centavos:Math.round(Number(read('corTotal'))*100),entrega_inicial_centavos:Math.round(Number(read('corEntrega'))*100),fecha_inicio:read('corFecha'),producto_descripcion:read('corProducto'),condiciones:read('corCondiciones'),cuotas:[...lista.children].map(row=>({id:row.dataset.id||undefined,monto_centavos:Math.round(Number(row.querySelector('.corMonto').value)*100),fecha_vencimiento:row.querySelector('.corVence').value}))};
-      const motivo=read('corMotivo').trim();if(!motivo)return toast('Indicá el motivo',true);
-      payload ||= {version:v.version,solicitud_id:solicitud,motivo,datos,negocio_id:negocioId,confirmar_correccion_pagos:sheet.querySelector('#corConfirmar')?.checked===true};
-      busy=true;sheet.querySelectorAll('input,textarea,button').forEach(el=>el.disabled=true);
-      try{await api(`/ventas/creditos/${encodeURIComponent(creditoId)}/correccion`,{method:'PATCH',body:JSON.stringify(payload)});if(vigente()){closeSheet();toast('Corrección registrada con historial');render();}}
-      catch(e){if(vigente()){toast(e.message,true);if(e.status===409)setHTML(sheet,`<p>${esc(e.message)}</p><p>Cerrá y abrí nuevamente para revisar la operación.</p>`);else {sheet.querySelector('#corGuardar').disabled=false;if(e.status===400){payload=null;sheet.querySelectorAll('input,textarea,button').forEach(el=>el.disabled=false);}}}}
-      finally{busy=false;}
-    });
-  }catch(e){if(vigente())setHTML(sheet,`<p>${esc(e.message)}</p>`);}
+  const ctx=contextoCorrecciones();
+  try{const {financiacionCorreccion}=await import('./clientCorrections.js');if(ctx.valid())await financiacionCorreccion(ctx,creditoId,negocioId);}
+  catch(err){if(ctx.valid())toast(err.message,true);}
+}
+async function abrirCorreccionPago(pagoId,negocioId) {
+  if(state.usuario?.rol!=='administrador')return toast('Requiere administrador',true);
+  const ctx=contextoCorrecciones();
+  try{const {pagoCorreccion}=await import('./clientCorrections.js');if(ctx.valid())await pagoCorreccion(ctx,pagoId,negocioId);}
+  catch(err){if(ctx.valid())toast(err.message,true);}
 }
 
 // Contactos operativos: la fecha de seguimiento nunca modifica el vencimiento de la cuota.

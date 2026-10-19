@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { JSDOM } from 'jsdom';
 
-const source = fs.readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+const source = fs.readFileSync(new URL('../public/app.js', import.meta.url), 'utf8').replaceAll("import('./clientCorrections.js')", 'Promise.resolve(window.qaCorrections)');
+const correctionSource=fs.readFileSync(new URL('../public/clientCorrections.js',import.meta.url),'utf8').replace("import {pendingMutation} from './pendingMutation.js';",'').replaceAll('export async function','async function');
+const pendingSource=fs.readFileSync(new URL('../public/pendingMutation.js',import.meta.url),'utf8').replace('export function','function');
 const page = fs.readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
 const purifier = fs.readFileSync(new URL('../public/vendor/purify.min.js', import.meta.url), 'utf8');
 const cliente = {
@@ -24,7 +26,7 @@ function browser({ permisos = {}, admin = false, respuesta = cliente, recibos = 
   }
   w.requestAnimationFrame = fn => { fn(0); return 1; };
   w.fetch = async (url) => { calls.push(url); return { ok: true, status: 200, json: async () => url.startsWith('/api/comprobantes?') ? recibos : respuesta }; };
-  w.eval(purifier); w.eval(source + '\nwindow.qaState = state;');
+  w.eval(purifier);w.eval(`(()=>{${pendingSource}\n${correctionSource}\nwindow.qaCorrections={financiacionCorreccion,pagoCorreccion};})()`); w.eval(source + '\nwindow.qaState = state;');
   w.qaState.usuario = admin ? { rol: 'administrador' } : { rol: 'empleado', negocios: [
     { negocio_id: 'qa', activo: 1, permisos: { 'clientes.ver': true, ...permisos } },
     { negocio_id: 'otro', activo: 1, permisos: { 'comprobantes.ver': true } },
@@ -412,7 +414,7 @@ test('Financiación UI: carga el plan editable y confirma pagos antes de enviar 
     assert.equal(d.querySelector('#corTotal').value,'4000');assert.equal(d.querySelectorAll('#corCuotas > div').length,1);
     d.querySelector('#corAgregar').click();assert.equal(d.querySelectorAll('#corCuotas > div').length,2);
     d.querySelectorAll('.corQuitar')[1].click();
-    d.querySelector('#corMotivo').value='Corregir QA';d.querySelector('#corConfirmar').checked=true;
+    d.querySelector('#corMotivo').value='Corregir QA';d.querySelector('#corFecha').value='2026-09-30';d.querySelector('#corRevisar').click();d.querySelector('#corConfirmar').checked=true;
     d.querySelector('#corGuardar').click();
     await new Promise(r=>setTimeout(r,10));
     assert.equal(payload.confirmar_correccion_pagos,true);assert.equal(payload.datos.cuotas[0].id,'q');assert.equal(payload.datos.monto_total_centavos,400000);
