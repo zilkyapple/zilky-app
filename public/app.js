@@ -282,10 +282,15 @@ const notFound = () => '<div class="empty-state"><p>No encontrado.</p></div>';
 
 // ---------------- Vista: Inicio (dashboard) ----------------
 async function viewInicio(view) {
-  const r = await api(`/dashboard/resumen${state.negocioActual ? `?negocio_id=${state.negocioActual}` : ''}`);
-  if (!view.isConnected) return;
+  if(state.usuario?.rol!=='administrador')return setHTML(view,'<div class="empty-state"><p>Requiere administrador</p></div>');
+  const token=getToken(),negocio=state.negocioActual,usuarioId=state.usuario.id;
+  const vigente=()=>view.isConnected&&getToken()===token&&state.negocioActual===negocio&&state.usuario?.rol==='administrador'&&state.usuario.id===usuarioId;
+  if(!vigente())return;
+  let r;
+  try{r=await api(`/dashboard/resumen${negocio?`?negocio_id=${encodeURIComponent(negocio)}`:''}`);}catch(error){if(vigente())throw error;return;}
+  if(!vigente())return;
   setHTML(view, `
-    <div class="section-title">Resumen ${esc(state.negocioActual ? '· ' + negocioNombre(state.negocioActual) : 'general')}</div>
+    <div class="section-title">Resumen ${esc(negocio ? '· ' + negocioNombre(negocio) : 'general')}</div>
     <div class="kpi-grid">
       <div class="kpi kpi-wide">
         <div><div class="kpi-label">Vendido (total)</div><div class="kpi-value">${esc(formatARS(r.vendidoTotalCentavos))}</div></div>
@@ -302,6 +307,7 @@ async function viewInicio(view) {
         <div style="text-align:right"><div class="kpi-label">Ventas finalizadas</div><div class="kpi-value">${esc(r.ventasFinalizadas)}</div></div>
       </div>
     </div>
+    ${proyeccionCobrosHtml(r.proyeccionCobros)}
     ${r.porNegocio ? `
       <div class="section-title">Por negocio (cobrado este mes)</div>
       <div class="negocio-split">
@@ -322,6 +328,81 @@ async function viewInicio(view) {
       <a class="btn btn-secondary" href="#/clientes">${iconClientes()}Clientes</a>
     </div>
   `);
+  conectarProyeccionCobros(view,r.proyeccionCobros,vigente);
+}
+
+function indiceMesProyeccion(mes) {
+  if(typeof mes!=='string'||!/^\d{4}-(0[1-9]|1[0-2])$/.test(mes)||Number(mes.slice(0,4))<1)return null;
+  return Number(mes.slice(0,4))*12+Number(mes.slice(5,7))-1;
+}
+function mesProyeccion(indice) {
+  return `${String(Math.floor(indice/12)).padStart(4,'0')}-${String(indice%12+1).padStart(2,'0')}`;
+}
+function nombreMesProyeccion(mes) {
+  if(indiceMesProyeccion(mes)===null)return 'Mes sin fecha';
+  return `${['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'][Number(mes.slice(5,7))-1]} de ${mes.slice(0,4)}`;
+}
+function modeloProyeccionCobros(p) {
+  if(!p||indiceMesProyeccion(p.desdeMes)===null)return null;
+  const inicio=indiceMesProyeccion(p.desdeMes),meses=new Map();
+  for(const mes of p.meses||[]){const indice=indiceMesProyeccion(mes.mes);if(indice!==null&&indice>=inicio)meses.set(indice,mes);}
+  let ultimo=Math.max(inicio+11,indiceMesProyeccion(p.hastaMes)??inicio);
+  for(const indice of meses.keys())ultimo=Math.max(ultimo,indice);
+  return {inicio,ultimo,meses,paginas:Math.ceil((ultimo-inicio+1)/12)};
+}
+function proyeccionCobrosContenido(p,modelo,pagina=0) {
+  const inicioPagina=modelo.inicio+pagina*12,finPagina=Math.min(modelo.ultimo,inicioPagina+11);
+  const cuotas=n=>`${Number.isSafeInteger(n)?n:0} ${n===1?'cuota pendiente':'cuotas pendientes'}`;
+  const metricas=[
+    ['mesActual',`Este mes · ${nombreMesProyeccion(p.mesActual?.mes)}`,p.mesActual],
+    ['mesSiguiente',`Mes siguiente · ${nombreMesProyeccion(p.mesSiguiente?.mes)}`,p.mesSiguiente],
+    ['proximos7Dias','Próximos 7 días',p.proximos7Dias],
+    ['proximos14Dias','Próximos 14 días',p.proximos14Dias],
+  ];
+  return `<h2 id="proyeccionTitulo">Cobros previstos</h2>
+    <p class="projection-help">Capital pendiente según vencimiento. No incluye mora ni ventas futuras. Los vencidos no se suman a 7/14 días.</p>
+    <p class="projection-cutoff">Al ${esc(fmtFecha(p.fechaCorte))} · ${esc(state.negocioActual?negocioNombre(state.negocioActual):'Todos los negocios')}</p>
+    <div class="projection-grid">${metricas.map(([key,titulo,m={}])=>`<article class="projection-metric" data-projection-metric="${esc(key)}"><h3>${esc(titulo)}</h3>
+      <div class="projection-amount">${esc(formatARS(m.pendienteCentavos))}</div><p>${esc(cuotas(m.cuotas))}</p>
+      ${key.startsWith('proximos')?`<p class="projection-range">Del ${esc(fmtFecha(m.desde))} al ${esc(fmtFecha(m.hasta))} · hoy incluido</p>`:''}
+      ${m.vencidoCentavos>0?`<p class="projection-overdue-tag">Incluye ${esc(formatARS(m.vencidoCentavos))} vencidos de este mes</p>`:''}
+    </article>`).join('')}</div>
+    <p class="projection-help">Los próximos 14 días incluyen los próximos 7 días; los importes no se suman entre sí.</p>
+    <p class="projection-overdue">Capital vencido de todos los meses: <strong>${esc(formatARS(p.vencidoTotalCentavos))}</strong></p>
+    <div class="projection-month-header"><h3>Por mes de vencimiento</h3><label for="proyeccionMes">Ir a un mes<input id="proyeccionMes" type="month" min="${esc(mesProyeccion(modelo.inicio))}" max="${esc(mesProyeccion(modelo.ultimo))}" value="${esc(mesProyeccion(inicioPagina))}"></label></div>
+    <p class="projection-help" data-projection-range aria-live="polite">${esc(nombreMesProyeccion(mesProyeccion(inicioPagina)))} a ${esc(nombreMesProyeccion(mesProyeccion(finPagina)))} · Página ${pagina+1} de ${modelo.paginas}</p>
+    <div class="projection-months" data-projection-months>${Array.from({length:finPagina-inicioPagina+1},(_,i)=>{
+      const indice=inicioPagina+i,mes=modelo.meses.get(indice)||{pendienteCentavos:0,cuotas:0,vencidoCentavos:0},fecha=mesProyeccion(indice);
+      return `<div class="projection-month" data-projection-month="${esc(fecha)}"><div><strong>${esc(nombreMesProyeccion(fecha))}</strong><p>${esc(cuotas(mes.cuotas))}</p>${mes.vencidoCentavos>0?`<p class="projection-overdue-tag">Vencido: ${esc(formatARS(mes.vencidoCentavos))}</p>`:''}</div><div class="projection-month-amount">${esc(formatARS(mes.pendienteCentavos))}</div></div>`;
+    }).join('')}</div>
+    <div class="projection-nav"><button type="button" class="btn btn-secondary" data-projection-prev ${pagina===0?'disabled':''}>12 meses anteriores</button><button type="button" class="btn btn-secondary" data-projection-next ${pagina>=modelo.paginas-1?'disabled':''}>12 meses siguientes</button></div>
+    <p class="projection-help">Podés recorrer todos los meses hasta ${esc(nombreMesProyeccion(mesProyeccion(modelo.ultimo)))}. Es una previsión de cobros; no representa facturación fiscal.</p>`;
+}
+function proyeccionCobrosHtml(p) {
+  if(state.usuario?.rol!=='administrador')return '';
+  const modelo=modeloProyeccionCobros(p);if(!modelo)return '';
+  return `<section class="cash-projection" data-cash-projection aria-labelledby="proyeccionTitulo">${proyeccionCobrosContenido(p,modelo)}</section>`;
+}
+function conectarProyeccionCobros(view,p,vigente) {
+  const section=view.querySelector('[data-cash-projection]'),modelo=modeloProyeccionCobros(p);
+  if(!section||!modelo||!vigente())return;
+  let pagina=0;
+  const actualizar=nueva=>{
+    if(!vigente()||!section.isConnected||!Number.isInteger(nueva)||nueva<0||nueva>=modelo.paginas)return;
+    pagina=nueva;setHTML(section,proyeccionCobrosContenido(p,modelo,pagina));
+  };
+  section.addEventListener('click',event=>{
+    const button=event.target.closest('[data-projection-prev],[data-projection-next]');if(!button||button.disabled||!section.contains(button)||!vigente())return;
+    const anterior=button.hasAttribute('data-projection-prev');actualizar(pagina+(anterior?-1:1));
+    section.querySelector(anterior?'[data-projection-prev]':'[data-projection-next]')?.focus();
+  });
+  section.addEventListener('change',event=>{
+    if(event.target.id!=='proyeccionMes'||!vigente())return;
+    const indice=indiceMesProyeccion(event.target.value);
+    if(indice===null||indice<modelo.inicio||indice>modelo.ultimo){event.target.value=mesProyeccion(modelo.inicio+pagina*12);return;}
+    actualizar(Math.floor((indice-modelo.inicio)/12));
+    section.querySelector('#proyeccionMes')?.focus();
+  });
 }
 
 // ---------------- Vista: Clientes (global) ----------------

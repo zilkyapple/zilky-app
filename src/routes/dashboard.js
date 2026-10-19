@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import { resumenGeneral, listaCobranza, recordatoriosDeHoy, calendarioMes, calendarioDia } from '../services/dashboardService.js';
-import { requireAdmin, requirePermiso, validarScopeNegocio, scopeNegocios, scopeClientesOperativos } from '../middleware/authorize.js';
+import { requireAdmin, requirePermiso, validarScopeNegocio, scopeNegocios, scopeClientesOperativos, negocioSolicitado } from '../middleware/authorize.js';
+import { proyectarCobros } from '../lib/proyeccionCobros.js';
 
 export const dashboardRouter = Router();
 
 dashboardRouter.get('/resumen', requireAdmin, async (req, res, next) => {
   try {
-    const { negocio_id } = req.query;
+    const negocio_id = negocioSolicitado(req);
     const scope = scopeNegocios(req, 'dashboard_financiero.ver');
     if (negocio_id) {
       if (!validarScopeNegocio(req, negocio_id)) return res.status(403).json({ error: 'No tenés acceso a ese negocio' });
@@ -23,6 +24,7 @@ dashboardRouter.get('/resumen', requireAdmin, async (req, res, next) => {
           clientesTotales: 0, capitalColocadoCentavos: 0,
           ventasActivas: 0, ventasFinalizadas: 0, cuotasPendientes: 0,
           porNegocio: [],
+          proyeccionCobros: proyectarCobros([]),
         });
       } else {
         res.json(await resumenGeneral(scope));
