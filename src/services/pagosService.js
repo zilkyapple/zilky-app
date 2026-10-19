@@ -156,6 +156,8 @@ export async function registrarEntregaInicial({credito_id,monto_centavos,fecha_h
     integer(monto_centavos,'entrega inicial',{min:1});
     if(monto_centavos!==credito.entrega_inicial_centavos) throw badRequest('Entrega no coincide con el financiamiento');
     await db.lockClienteNegocio(credito.cliente_id,credito.negocio_id);
+    const venta=await db.prepare('SELECT estado FROM ventas WHERE id=?').get(credito.venta_id);
+    if(['anulada','devuelta'].includes(venta?.estado))throw Object.assign(new Error('La venta fue anulada o devuelta y no admite entregas de dinero'),{status:409});
     const pago=await crearPago({negocio_id:credito.negocio_id,cliente_id:credito.cliente_id,credito_id,
       monto_centavos,fecha_hora,medio_pago,usuario_id,tipo:'entrega_inicial',objetivo_registrado:true,saldo_anterior_centavos:credito.saldo_financiado_centavos,saldo_posterior_centavos:credito.saldo_financiado_centavos});
     const comprobante=await crearComprobante({pago_id:pago.id,negocio_id:credito.negocio_id,cliente_id:credito.cliente_id,credito_id,venta_id:credito.venta_id,

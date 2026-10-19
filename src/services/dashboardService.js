@@ -65,13 +65,13 @@ export async function resumenGeneral(negocioId = null) {
   const { sql: nf, params: np } = buildNegocioFilter(negocioId);
   const cajaHoyRow = await db.prepare(`SELECT COALESCE(SUM(monto_centavos),0) t FROM pagos WHERE substr(fecha_hora,1,10) = ? ${nf.replace('cr.negocio_id', 'negocio_id')} AND anulado = 0`).get(today, ...np);
   const cajaMesRow = await db.prepare(`SELECT COALESCE(SUM(monto_centavos),0) t FROM pagos WHERE substr(fecha_hora,1,7) = ? ${nf.replace('cr.negocio_id', 'negocio_id')} AND anulado = 0`).get(mesActual, ...np);
-  const capitalColocadoRow = await db.prepare(`SELECT COALESCE(SUM(saldo_financiado_centavos),0) t FROM creditos WHERE 1=1 ${nf.replace('cr.negocio_id', 'negocio_id')}`).get(...np);
+  const capitalColocadoRow = await db.prepare(`SELECT COALESCE(SUM(cr.saldo_financiado_centavos),0) t FROM creditos cr LEFT JOIN ventas v ON v.id=cr.venta_id WHERE COALESCE(v.estado,'activa') NOT IN ('anulada','devuelta') ${nf}`).get(...np);
   const ventasVendidoRow = await db.prepare(`SELECT COALESCE(SUM(monto_total_centavos-devolucion_centavos),0) t FROM ventas WHERE 1=1 ${nf.replace('cr.negocio_id', 'negocio_id')}`).get(...np);
   const clientesTotalesRow = negocioId
     ? await db.prepare(`SELECT COUNT(DISTINCT cr.cliente_id)::int t FROM creditos cr JOIN clientes cl ON cl.id=cr.cliente_id WHERE cl.consumidor_final_negocio IS NULL ${nf}`).get(...np)
     : await db.prepare(`SELECT COUNT(*)::int t FROM clientes WHERE consumidor_final_negocio IS NULL`).get();
-  const ventasActivasRow = await db.prepare(`SELECT COUNT(*)::int t FROM creditos WHERE estado != 'finalizado' ${nf.replace('cr.negocio_id', 'negocio_id')}`).get(...np);
-  const ventasFinalizadasRow = await db.prepare(`SELECT COUNT(*)::int t FROM creditos WHERE estado = 'finalizado' ${nf.replace('cr.negocio_id', 'negocio_id')}`).get(...np);
+  const ventasActivasRow = await db.prepare(`SELECT COUNT(*)::int t FROM creditos cr LEFT JOIN ventas v ON v.id=cr.venta_id WHERE cr.estado != 'finalizado' AND COALESCE(v.estado,'activa') NOT IN ('anulada','devuelta') ${nf}`).get(...np);
+  const ventasFinalizadasRow = await db.prepare(`SELECT COUNT(*)::int t FROM creditos cr LEFT JOIN ventas v ON v.id=cr.venta_id WHERE cr.estado = 'finalizado' AND COALESCE(v.estado,'activa') NOT IN ('anulada','devuelta') ${nf}`).get(...np);
 
   let porNegocio = null;
   if (!negocioId || (Array.isArray(negocioId) && negocioId.length > 1)) {
@@ -213,7 +213,7 @@ export async function historialFinancieroCliente(clienteId, negocioId = null) {
   const argsPagos = [clienteId, ...fv.params];
   const argsCreditos = [clienteId, ...fv.params];
 
-  const compras = await db.prepare(`SELECT COUNT(*)::int t FROM ventas WHERE cliente_id = ? ${fv.sql}`).get(...argsVentas);
+  const compras = await db.prepare(`SELECT COUNT(*)::int t FROM ventas WHERE cliente_id = ? AND estado NOT IN ('anulada','devuelta') ${fv.sql}`).get(...argsVentas);
   const cuotasRow = await db.prepare(`
     SELECT
       COUNT(*)::int AS total,
@@ -224,13 +224,13 @@ export async function historialFinancieroCliente(clienteId, negocioId = null) {
       COALESCE(SUM(cu.saldo_pendiente_centavos) FILTER (WHERE (cu.saldo_pendiente_centavos > 0 OR cu.mora_generada_centavos > cu.mora_pagada_centavos + cu.mora_perdonada_centavos) AND cu.estado_manual IS NULL), 0) AS deuda_actual,
       COALESCE(AVG(cu.dias_atraso_al_pagar) FILTER (WHERE cu.dias_atraso_al_pagar IS NOT NULL), 0) AS atraso_promedio,
       COALESCE(MAX(cu.dias_atraso_al_pagar), 0) AS atraso_maximo
-    FROM cuotas cu JOIN creditos cr ON cr.id = cu.credito_id
-    WHERE cr.cliente_id = ? ${fc.sql}
+    FROM cuotas cu JOIN creditos cr ON cr.id = cu.credito_id LEFT JOIN ventas v ON v.id=cr.venta_id
+    WHERE cr.cliente_id = ? AND COALESCE(v.estado,'activa') NOT IN ('anulada','devuelta') ${fc.sql}
   `).get(...argsCuotas);
   const cobradoRow = await db.prepare(`SELECT COALESCE(SUM(monto_centavos),0) t FROM pagos WHERE cliente_id = ? AND anulado = 0 ${fv.sql}`).get(...argsPagos);
-  const fechasRow = await db.prepare(`SELECT MAX(fecha) t FROM ventas WHERE cliente_id = ? ${fv.sql}`).get(...argsVentas);
+  const fechasRow = await db.prepare(`SELECT MAX(fecha) t FROM ventas WHERE cliente_id = ? AND estado NOT IN ('anulada','devuelta') ${fv.sql}`).get(...argsVentas);
   const ultimoPagoRow = await db.prepare(`SELECT MAX(fecha_hora) t FROM pagos WHERE cliente_id = ? AND anulado = 0 ${fv.sql}`).get(...argsPagos);
-  const finalizadasRow = await db.prepare(`SELECT COUNT(*)::int t FROM creditos WHERE cliente_id = ? ${fv.sql} AND estado = 'finalizado'`).get(...argsCreditos);
+  const finalizadasRow = await db.prepare(`SELECT COUNT(*)::int t FROM creditos cr LEFT JOIN ventas v ON v.id=cr.venta_id WHERE cr.cliente_id = ? ${fc.sql} AND cr.estado = 'finalizado' AND COALESCE(v.estado,'activa') NOT IN ('anulada','devuelta')`).get(...argsCreditos);
 
   return {
     cantidadCompras: compras.t,

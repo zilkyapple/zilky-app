@@ -50,7 +50,7 @@ try{
   const response=page.waitForResponse(r=>r.url().endsWith('/api/ventas')&&r.request().method()==='POST');await page.locator('#btnCrearVenta').click();const r=await response;assert.equal(r.status(),201);const sale=await r.json();assert.equal(sale.cuotas.length,0);assert.equal((await getProducto(jean.id)).stock,18);assert.equal((await getProducto(remera.id)).stock,38);assert.equal((await db.prepare('SELECT total_centavos FROM comision_acuerdos WHERE venta_id=?').get(sale.venta.id)).total_centavos,550000);await page.locator('#saleList').waitFor();
  });
  await check('History records a controlled return without deleting the cash receipt',async()=>{
-  await page.locator('[data-sale]').first().click();await page.locator('#saleReturn').waitFor();await page.locator('[data-return]').first().fill('1');await page.locator('#saleReturn textarea').fill('Prueba de devolución controlada');
+  await page.locator('[data-sale]').first().click();await page.getByText('Devolución o anulación avanzada',{exact:true}).click();await page.locator('#saleReturn').waitFor();await page.locator('[data-return]').first().fill('1');await page.locator('#saleReturn textarea').fill('Prueba de devolución controlada');
   const response=page.waitForResponse(r=>r.url().includes('/devoluciones')&&r.request().method()==='POST');await page.locator('#saleReturn button[type=submit], #saleReturn button:not([type])').click();assert.equal((await response).status(),200);await page.locator('#saleDetail .cm-agreement').waitFor();assert.match(await page.locator('#saleDetail').innerText(),/Reintegro pendiente en esta venta/);await capture('historial-movil');
  });
  await check('Commission summaries and settings adapt to desktop, tablet, mobile and light mode',async()=>{
