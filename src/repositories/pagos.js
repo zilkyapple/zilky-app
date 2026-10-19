@@ -6,12 +6,14 @@ import { id } from '../lib/id.js';
 export async function crearPago(data) { return db.transaction(async()=>{
   const pId = id();
   await db.prepare(`
-    INSERT INTO pagos (id, negocio_id, cliente_id, credito_id, fecha_hora, monto_centavos, medio_pago, caja, empleado, comprobante_url, nota, saldo_anterior_centavos, saldo_posterior_centavos, tipo)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    INSERT INTO pagos (id, negocio_id, cliente_id, credito_id, fecha_hora, monto_centavos, medio_pago, caja, empleado, comprobante_url, nota, saldo_anterior_centavos, saldo_posterior_centavos, tipo, cuota_objetivo_id, objetivo_registrado, politica_mora)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?::jsonb)
   `).run(
     pId, data.negocio_id, data.cliente_id, data.credito_id || null, data.fecha_hora,
     data.monto_centavos, data.medio_pago || 'efectivo', data.caja || null, data.empleado || null,
-    data.comprobante_url || null, data.nota || null, data.saldo_anterior_centavos, data.saldo_posterior_centavos, data.tipo || 'cuota'
+    data.comprobante_url || null, data.nota || null, data.saldo_anterior_centavos, data.saldo_posterior_centavos, data.tipo || 'cuota',
+    data.cuota_objetivo_id || null, data.objetivo_registrado === true,
+    data.politica_mora == null ? null : JSON.stringify(data.politica_mora)
   );
   const pago=await getPago(pId);
   await capturarPagoCaja(pago,data.usuario_id);

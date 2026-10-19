@@ -11,13 +11,18 @@ import { listCuotasPorCredito, actualizarCuota } from '../repositories/cuotas.js
 import { getNegocio } from '../repositories/negocios.js';
 import { crearPago, crearAplicacion, sumarSaldoFavor } from '../repositories/pagos.js';
 import { crearComprobante } from '../repositories/comprobantes.js';
+import { normalizarFechaPago } from '../lib/replayPagos.js';
+import { reconstruirCreditoSiHistorico } from './fechaPagoService.js';
+import { getComprobantePorPago } from '../repositories/comprobantes.js';
+import { getPago, listAplicacionesPorPago } from '../repositories/pagos.js';
 
 export async function registrarPago(input) {
   return db.transaction(async () => {
   const {
-    credito_id, monto_centavos, fecha_hora = nowAR(), medio_pago = 'efectivo',
+    credito_id, monto_centavos, fecha_hora: fechaIngresada = nowAR(), medio_pago = 'efectivo',
     caja = null, empleado = null, comprobante_url = null, nota = null, cuota_id = null, usuario_id = null,
   } = input;
+  const fecha_hora=normalizarFechaPago(fechaIngresada);
 
   if (!credito_id) throw badRequest('credito_id es obligatorio');
   if (!monto_centavos || monto_centavos <= 0) throw badRequest('monto_centavos debe ser mayor a 0');
@@ -25,14 +30,16 @@ export async function registrarPago(input) {
   integer(monto_centavos,'monto_centavos',{min:1});
   if(typeof fecha_hora!=='string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(fecha_hora) || !Number.isFinite(Date.parse(fecha_hora))) throw badRequest('fecha_hora inválida');
   dateISO(fecha_hora.slice(0,10));
-  const credito = await getCredito(credito_id);
+  let credito = await getCredito(credito_id);
   if (!credito) throw badRequest(`Crédito no encontrado: ${credito_id}`);
 
   await db.lockClienteNegocio(credito.cliente_id,credito.negocio_id);
   await db.prepare('SELECT id FROM creditos WHERE id=? FOR UPDATE').get(credito_id);
+  credito=await getCredito(credito_id);
   const ventaEstado=await db.prepare('SELECT estado FROM ventas WHERE id=?').get(credito.venta_id);
   if(ventaEstado?.estado==='anulada'||ventaEstado?.estado==='devuelta')throw badRequest('Esta venta fue anulada o devuelta y no admite nuevos cobros');
   const negocio = await getNegocio(credito.negocio_id);
+  const politica_mora=Object.fromEntries(['dias_gracia','mora_tipo','mora_valor','mora_periodo','mora_base','mora_acumulativa','orden_aplicacion_pago'].map(k=>[k,negocio[k]]));
   const today = fecha_hora.slice(0, 10);
 
   const todasLasCuotas = await listCuotasPorCredito(credito_id);
@@ -47,13 +54,16 @@ export async function registrarPago(input) {
       negocio_id: credito.negocio_id, cliente_id: credito.cliente_id, credito_id, fecha_hora,
       monto_centavos, medio_pago, caja, empleado, comprobante_url, nota, usuario_id,
       saldo_anterior_centavos: 0, saldo_posterior_centavos: 0,
+      cuota_objetivo_id:cuota_id,objetivo_registrado:true,politica_mora,
     });
     const comprobante = await crearComprobante({
       pago_id: pago.id, negocio_id: credito.negocio_id, cliente_id: credito.cliente_id, venta_id: credito.venta_id,
       credito_id, monto_centavos, fecha_hora, medio_pago, saldo_restante_centavos: 0, usuario_id,
     });
     await sincronizarComision(credito_id,fecha_hora.slice(0,10),'Pago registrado');
-  await auditar('pago',pago.id,'crear',null,pago,usuario_id);
+    const reconstruido=await resultadoPagoHistorico(credito_id,usuario_id,pago);
+    if(reconstruido)return reconstruido;
+    await auditar('pago',pago.id,'crear',null,pago,usuario_id);
     return { pago, comprobante, aplicaciones: [], remanente: monto_centavos, saldoAnterior: 0, saldoPosterior: 0 };
   }
 
@@ -82,6 +92,7 @@ export async function registrarPago(input) {
     negocio_id: credito.negocio_id, cliente_id: credito.cliente_id, credito_id, fecha_hora,
     monto_centavos, medio_pago, caja, empleado, comprobante_url, nota, usuario_id,
     saldo_anterior_centavos: saldoAnterior, saldo_posterior_centavos: saldoPosterior,
+    cuota_objetivo_id:cuota_id,objetivo_registrado:true,politica_mora,
   });
 
   for (const ap of aplicaciones) {
@@ -97,9 +108,24 @@ export async function registrarPago(input) {
   await registrarHistoriaPago({credito,antes:cuotasAntesDelPago,despues:await listCuotasPorCredito(credito_id),fecha:today,pagoId:pago.id,usuarioId:usuario_id});
 
   await sincronizarComision(credito_id,fecha_hora.slice(0,10),'Pago registrado');
+  const reconstruido=await resultadoPagoHistorico(credito_id,usuario_id,pago);
+  if(reconstruido)return reconstruido;
   await auditar('pago',pago.id,'crear',null,pago,usuario_id);
   return { pago, comprobante, aplicaciones, remanente, saldoAnterior, saldoPosterior, estadoCredito };
   });
+}
+
+async function resultadoPagoHistorico(creditoId,actor,pago){
+  const historico=await reconstruirCreditoSiHistorico(creditoId,actor,pago.id);
+  if(historico.requiere_revision)throw Object.assign(new Error(historico.motivo),{status:409});
+  if(!historico.recalculado)return null;
+  const actual=historico.pago||await getPago(pago.id);
+  const aps=await listAplicacionesPorPago(pago.id);
+  const aplicaciones=aps.map(a=>({cuotaId:a.cuota_id,capital:a.capital_centavos,mora:a.interes_mora_centavos}));
+  await auditar('pago',actual.id,'crear',null,actual,actor);
+  return {pago:actual,comprobante:historico.comprobante||await getComprobantePorPago(actual.id),aplicaciones,
+    remanente:actual.monto_centavos-aps.reduce((s,a)=>s+a.capital_centavos+a.interes_mora_centavos,0),
+    saldoAnterior:actual.saldo_anterior_centavos,saldoPosterior:actual.saldo_posterior_centavos,estadoCredito:historico.estadoCredito,recalculado:true};
 }
 
 export async function recalcularEstadoCredito(creditoId, negocio, today, usuarioId = null) {
@@ -131,7 +157,7 @@ export async function registrarEntregaInicial({credito_id,monto_centavos,fecha_h
     if(monto_centavos!==credito.entrega_inicial_centavos) throw badRequest('Entrega no coincide con el financiamiento');
     await db.lockClienteNegocio(credito.cliente_id,credito.negocio_id);
     const pago=await crearPago({negocio_id:credito.negocio_id,cliente_id:credito.cliente_id,credito_id,
-      monto_centavos,fecha_hora,medio_pago,usuario_id,tipo:'entrega_inicial',saldo_anterior_centavos:credito.saldo_financiado_centavos,saldo_posterior_centavos:credito.saldo_financiado_centavos});
+      monto_centavos,fecha_hora,medio_pago,usuario_id,tipo:'entrega_inicial',objetivo_registrado:true,saldo_anterior_centavos:credito.saldo_financiado_centavos,saldo_posterior_centavos:credito.saldo_financiado_centavos});
     const comprobante=await crearComprobante({pago_id:pago.id,negocio_id:credito.negocio_id,cliente_id:credito.cliente_id,credito_id,venta_id:credito.venta_id,
       monto_centavos,fecha_hora,medio_pago,saldo_restante_centavos:credito.saldo_financiado_centavos,usuario_id});
     await sincronizarComision(credito_id,todayAR(),'Entrega inicial registrada');

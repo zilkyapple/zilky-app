@@ -487,6 +487,10 @@ export async function migrate() {
       ALTER TABLE creditos ADD COLUMN IF NOT EXISTS producto_descripcion TEXT;
       ALTER TABLE creditos ADD COLUMN IF NOT EXISTS condiciones TEXT;
       ALTER TABLE creditos ADD COLUMN IF NOT EXISTS fecha_entrega_producto TEXT;
+      -- Legacy payments did not retain a selected installment. Do not infer it.
+      ALTER TABLE pagos ADD COLUMN IF NOT EXISTS cuota_objetivo_id TEXT REFERENCES cuotas(id);
+      ALTER TABLE pagos ADD COLUMN IF NOT EXISTS objetivo_registrado BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE pagos ADD COLUMN IF NOT EXISTS politica_mora JSONB;
       DROP INDEX IF EXISTS idx_entrega_inicial_credito;
       CREATE UNIQUE INDEX idx_entrega_inicial_credito ON pagos(credito_id) WHERE tipo='entrega_inicial' AND anulado=0;
       ALTER TABLE cuotas ADD COLUMN IF NOT EXISTS mora_generada_centavos BIGINT NOT NULL DEFAULT 0 CHECK (mora_generada_centavos >= 0);

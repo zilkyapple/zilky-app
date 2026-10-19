@@ -75,6 +75,33 @@ La migración agrega `creditos.fecha_entrega_producto` como texto opcional sin
 completar fechas históricas ni cambiar pagos, stock o deudas existentes. Se aplica
 con el comando de migración habitual antes de ejecutar la versión nueva.
 
+### Corregir la fecha del dinero recibido
+
+En **Clientes → ficha → Historial de pagos → Corregir fecha del pago**, un
+administrador puede corregir la fecha y hora reales del pago, incluida la entrega
+inicial. Se usa la hora de Argentina. El importe y el medio de pago se conservan;
+se exige un motivo y una vista previa antes de confirmar.
+
+Para pagos de cuotas puede optarse por reconstruir la aplicación a capital y mora
+en orden cronológico. La vista previa muestra los saldos anteriores y nuevos, las
+cuotas afectadas y cualquier adopción de reglas actuales para pagos históricos sin
+configuración registrada. Los cambios contractuales, las devoluciones, las cuotas
+con estado manual, la mora perdonada o un cambio conocido de reglas requieren
+conciliación para recalcular; sigue disponible corregir solamente la fecha.
+
+No se registra dinero nuevo ni se modifica una caja cerrada. Se conservan los pagos
+y los comprobantes originales; cuando corresponde se emite un reemplazo vinculado.
+El historial permite consultar el motivo, el responsable y las fechas anteriores.
+Una versión evita pisar cobros concurrentes y los reintentos no duplican cambios.
+
+Los pagos nuevos conservan su destino y configuración de mora. Al cargar uno
+anterior a otro ya registrado se reconstruye la secuencia si se conocen esas
+reglas; los registros anteriores requieren revisar y confirmar la vista previa.
+Editar documentación o un plan sin pagos ya no guarda como deuda fija la mora
+estimada al día de hoy. Los saldos existentes se corrigen sólo mediante la revisión
+explícita del administrador. La migración agrega campos de seguimiento a `pagos`
+sin cambiar fechas ni importes históricos.
+
 Los parches son aditivos y usan `IF NOT EXISTS`. La migración de invitaciones conserva
 la columna/token legacy y crea/usa `token_hash`; si encuentra registros sin hash se
 detiene antes de cambiar restricciones. Se agrega `pagos.tipo` con valor `cuota` y un
