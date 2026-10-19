@@ -486,6 +486,7 @@ export async function migrate() {
     await db.exec(`
       ALTER TABLE creditos ADD COLUMN IF NOT EXISTS producto_descripcion TEXT;
       ALTER TABLE creditos ADD COLUMN IF NOT EXISTS condiciones TEXT;
+      ALTER TABLE creditos ADD COLUMN IF NOT EXISTS fecha_entrega_producto TEXT;
       DROP INDEX IF EXISTS idx_entrega_inicial_credito;
       CREATE UNIQUE INDEX idx_entrega_inicial_credito ON pagos(credito_id) WHERE tipo='entrega_inicial' AND anulado=0;
       ALTER TABLE cuotas ADD COLUMN IF NOT EXISTS mora_generada_centavos BIGINT NOT NULL DEFAULT 0 CHECK (mora_generada_centavos >= 0);
@@ -498,3 +499,4 @@ export async function migrate() {
 if (import.meta.url === `file://${process.argv[1]}`) {
   migrate().then(() => process.exit(0)).catch((err) => { console.error(err); process.exit(1); });
 }
+
