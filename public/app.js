@@ -287,10 +287,12 @@ async function viewInicio(view) {
   const vigente=()=>view.isConnected&&getToken()===token&&state.negocioActual===negocio&&state.usuario?.rol==='administrador'&&state.usuario.id===usuarioId;
   if(!vigente())return;
   let r;
-  try{r=await api(`/dashboard/resumen${negocio?`?negocio_id=${encodeURIComponent(negocio)}`:''}`);}catch(error){if(vigente())throw error;return;}
+  try{r=await api(`/dashboard/resumen${negocio?`?negocio_id=${encodeURIComponent(negocio)}`:''}`,{cache:'no-store'});}catch(error){if(vigente())throw error;return;}
   if(!vigente())return;
   setHTML(view, `
-    <div class="section-title">Resumen ${esc(negocio ? '· ' + negocioNombre(negocio) : 'general')}</div>
+    <div class="dashboard-heading"><h1>Resumen financiero</h1><button type="button" class="btn btn-secondary" data-dashboard-refresh>Actualizar</button></div>
+    ${proyeccionCobrosHtml(r.proyeccionCobros)}
+    <div class="section-title">Indicadores ${esc(negocio ? '· ' + negocioNombre(negocio) : 'generales')}</div>
     <div class="kpi-grid">
       <div class="kpi kpi-wide">
         <div><div class="kpi-label">Vendido (total)</div><div class="kpi-value">${esc(formatARS(r.vendidoTotalCentavos))}</div></div>
@@ -307,7 +309,6 @@ async function viewInicio(view) {
         <div style="text-align:right"><div class="kpi-label">Ventas finalizadas</div><div class="kpi-value">${esc(r.ventasFinalizadas)}</div></div>
       </div>
     </div>
-    ${proyeccionCobrosHtml(r.proyeccionCobros)}
     ${r.porNegocio ? `
       <div class="section-title">Por negocio (cobrado este mes)</div>
       <div class="negocio-split">
@@ -329,6 +330,13 @@ async function viewInicio(view) {
     </div>
   `);
   conectarProyeccionCobros(view,r.proyeccionCobros,vigente);
+  let actualizando=false;
+  view.querySelectorAll('[data-dashboard-refresh]').forEach(button=>button.addEventListener('click',async()=>{
+    if(actualizando||!vigente())return;
+    actualizando=true;view.querySelectorAll('[data-dashboard-refresh]').forEach(el=>el.disabled=true);
+    try{await viewInicio(view);}catch(error){if(vigente()){toast(error.message,true);view.querySelectorAll('[data-dashboard-refresh]').forEach(el=>el.disabled=false);}}
+    finally{actualizando=false;}
+  }));
 }
 
 function indiceMesProyeccion(mes) {
@@ -350,57 +358,67 @@ function modeloProyeccionCobros(p) {
   for(const indice of meses.keys())ultimo=Math.max(ultimo,indice);
   return {inicio,ultimo,meses,paginas:Math.ceil((ultimo-inicio+1)/12)};
 }
-function proyeccionCobrosContenido(p,modelo,pagina=0) {
+function proyeccionCobrosContenido(p,modelo,pagina=0,seleccion=modelo.inicio,detalleAbierto=false) {
   const inicioPagina=modelo.inicio+pagina*12,finPagina=Math.min(modelo.ultimo,inicioPagina+11);
   const cuotas=n=>`${Number.isSafeInteger(n)?n:0} ${n===1?'cuota pendiente':'cuotas pendientes'}`;
+  const elegido=modelo.meses.get(seleccion)||{pendienteCentavos:0,cuotas:0,vencidoCentavos:0};
   const metricas=[
-    ['mesActual',`Este mes · ${nombreMesProyeccion(p.mesActual?.mes)}`,p.mesActual],
-    ['mesSiguiente',`Mes siguiente · ${nombreMesProyeccion(p.mesSiguiente?.mes)}`,p.mesSiguiente],
+    ['mesActual','Por cobrar este mes',p.mesActual],
+    ['mesSiguiente','Próximo mes',p.mesSiguiente],
     ['proximos7Dias','Próximos 7 días',p.proximos7Dias],
     ['proximos14Dias','Próximos 14 días',p.proximos14Dias],
   ];
   return `<h2 id="proyeccionTitulo">Cobros previstos</h2>
-    <p class="projection-help">Capital pendiente según vencimiento. No incluye mora ni ventas futuras. Los vencidos no se suman a 7/14 días.</p>
-    <p class="projection-cutoff">Al ${esc(fmtFecha(p.fechaCorte))} · ${esc(state.negocioActual?negocioNombre(state.negocioActual):'Todos los negocios')}</p>
     <div class="projection-grid">${metricas.map(([key,titulo,m={}])=>`<article class="projection-metric" data-projection-metric="${esc(key)}"><h3>${esc(titulo)}</h3>
       <div class="projection-amount">${esc(formatARS(m.pendienteCentavos))}</div><p>${esc(cuotas(m.cuotas))}</p>
-      ${key.startsWith('proximos')?`<p class="projection-range">Del ${esc(fmtFecha(m.desde))} al ${esc(fmtFecha(m.hasta))} · hoy incluido</p>`:''}
-      ${m.vencidoCentavos>0?`<p class="projection-overdue-tag">Incluye ${esc(formatARS(m.vencidoCentavos))} vencidos de este mes</p>`:''}
     </article>`).join('')}</div>
-    <p class="projection-help">Los próximos 14 días incluyen los próximos 7 días; los importes no se suman entre sí.</p>
+    <div class="projection-month-picker"><label for="proyeccionMes">Consultar un mes<input id="proyeccionMes" type="month" min="${esc(mesProyeccion(modelo.inicio))}" max="${esc(mesProyeccion(modelo.ultimo))}" value="${esc(mesProyeccion(seleccion))}"></label>
+      <div class="projection-shortcuts">${[[1,'Mes siguiente'],[2,'En 2 meses'],[3,'En 3 meses']].map(([offset,titulo])=>`<button type="button" class="btn btn-secondary" data-projection-offset="${offset}" aria-pressed="${seleccion===modelo.inicio+offset?'true':'false'}">${esc(titulo)}</button>`).join('')}</div>
+    </div>
+    <div class="projection-selected" data-projection-selected aria-live="polite"><div><p>Por cobrar en <strong>${esc(nombreMesProyeccion(mesProyeccion(seleccion)))}</strong></p><p>${esc(cuotas(elegido.cuotas))}</p></div><strong class="projection-selected-amount">${esc(formatARS(elegido.pendienteCentavos))}</strong></div>
+    <p class="projection-cutoff">Al ${esc(fmtFecha(p.fechaCorte))} · ${esc(state.negocioActual?negocioNombre(state.negocioActual):'Todos los negocios')}</p>
+    <p class="projection-help">Capital pendiente según vencimiento. No incluye mora ni ventas futuras. Los vencidos no se suman a 7/14 días.</p>
+    ${p.mesActual?.vencidoCentavos>0?`<p class="projection-overdue-tag">Este mes incluye ${esc(formatARS(p.mesActual.vencidoCentavos))} vencidos.</p>`:''}
+    <p class="projection-help projection-range">7 días: del ${esc(fmtFecha(p.proximos7Dias?.desde))} al ${esc(fmtFecha(p.proximos7Dias?.hasta))}. 14 días: del ${esc(fmtFecha(p.proximos14Dias?.desde))} al ${esc(fmtFecha(p.proximos14Dias?.hasta))}. Hoy incluido. Los próximos 14 días incluyen los próximos 7 días; los importes no se suman entre sí.</p>
     <p class="projection-overdue">Capital vencido de todos los meses: <strong>${esc(formatARS(p.vencidoTotalCentavos))}</strong></p>
-    <div class="projection-month-header"><h3>Por mes de vencimiento</h3><label for="proyeccionMes">Ir a un mes<input id="proyeccionMes" type="month" min="${esc(mesProyeccion(modelo.inicio))}" max="${esc(mesProyeccion(modelo.ultimo))}" value="${esc(mesProyeccion(inicioPagina))}"></label></div>
-    <p class="projection-help" data-projection-range aria-live="polite">${esc(nombreMesProyeccion(mesProyeccion(inicioPagina)))} a ${esc(nombreMesProyeccion(mesProyeccion(finPagina)))} · Página ${pagina+1} de ${modelo.paginas}</p>
+    <details class="projection-detail" data-projection-detail ${detalleAbierto?'open':''}><summary>Ver detalle de meses</summary>
+    <p class="projection-help" data-projection-range>${esc(nombreMesProyeccion(mesProyeccion(inicioPagina)))} a ${esc(nombreMesProyeccion(mesProyeccion(finPagina)))} · Página ${pagina+1} de ${modelo.paginas}</p>
     <div class="projection-months" data-projection-months>${Array.from({length:finPagina-inicioPagina+1},(_,i)=>{
       const indice=inicioPagina+i,mes=modelo.meses.get(indice)||{pendienteCentavos:0,cuotas:0,vencidoCentavos:0},fecha=mesProyeccion(indice);
-      return `<div class="projection-month" data-projection-month="${esc(fecha)}"><div><strong>${esc(nombreMesProyeccion(fecha))}</strong><p>${esc(cuotas(mes.cuotas))}</p>${mes.vencidoCentavos>0?`<p class="projection-overdue-tag">Vencido: ${esc(formatARS(mes.vencidoCentavos))}</p>`:''}</div><div class="projection-month-amount">${esc(formatARS(mes.pendienteCentavos))}</div></div>`;
+      return `<div class="projection-month${indice===seleccion?' projection-month-selected':''}" data-projection-month="${esc(fecha)}" ${indice===seleccion?'aria-current="date"':''}><div><strong>${esc(nombreMesProyeccion(fecha))}</strong><p>${esc(cuotas(mes.cuotas))}</p>${mes.vencidoCentavos>0?`<p class="projection-overdue-tag">Vencido: ${esc(formatARS(mes.vencidoCentavos))}</p>`:''}</div><div class="projection-month-amount">${esc(formatARS(mes.pendienteCentavos))}</div></div>`;
     }).join('')}</div>
     <div class="projection-nav"><button type="button" class="btn btn-secondary" data-projection-prev ${pagina===0?'disabled':''}>12 meses anteriores</button><button type="button" class="btn btn-secondary" data-projection-next ${pagina>=modelo.paginas-1?'disabled':''}>12 meses siguientes</button></div>
-    <p class="projection-help">Podés recorrer todos los meses hasta ${esc(nombreMesProyeccion(mesProyeccion(modelo.ultimo)))}. Es una previsión de cobros; no representa facturación fiscal.</p>`;
+    <p class="projection-help">Podés recorrer todos los meses hasta ${esc(nombreMesProyeccion(mesProyeccion(modelo.ultimo)))}. Es una previsión de cobros; no representa facturación fiscal.</p></details>`;
 }
 function proyeccionCobrosHtml(p) {
   if(state.usuario?.rol!=='administrador')return '';
-  const modelo=modeloProyeccionCobros(p);if(!modelo)return '';
+  const modelo=modeloProyeccionCobros(p);
+  if(!modelo)return '<section class="cash-projection" data-projection-unavailable role="status"><h2>Cobros previstos</h2><p>No se pudo cargar la previsión de cobros. Actualizá el resumen para volver a intentarlo.</p><button type="button" class="btn btn-secondary" data-dashboard-refresh>Actualizar resumen</button></section>';
   return `<section class="cash-projection" data-cash-projection aria-labelledby="proyeccionTitulo">${proyeccionCobrosContenido(p,modelo)}</section>`;
 }
 function conectarProyeccionCobros(view,p,vigente) {
   const section=view.querySelector('[data-cash-projection]'),modelo=modeloProyeccionCobros(p);
   if(!section||!modelo||!vigente())return;
-  let pagina=0;
-  const actualizar=nueva=>{
+  let pagina=0,seleccion=modelo.inicio;
+  const actualizar=(nueva,nuevaSeleccion=seleccion)=>{
     if(!vigente()||!section.isConnected||!Number.isInteger(nueva)||nueva<0||nueva>=modelo.paginas)return;
-    pagina=nueva;setHTML(section,proyeccionCobrosContenido(p,modelo,pagina));
+    const abierto=section.querySelector('[data-projection-detail]')?.open===true;
+    pagina=nueva;seleccion=nuevaSeleccion;setHTML(section,proyeccionCobrosContenido(p,modelo,pagina,seleccion,abierto));
   };
   section.addEventListener('click',event=>{
-    const button=event.target.closest('[data-projection-prev],[data-projection-next]');if(!button||button.disabled||!section.contains(button)||!vigente())return;
+    const button=event.target.closest('[data-projection-prev],[data-projection-next],[data-projection-offset]');if(!button||button.disabled||!section.contains(button)||!vigente())return;
+    if(button.hasAttribute('data-projection-offset')){
+      const offset=Number(button.dataset.projectionOffset);if(![1,2,3].includes(offset))return;
+      actualizar(Math.floor(offset/12),modelo.inicio+offset);section.querySelector(`[data-projection-offset="${offset}"]`)?.focus();return;
+    }
     const anterior=button.hasAttribute('data-projection-prev');actualizar(pagina+(anterior?-1:1));
     section.querySelector(anterior?'[data-projection-prev]':'[data-projection-next]')?.focus();
   });
   section.addEventListener('change',event=>{
     if(event.target.id!=='proyeccionMes'||!vigente())return;
     const indice=indiceMesProyeccion(event.target.value);
-    if(indice===null||indice<modelo.inicio||indice>modelo.ultimo){event.target.value=mesProyeccion(modelo.inicio+pagina*12);return;}
-    actualizar(Math.floor((indice-modelo.inicio)/12));
+    if(indice===null||indice<modelo.inicio||indice>modelo.ultimo){event.target.value=mesProyeccion(seleccion);return;}
+    actualizar(Math.floor((indice-modelo.inicio)/12),indice);
     section.querySelector('#proyeccionMes')?.focus();
   });
 }

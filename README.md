@@ -38,11 +38,14 @@ explícita en un entorno controlado.
 
 ## Integridad financiera
 
-El **Dashboard → Cobros previstos** es exclusivo del administrador, tanto en la
+**Inicio** es el Dashboard. **Cobros previstos** aparece al principio de esa
+pantalla, antes de los indicadores históricos. Es exclusivo del administrador, tanto en la
 pantalla como en la API. Muestra capital pendiente de cuotas ya vendidas: este
 mes, el siguiente, los próximos 7 y 14 días y meses posteriores, con navegación
 hasta el último vencimiento registrado. Respeta el negocio seleccionado o suma
 todos los negocios. Los meses sin cuotas muestran cero.
+El selector de mes conserva el mes elegido y muestra su importe pendiente;
+los accesos a uno, dos o tres meses permiten consultar esos ingresos directamente.
 
 Los rangos de 7 y 14 días incluyen hoy, según la fecha de Argentina; el de 14 días
 incluye el de 7. El mes actual incluye cuotas vencidas dentro de ese mes, cuyo

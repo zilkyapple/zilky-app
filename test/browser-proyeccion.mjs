@@ -15,9 +15,11 @@ import {registrarPago} from '../src/services/pagosService.js';
 import {todayAR,addDays,addMonths} from '../src/lib/dates.js';
 
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE||'/workspace/zilky-browser-tools/node_modules/playwright-core/index.mjs');
-const output=process.env.BROWSER_ARTIFACTS||'/workspace/zilky-proyeccion-browser';
+const output=process.env.BROWSER_ARTIFACTS||'/workspace/zilky-dashboard-visible-browser';
 await fs.mkdir(output,{recursive:true});
 const results=[],errors=[],externalRequestsBlocked=[];
+const loadedAssets=[];
+const firstViewport=[];
 const startedAt=new Date().toISOString();
 let server,browser,page,failed;
 const check=async(name,fn)=>{try{await fn();results.push({name,passed:true});console.log('PASS '+name);}catch(error){results.push({name,passed:false,error:error.message});throw error;}};
@@ -57,6 +59,8 @@ try {
   await sale(store,addDays(today,14),10000000);
   await sale(store,`${nextMonth}-15`,15500000,{pagado:15500000});
   await sale(store,`${nextMonth}-20`,20000000,{pagado:5000000});
+  await sale(store,`${monthDate(2).slice(0,7)}-18`,22200000,{pagado:2200000});
+  await sale(store,`${monthDate(3).slice(0,7)}-22`,33300000);
   await sale(store,`${farMonth}-25`,32100000);
   await sale(store,addDays(today,-1),1100000);
   await sale(store,addDays(`${currentMonth}-01`,-1),2200000);
@@ -90,8 +94,13 @@ try {
     ctx.on('page',p=>p.on('pageerror',error=>errors.push(error.message)));
   };
   await restrict(context);page=await context.newPage();page.setDefaultTimeout(15000);
+  page.on('response',response=>{
+    const url=new URL(response.url());
+    if(url.origin===base&&['/app.js','/styles.css'].includes(url.pathname))loadedAssets.push({url:response.url(),status:response.status(),cache:response.headers()['cache-control']});
+  });
   const login=async(p,email)=>{
-    await p.goto(base);await p.locator('#authEmail').fill(email);await p.locator('#authPassword').fill(password);await p.locator('#authSubmit').click();
+    const response=await p.goto(base);assert.match(response.headers()['cache-control']||'',/no-cache/,'El HTML debe revalidarse al abrir la app');
+    await p.locator('#authEmail').fill(email);await p.locator('#authPassword').fill(password);await p.locator('#authSubmit').click();
     await p.locator('#root').waitFor({state:'visible'});
   };
   const projection=p=>p.locator('[data-cash-projection]');
@@ -124,18 +133,72 @@ try {
     await p.evaluate(()=>window.scrollTo(0,0));await p.screenshot({path:path.join(output,name+'.png'),fullPage:true});
     assert.equal(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Desborde horizontal: '+name);
   };
+  const openMonthDetail=async()=>{
+    const detail=projection(page).locator('[data-projection-detail]');
+    if(!await detail.evaluate(el=>el.open))await detail.locator('summary').click();
+  };
+  const selectMonth=async mes=>{
+    await page.locator('#proyeccionMes').fill(mes);await page.locator('#proyeccionMes').dispatchEvent('change');
+    assert.equal(await page.locator('#proyeccionMes').inputValue(),mes,'Se debe conservar el mes exacto elegido');
+    assert.equal(normalize(await projection(page).locator('[data-projection-selected] .projection-selected-amount').innerText()),normalize(money(expected().month(mes))));
+  };
 
   await check('Jefe: el dashboard global muestra cobros pendientes por mes y ventanas inclusivas de 7/14 días',async()=>{
     await login(page,admin.email);await projection(page).waitFor();
+    for(const pathname of ['/app.js','/styles.css']){
+      const asset=loadedAssets.find(item=>new URL(item.url).pathname===pathname);assert.ok(asset,pathname+' debe cargarse');
+      assert.equal(asset.status,200);assert.match(new URL(asset.url).searchParams.get('v')||'',/^[\w-]+$/,'Los recursos deben llevar una versión para renovar la caché');
+      assert.match(asset.cache||'',/no-cache/,pathname+' debe revalidarse');
+    }
     assert.equal(await page.locator('#negocioNombre').innerText(),'Todos los negocios');
     assert.match(await projection(page).innerText(),/Cobros previstos/);await expectMetrics(page);
+    assert.equal(await page.evaluate(()=>Boolean(document.querySelector('[data-cash-projection]').compareDocumentPosition(document.querySelector('.kpi-grid'))&Node.DOCUMENT_POSITION_FOLLOWING)),true,'La proyección debe estar antes de Vendido y los indicadores anteriores');
+    assert.equal(await projection(page).locator('[data-projection-detail]').evaluate(el=>el.open),false,'El detalle largo de meses debe iniciar cerrado');
     const row=await db.prepare('SELECT saldo_pendiente_centavos FROM cuotas WHERE id=?').get(parcial.cuotas[0].id);assert.equal(row.saldo_pendiente_centavos,6000000);
     assert.equal(await projection(page).locator('[data-projection-month]').count(),12);
     assert.equal(await projection(page).locator('[data-projection-prev]').isDisabled(),true);
     await capture('01-proyeccion-global-escritorio');
   });
 
+  await check('Primer pantallazo móvil: los cuatro importes se ven sin bajar en 390×844 y 375×667',async()=>{
+    for(const viewport of [{width:390,height:844},{width:375,height:667}]){
+      await page.setViewportSize(viewport);await page.evaluate(()=>window.scrollTo(0,0));
+      const amounts=projection(page).locator('[data-projection-metric] .projection-amount');assert.equal(await amounts.count(),4);
+      const boxes=await amounts.evaluateAll(els=>els.map(el=>{const r=el.getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right};}));
+      const chrome=await page.evaluate(()=>{
+        const fab=document.querySelector('#fabButton').getBoundingClientRect();
+        return {height:innerHeight,width:innerWidth,header:document.querySelector('.topbar')?.getBoundingClientRect().bottom||0,
+          nav:document.querySelector('.bottomnav').getBoundingClientRect().top,fab:{top:fab.top,bottom:fab.bottom,left:fab.left,right:fab.right}};
+      });
+      firstViewport.push({viewport,amounts:boxes,chrome});
+      for(const box of boxes){
+        assert.ok(box.top>=chrome.header,`Importe tapado por la cabecera: ${JSON.stringify(box)}`);
+        assert.ok(box.bottom<=Math.min(550,chrome.nav),`Importe fuera del primer pantallazo ${viewport.width}×${viewport.height}: ${JSON.stringify(box)}`);
+        assert.ok(box.left>=0&&box.right<=chrome.width,'Importe fuera del ancho del celular');
+        const fabOverlaps=box.left<chrome.fab.right&&box.right>chrome.fab.left&&box.top<chrome.fab.bottom&&box.bottom>chrome.fab.top;
+        assert.equal(fabOverlaps,false,'El botón flotante no debe tapar ningún importe');
+      }
+      // Las cuatro tarjetas forman dos filas de dos para que el total se pueda leer al entrar.
+      const cardTops=await projection(page).locator('[data-projection-metric]').evaluateAll(els=>els.map(el=>el.getBoundingClientRect().top));
+      assert.ok(Math.abs(cardTops[0]-cardTops[1])<3);assert.ok(Math.abs(cardTops[2]-cardTops[3])<3);
+      assert.ok(cardTops[2]>cardTops[0]);assert.equal(await page.evaluate(()=>scrollY),0);
+      await page.screenshot({path:path.join(output,`02-primer-pantallazo-${viewport.width}x${viewport.height}.png`),fullPage:false});
+    }
+    await page.setViewportSize({width:1440,height:1050});
+  });
+
+  await check('Próximo mes, en dos y en tres meses muestran el importe específico y conservan el mes exacto elegido',async()=>{
+    for(const offset of [1,2,3]){
+      const mes=monthDate(offset).slice(0,7);await projection(page).locator(`[data-projection-offset="${offset}"]`).click();
+      assert.equal(await page.locator('#proyeccionMes').inputValue(),mes);
+      assert.equal(normalize(await projection(page).locator('[data-projection-selected] .projection-selected-amount').innerText()),normalize(money(expected().month(mes))));
+      assert.equal(await projection(page).locator(`[data-projection-month="${mes}"]`).getAttribute('aria-current'),'date');
+    }
+    await selectMonth(currentMonth);
+  });
+
   await check('Meses vacíos se muestran en cero y una cuota a 15 meses es alcanzable por paginación y selector',async()=>{
+    await openMonthDetail();
     const zeroRow=projection(page).locator(`[data-projection-month="${emptyMonth}"]`);
     assert.match(normalize(await zeroRow.innerText()),/\$ ?0/);
     assert.equal(await projection(page).locator('[data-projection-next]').isDisabled(),false);
@@ -145,8 +208,9 @@ try {
     await capture('02-proyeccion-mes-lejano-escritorio');
     await projection(page).locator('[data-projection-prev]').click();
     await projection(page).locator(`[data-projection-month="${currentMonth}"]`).waitFor();
-    await page.locator('#proyeccionMes').fill(farMonth);await page.locator('#proyeccionMes').dispatchEvent('change');
+    await selectMonth(farMonth);
     await projection(page).locator(`[data-projection-month="${farMonth}"]`).waitFor();
+    assert.equal(await projection(page).locator('[data-projection-detail]').evaluate(el=>el.open),true,'Navegar debe conservar el detalle abierto');
   });
 
   await check('Cambiar de negocio actualiza proyección y capital parcial sin contar entregas, mora ni cuotas pagadas/anuladas',async()=>{
@@ -160,6 +224,7 @@ try {
 
   await check('Negocio vacío: los cuatro indicadores y los doce meses iniciales quedan en cero',async()=>{
     await switchStore(emptyStore.id,emptyStore.nombre);await expectMetrics(page,emptyStore.id);
+    await openMonthDetail();
     assert.equal(await projection(page).locator('[data-projection-month]').count(),12);
     assert.equal(await projection(page).locator('[data-projection-next]').isDisabled(),true);
     for(const row of await projection(page).locator('[data-projection-month]').all())assert.match(normalize(await row.innerText()),/\$ ?0/);
@@ -169,9 +234,26 @@ try {
   await check('Móvil 390px: importes y navegación de meses se leen sin desborde aun con zona horaria distinta',async()=>{
     await page.setViewportSize({width:390,height:844});await switchStore(null,'Todos los negocios');await expectMetrics(page);
     await capture('05-proyeccion-global-movil');
-    await page.locator('#proyeccionMes').fill(farMonth);await page.locator('#proyeccionMes').dispatchEvent('change');
+    await selectMonth(farMonth);await openMonthDetail();
     await projection(page).locator(`[data-projection-month="${farMonth}"]`).waitFor();
     await capture('06-proyeccion-mes-lejano-movil');
+  });
+
+  await check('Actualizar consulta los importes otra vez y una versión sin proyección muestra un aviso recuperable',async()=>{
+    const refresh=page.locator('[data-dashboard-refresh]').first();
+    const next=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/dashboard/resumen'&&r.request().method()==='GET');
+    await refresh.click();assert.equal((await next).status(),200);await projection(page).waitFor();
+    await expectMetrics(page);
+    const handler=async route=>{
+      const response=await route.fetch(),body=await response.json();delete body.proyeccionCobros;
+      await route.fulfill({response,json:body});
+    };
+    await context.route('**/api/dashboard/resumen',handler);
+    await page.locator('[data-dashboard-refresh]').first().click();await page.locator('[data-projection-unavailable]').waitFor();
+    assert.equal(await projection(page).count(),0);
+    await context.unroute('**/api/dashboard/resumen',handler);
+    await page.locator('[data-projection-unavailable] [data-dashboard-refresh]').click();await projection(page).waitFor();await expectMetrics(page);
+    assert.equal(await page.locator('[data-projection-unavailable]').count(),0);
   });
 
   await check('Empleado: no ve la proyección y recibe 403 por API directa aunque conserve permiso financiero legado',async()=>{
@@ -197,7 +279,7 @@ try {
   failed=error;if(page){await page.screenshot({path:path.join(output,'fallo.png'),fullPage:true}).catch(()=>{});await fs.writeFile(path.join(output,'fallo.html'),await page.content()).catch(()=>{});}
 } finally {
   await fs.writeFile(path.join(output,'resultado.json'),JSON.stringify({startedAt,finishedAt:new Date().toISOString(),results,javascriptErrors:errors,
-    externalRequestsBlocked:[...new Set(externalRequestsBlocked)],...(failed?{error:failed.stack}:{})},null,2));
+    loadedAssets,firstViewport,externalRequestsBlocked:[...new Set(externalRequestsBlocked)],...(failed?{error:failed.stack}:{})},null,2));
   if(browser)await browser.close();if(server)await new Promise(resolve=>server.close(resolve));await pool.end();
 }
 if(failed)throw failed;

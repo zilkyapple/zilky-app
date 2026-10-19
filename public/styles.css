@@ -45,31 +45,46 @@ a { color: inherit; text-decoration: none; }
 .kpi.kpi-wide { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; }
 
 /* Cobros previstos: importes completos y meses navegables también en teléfonos. */
-.cash-projection { min-width:0; margin:24px 0; padding:16px; border:1px solid var(--border); border-radius:var(--radius); background:var(--bg-elevated); }
-.cash-projection h2 { margin:0 0 10px; font-size:20px; }
-.cash-projection h3 { margin:0; font-size:14px; line-height:1.45; }
+.dashboard-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:4px 0 12px; }
+.dashboard-heading h1 { margin:0; font-size:18px; line-height:1.3; }
+.dashboard-heading .btn { padding:8px 10px; font-size:12px; }
+.cash-projection { min-width:0; margin:10px 0 16px; padding:14px; border:1px solid var(--border); border-radius:var(--radius); background:var(--bg-elevated); }
+.cash-projection h2 { margin:0 0 10px; font-size:18px; }
+.cash-projection h3 { margin:0; font-size:12px; line-height:1.35; }
 .projection-help,.projection-cutoff { margin:10px 0; color:var(--text-muted); font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
 .projection-cutoff { margin-bottom:14px; }
-.projection-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
-.projection-metric { min-width:0; padding:14px; background:var(--surface); border:1px solid var(--border-soft); border-radius:var(--radius-sm); }
-.projection-metric p,.projection-month p { margin:6px 0 0; font-size:12px; color:var(--text-muted); line-height:1.5; }
-.projection-amount { margin-top:10px; font-size:clamp(18px,4.8vw,24px); font-weight:700; color:var(--accent); font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.projection-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.projection-metric { min-width:0; padding:10px; background:var(--surface); border:1px solid var(--border-soft); border-radius:var(--radius-sm); }
+.projection-metric h3 { min-height:32px; }
+.projection-metric p,.projection-month p { margin:4px 0 0; font-size:11px; color:var(--text-muted); line-height:1.4; }
+.projection-amount { margin-top:4px; font-size:clamp(14px,4.4vw,22px); line-height:1.3; font-weight:700; color:var(--accent); font-variant-numeric:tabular-nums; white-space:nowrap; }
 .projection-metric .projection-overdue-tag,.projection-month .projection-overdue-tag { color:var(--warning); }
-.projection-overdue { padding:12px 0; margin:14px 0; border-top:1px solid var(--border-soft); border-bottom:1px solid var(--border-soft); font-size:13px; line-height:1.6; overflow-wrap:anywhere; }
-.projection-month-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin:20px 0 10px; }
-.projection-month-header label { display:flex; flex-direction:column; gap:6px; min-width:0; font-size:12px; color:var(--text-muted); }
-.projection-month-header input { width:100%; min-width:0; max-width:100%; padding:9px; border-radius:var(--radius-sm); border:1px solid var(--border); background:var(--surface); color:var(--text); font:inherit; font-size:16px; }
+.cash-projection > .projection-overdue-tag { color:var(--warning); font-size:12px; line-height:1.5; }
+.projection-overdue { padding:8px 0; margin:10px 0; border-top:1px solid var(--border-soft); border-bottom:1px solid var(--border-soft); font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
+.projection-month-picker { margin:12px 0 0; }
+.projection-month-picker label { display:flex; align-items:center; justify-content:space-between; gap:10px; min-width:0; font-size:12px; color:var(--text-muted); }
+.projection-month-picker input { width:160px; min-width:0; max-width:55%; padding:8px; border-radius:var(--radius-sm); border:1px solid var(--border); background:var(--surface); color:var(--text); font:inherit; font-size:15px; }
+.projection-shortcuts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; margin-top:8px; }
+.projection-shortcuts .btn { min-width:0; padding:8px 4px; font-size:11px; line-height:1.3; }
+.projection-shortcuts .btn[aria-pressed=true] { border-color:var(--accent); color:var(--accent); }
+.projection-selected { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin:10px 0 12px; padding:10px; border-radius:var(--radius-sm); background:var(--surface-2); }
+.projection-selected p { margin:0; font-size:12px; line-height:1.5; }
+.projection-selected p + p { color:var(--text-muted); font-size:11px; }
+.projection-selected-amount { font-size:18px; color:var(--accent); white-space:nowrap; font-variant-numeric:tabular-nums; }
+.projection-detail { min-width:0; margin-top:12px; padding:10px; border:1px solid var(--border); border-radius:var(--radius-sm); }
+.projection-detail > summary { cursor:pointer; font-size:13px; font-weight:600; }
 .projection-months { min-width:0; }
 .projection-month { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,auto); align-items:center; gap:12px; padding:12px 0; border-top:1px solid var(--border-soft); font-size:13px; }
 .projection-month > div { min-width:0; }
 .projection-month strong { font-weight:600; }
+.projection-month-selected { padding-left:8px; border-left:3px solid var(--accent); background:var(--surface-2); }
 .projection-month-amount { font-size:16px; font-weight:700; text-align:right; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
 .projection-nav { display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; }
 .projection-nav .btn { flex:1 1 160px; min-width:0; padding:10px; font-size:12px; }
 @media(max-width:480px) {
   .cash-projection { padding:12px; }
-  .projection-grid { grid-template-columns:minmax(0,1fr); }
-  .projection-month-header label { flex:1 1 100%; }
+  .projection-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .projection-amount { font-size:clamp(14px,4.4vw,18px); }
   .projection-month { grid-template-columns:minmax(0,1fr); gap:8px; }
   .projection-month-amount { text-align:left; }
 }
