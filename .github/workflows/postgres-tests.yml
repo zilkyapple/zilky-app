@@ -55,6 +55,7 @@ jobs:
           npm install --prefix /tmp/zilky-playwright --no-save --ignore-scripts --no-fund playwright-core@1.62.1
           node test/browser-ventas-comisiones.mjs
           BROWSER_ARTIFACTS=/tmp/zilky-sales-browser/pagos node test/browser-fecha-pago.mjs
+          BROWSER_ARTIFACTS=/tmp/zilky-sales-browser/proyeccion node test/browser-proyeccion.mjs
       - name: Browser screenshots and results
         if: always() && matrix.node == 24
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

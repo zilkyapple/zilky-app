@@ -38,6 +38,21 @@ explícita en un entorno controlado.
 
 ## Integridad financiera
 
+El **Dashboard → Cobros previstos** es exclusivo del administrador, tanto en la
+pantalla como en la API. Muestra capital pendiente de cuotas ya vendidas: este
+mes, el siguiente, los próximos 7 y 14 días y meses posteriores, con navegación
+hasta el último vencimiento registrado. Respeta el negocio seleccionado o suma
+todos los negocios. Los meses sin cuotas muestran cero.
+
+Los rangos de 7 y 14 días incluyen hoy, según la fecha de Argentina; el de 14 días
+incluye el de 7. El mes actual incluye cuotas vencidas dentro de ese mes, cuyo
+importe se identifica; los atrasos de meses anteriores se mantienen separados.
+La proyección toma el saldo restante tras pagos parciales, anticipados y
+devoluciones. Excluye ventas anuladas/devueltas y cuotas con estado manual, sin
+sumar mora, entregas iniciales ni ventas futuras. Gestión especial o cobranza
+pausada no eliminan deuda. Son cobros programados, no facturación fiscal ni una
+garantía de ingreso.
+
 - Venta, stock, vínculo cliente-negocio, crédito, cuotas, entrega inicial, comprobante
   y auditoría se confirman en una única transacción PostgreSQL.
 - Pagos y anulaciones bloquean el crédito/cliente-negocio, son atómicos y mantienen

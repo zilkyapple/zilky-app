@@ -2,6 +2,7 @@ import { db } from '../db/connection.js';
 import { todayAR, diffDays } from '../lib/dates.js';
 import { estadoCuota, calcularMora } from '../lib/mora.js';
 import { listNegocios, getNegocio } from '../repositories/negocios.js';
+import { proyectarCobros } from '../lib/proyeccionCobros.js';
 
 function buildNegocioFilter(negocioId) {
   if (Array.isArray(negocioId) && negocioId.length === 0) return {sql:'AND FALSE',params:[]};
@@ -18,12 +19,13 @@ function buildNegocioFilter(negocioId) {
 async function cuotasEnriquecidas(negocioId = null) {
   const { sql: filterSql, params: filterParams } = buildNegocioFilter(negocioId);
   const sql = `
-    SELECT cu.*, cr.negocio_id, cr.cliente_id, cr.modalidad, cr.venta_id,
+    SELECT cu.*, cr.negocio_id, cr.cliente_id, cr.modalidad, cr.venta_id, v.estado AS venta_estado,
            COALESCE(cc.gestion_especial,0) AS gestion_especial, cc.proximo_contacto, COALESCE(cc.modo,'revisar') AS cobranza_modo,
            cl.nombre AS cliente_nombre, cl.apellido AS cliente_apellido, cl.telefono AS cliente_telefono,
            (SELECT COUNT(*) FROM cuotas c2 WHERE c2.credito_id = cu.credito_id) AS total_cuotas
     FROM cuotas cu
     JOIN creditos cr ON cr.id = cu.credito_id
+    LEFT JOIN ventas v ON v.id=cr.venta_id
     JOIN clientes cl ON cl.id = cr.cliente_id
     JOIN cliente_negocio cn ON cn.cliente_id=cr.cliente_id AND cn.negocio_id=cr.negocio_id
     LEFT JOIN cliente_negocio_cobranza cc ON cc.cliente_id=cr.cliente_id AND cc.negocio_id=cr.negocio_id
@@ -97,6 +99,7 @@ export async function resumenGeneral(negocioId = null) {
     ventasActivas: ventasActivasRow.t,
     ventasFinalizadas: ventasFinalizadasRow.t,
     cuotasPendientes: cuotas.length,
+    proyeccionCobros: proyectarCobros(cuotas, today),
     porNegocio,
   };
 }
