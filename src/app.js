@@ -27,6 +27,7 @@ app.use((req,res,next)=>{
   res.setHeader('X-Content-Type-Options','nosniff');
   res.setHeader('Referrer-Policy','no-referrer');
   if(req.path.startsWith('/api'))res.setHeader('Cache-Control','no-store');
+  else if(['/', '/index.html', '/app.js', '/styles.css'].includes(req.path))res.setHeader('Cache-Control','no-cache');
   next();
 });
 app.use(express.json());
