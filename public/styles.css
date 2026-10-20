@@ -207,6 +207,25 @@ a { color: inherit; text-decoration: none; }
 .cuota-row .cr { display: flex; align-items: center; gap: 8px; }
 .cuota-row .amt { font-size: 13.5px; font-weight: 700; }
 
+/* Cuotas de una compra: el saldo y las acciones tienen su propio espacio. */
+.credito-card .credito-cuota { display:grid; grid-template-columns:minmax(0,1fr) max-content; align-items:start; gap:10px 16px; padding:14px 0; }
+.credito-card .credito-cuota-info { min-width:0; }
+.credito-card .credito-cuota-titulo { font-weight:600; color:var(--text); line-height:1.5; }
+.credito-card .credito-cuota-info .field-hint { margin:4px 0 0; line-height:1.5; }
+.credito-card .credito-cuota-resumen { flex-direction:column; align-items:flex-end; gap:6px; }
+.credito-card .credito-cuota-importe { font-size:20px; line-height:1.3; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.credito-card .credito-cuota-dinero { white-space:nowrap; font-variant-numeric:tabular-nums; }
+.credito-card .credito-cuota-mora { display:flex; flex-wrap:wrap; gap:4px 12px; margin-top:8px; font-size:12px; line-height:1.5; }
+.credito-card .credito-cuota-mora > span { display:inline-flex; flex-wrap:wrap; gap:0 4px; }
+.credito-card .credito-cuota-acciones { grid-column:1/-1; display:flex; flex-wrap:wrap; gap:8px; }
+.credito-card .credito-cuota-acciones .btn { flex:0 0 auto; min-height:40px; padding:9px 12px; font-size:13px; line-height:1.35; white-space:nowrap; }
+@media(max-width:480px) {
+  .credito-card .credito-cuota { grid-template-columns:minmax(0,1fr); }
+  .credito-card .credito-cuota-resumen { grid-row:1; flex-direction:row; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+  .credito-card .credito-cuota-info { grid-row:2; }
+  .credito-card .credito-cuota-acciones .btn { padding:9px 8px; }
+}
+
 .hist-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-top: 1px solid var(--border-soft); }
 .hist-row:first-child { border-top: none; }
 .hist-row .hd { font-size: 13px; }
