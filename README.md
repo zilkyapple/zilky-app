@@ -38,6 +38,13 @@ explícita en un entorno controlado.
 
 ## Integridad financiera
 
+En **Nueva venta**, **Fecha de compra** indica cuándo se hizo la operación y
+**Fecha de la primera cuota** indica el vencimiento acordado. Son independientes:
+una compra con entrega en junio puede empezar a pagar cuotas en julio. La comisión
+generada usa la fecha de compra; si el negocio liquida por cobro, el importe
+habilitado para liquidar sigue los pagos recibidos. Los cierres aprobados conservan
+sus totales y las cargas tardías se ajustan en un período abierto.
+
 En **Clientes → ficha → compra → Eliminar venta cargada por error**, o desde
 **Más → Ventas**, el administrador puede corregir una venta duplicada. Antes de
 confirmar se muestran los productos que vuelven al stock y los pagos registrados.

@@ -751,13 +751,16 @@ function creditoCardHtml(cr) {
       ${(cr.items || []).length ? `<ul>${cr.items.map(it => `<li>${esc(it.descripcion || it.producto_nombre || 'Producto')} · Cantidad: ${esc(it.cantidad)}${it.producto_variante ? ` · ${esc(it.producto_variante)}` : ''}${it.producto_imei ? ` · IMEI: ${esc(it.producto_imei)}` : ''}</li>`).join('')}</ul>` : '<p class="field-hint">Sin detalle de producto registrado.</p>'}
       <p class="field-hint">Cuotas pagadas: ${esc(cr.cuotas.filter(c => c.saldo_pendiente_centavos <= 0 && !c.estado_manual).length)}/${esc(cr.cuotas.length)} · Saldo pendiente: ${esc(formatARS(pendientes.reduce((s,c) => s+c.saldo_pendiente_centavos+(c.moraPendiente || 0),0)))}</p>
       ${cr.cuotas.map((cu) => `
-        <div class="cuota-row">
-          <div class="cn">Cuota ${esc(cu.numero)}/${esc(cr.cuotas.length)} · vence ${esc(fmtFecha(cu.fecha_vencimiento))}
-            <div class="field-hint">Valor: ${esc(formatARS(cu.monto_centavos))}${cu.saldo_pendiente_centavos > 0 && !cu.estado_manual && Number.isFinite(cu.diasHasta) ? ` · ${cu.diasHasta < 0 ? `${esc(-cu.diasHasta)} días de atraso` : cu.diasHasta === 0 ? 'Vence hoy' : `Vence en ${esc(cu.diasHasta)} días`}` : cu.fecha_saldada ? ` · Pagada: ${esc(fmtFecha(cu.fecha_saldada))}` : ''}${cu.moraGenerada > 0 ? ` · Mora generada: ${esc(formatARS(cu.moraGenerada))} · Pendiente: ${esc(formatARS(cu.moraPendiente))} · Cobrada: ${esc(formatARS(cu.moraCobrada))} · Perdonada: ${esc(formatARS(cu.moraPerdonada))}` : ''}</div>
-            ${state.usuario?.rol==='administrador' && cu.saldo_pendiente_centavos > 0 && !cu.fecha_saldada && !cu.estado_manual ? `<button class="btn btn-secondary" data-action="corregir-financiacion" data-credito="${esc(cr.id)}" data-negocio="${esc(cr.negocio_id)}" data-cuota="${esc(cu.id)}">Editar cuota</button>` : ''}
+        <div class="cuota-row credito-cuota">
+          <div class="cn credito-cuota-info"><div class="credito-cuota-titulo">Cuota ${esc(cu.numero)}/${esc(cr.cuotas.length)} · vence ${esc(fmtFecha(cu.fecha_vencimiento))}</div>
+            <div class="field-hint">Valor: <span class="credito-cuota-dinero">${esc(formatARS(cu.monto_centavos))}</span>${cu.saldo_pendiente_centavos > 0 && !cu.estado_manual && Number.isFinite(cu.diasHasta) ? ` · ${cu.diasHasta < 0 ? `${esc(-cu.diasHasta)} días de atraso` : cu.diasHasta === 0 ? 'Vence hoy' : `Vence en ${esc(cu.diasHasta)} días`}` : cu.fecha_saldada ? ` · Pagada: ${esc(fmtFecha(cu.fecha_saldada))}` : ''}</div>
+            ${cu.moraGenerada > 0 ? `<div class="credito-cuota-mora"><span>Mora generada: <span class="credito-cuota-dinero">${esc(formatARS(cu.moraGenerada))}</span></span><span>Pendiente: <span class="credito-cuota-dinero">${esc(formatARS(cu.moraPendiente))}</span></span><span>Cobrada: <span class="credito-cuota-dinero">${esc(formatARS(cu.moraCobrada))}</span></span><span>Perdonada: <span class="credito-cuota-dinero">${esc(formatARS(cu.moraPerdonada))}</span></span></div>` : ''}
           </div>
+          <div class="cr credito-cuota-resumen"><span class="amt credito-cuota-importe">${esc(formatARS(cu.saldo_pendiente_centavos))}</span><span class="badge badge-${esc(cu.estado)}">${esc(ESTADO_LABEL[cu.estado] || cu.estado)}</span></div>
+          ${state.usuario?.rol==='administrador' && ((cu.saldo_pendiente_centavos > 0 && !cu.fecha_saldada && !cu.estado_manual) || cu.moraPendiente > 0) ? `<div class="credito-cuota-acciones">
+            ${state.usuario?.rol==='administrador' && cu.saldo_pendiente_centavos > 0 && !cu.fecha_saldada && !cu.estado_manual ? `<button class="btn btn-secondary" data-action="corregir-financiacion" data-credito="${esc(cr.id)}" data-negocio="${esc(cr.negocio_id)}" data-cuota="${esc(cu.id)}">Editar cuota</button>` : ''}
           ${cu.moraPendiente > 0 && state.usuario?.rol === 'administrador' ? `<button class="btn btn-secondary" data-action="perdonar-mora" data-cuota="${esc(cu.id)}" data-negocio="${esc(cr.negocio_id)}">Perdonar mora</button>` : ''}
-          <div class="cr"><span class="amt">${esc(formatARS(cu.saldo_pendiente_centavos))}</span><span class="badge badge-${esc(cu.estado)}">${esc(ESTADO_LABEL[cu.estado] || cu.estado)}</span></div>
+          </div>` : ''}
         </div>
       `).join('')}
       ${atrasos.length ? `<details><summary>Historial de atrasos (${esc(atrasos.length)})</summary>${atrasos.map(c => `<p>Cuota ${esc(c.numero)} · Vencimiento: ${esc(fmtFecha(c.fecha_vencimiento))} · ${c.saldo_pendiente_centavos <= 0 ? `Regularizada el ${esc(fmtFecha(c.fecha_saldada))} tras ${esc(c.dias_atraso_al_pagar)} días de atraso` : `${esc(c.diasAtraso)} días de atraso actual`}</p>`).join('')}</details>` : ''}
@@ -1119,6 +1122,11 @@ async function viewVentaNueva(view, clientePreId) {
       <div class="field">
         ${state.usuario?.rol==='administrador'?`<label for="vVendedor">Vendedor</label><select id="vVendedor">${vendedores.map(u=>`<option value="${esc(u.id)}" ${u.id===state.usuario.id?'selected':''}>${esc(u.nombre||u.email)}</option>`).join('')}</select>`:''}
       </div>
+      <div class="field">
+        <label for="vFechaCompra">Fecha de compra</label>
+        <input type="date" id="vFechaCompra" value="${esc(todayISO())}" required aria-describedby="vFechaCompraAyuda" />
+        <div class="field-hint" id="vFechaCompraAyuda">Día en que se hizo la venta. Es independiente de la fecha de la primera cuota.${state.usuario?.rol==='administrador'?' La comisión generada toma esta fecha.':''}</div>
+      </div>
       <h2 class="sale-subtitle">Productos</h2>
       <div class="sale-add-row">
         <div class="field"><label for="vCatalogoBuscar">Buscar en el catálogo</label><input id="vCatalogoBuscar" placeholder="Nombre, variante o categoría"><select id="vProducto" aria-label="Producto"><option value="">Elegir producto</option>${productos.map(p=>`<option value="${esc(p.id)}">${esc(p.nombre)}${p.combo?' · Combo':''}</option>`).join('')}</select></div>
@@ -1214,10 +1222,10 @@ function renderCamposModalidad(modalidad) {
         <div class="field"><label>Cantidad de cuotas</label><input type="number" id="vCantCuotas" placeholder="6" /></div>
         <div class="field"><label>Valor de cada cuota</label><input type="number" id="vValorCuota" placeholder="0" /></div>
       </div>
-      <div class="field"><label>Fecha de la primera cuota</label><input type="date" id="vFechaPrimera" value="${esc(todayISO())}" /></div>
+      <div class="field"><label for="vFechaPrimera">Fecha de la primera cuota</label><input type="date" id="vFechaPrimera" value="${esc(todayISO())}" /><div class="field-hint">Vencimiento acordado con el cliente; puede ser el mes siguiente a la compra.</div></div>
     `);
   } else {
-    setHTML(box, `<div class="field"><label>Fecha límite de pago</label><input type="date" id="vFechaLimite" /></div><div class="field-hint">Si no elegís una fecha, se usan 30 días desde hoy por defecto.</div>`);
+    setHTML(box, `<div class="field"><label>Fecha límite de pago</label><input type="date" id="vFechaLimite" /></div><div class="field-hint">Si no elegís una fecha, se usan 30 días desde la fecha de compra por defecto.</div>`);
   }
 }
 
@@ -1248,12 +1256,14 @@ async function submitVenta(){
  if(pending)return enviarVentaPendiente(form,pending,button);
  const negocio_id=document.getElementById('vNegocio').value,cliente_id=document.getElementById('vClienteId').value||null;
  const seleccion=document.querySelector('#vModalidad button.active').dataset.val;
+ const fecha=document.getElementById('vFechaCompra').value;
+ if(!fecha)return toast('Elegí la fecha de compra',true);
  if(!cliente_id&&seleccion!=='contado')return toast('Elegí un cliente de la lista',true);
  const monto_total_centavos=toCentavos(document.getElementById('vMontoTotal').value);
  if(monto_total_centavos<=0)return toast('Ingresá el monto total',true);
  const entrega_inicial_centavos=seleccion==='contado'?monto_total_centavos:toCentavos(document.getElementById('vEntrega').value);
  if(entrega_inicial_centavos>monto_total_centavos)return toast('La entrega supera el total',true);
- const body={negocio_id,cliente_id,modalidad:seleccion==='contado'?'unico':seleccion,canal:document.getElementById('vCanal').value,monto_total_centavos,entrega_inicial_centavos,medio_pago_entrega:document.getElementById('vMedioEntrega').value,comision_usuario_id:document.getElementById('vVendedor')?.value||undefined,items:form.venta.items.map(({producto_id,descripcion,cantidad,precio_unitario_centavos})=>({producto_id,descripcion,cantidad,precio_unitario_centavos})),plan:{},solicitud_id:crypto.randomUUID()};
+ const body={negocio_id,cliente_id,fecha,modalidad:seleccion==='contado'?'unico':seleccion,canal:document.getElementById('vCanal').value,monto_total_centavos,entrega_inicial_centavos,medio_pago_entrega:document.getElementById('vMedioEntrega').value,comision_usuario_id:document.getElementById('vVendedor')?.value||undefined,items:form.venta.items.map(({producto_id,descripcion,cantidad,precio_unitario_centavos})=>({producto_id,descripcion,cantidad,precio_unitario_centavos})),plan:{},solicitud_id:crypto.randomUUID()};
  if(seleccion==='cuotas')body.plan={cantidad_cuotas:Number(document.getElementById('vCantCuotas').value),valor_cuota_centavos:toCentavos(document.getElementById('vValorCuota').value),fecha_primera_cuota:document.getElementById('vFechaPrimera').value,intervalo_dias:30};
  else if(seleccion!=='contado'&&document.getElementById('vFechaLimite').value)body.plan.fecha_limite=document.getElementById('vFechaLimite').value;
  sessionStorage.setItem(form.venta.storageKey,JSON.stringify(body));return enviarVentaPendiente(form,body,button);
