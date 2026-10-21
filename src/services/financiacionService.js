@@ -24,11 +24,7 @@ export async function vistaFinanciacion(id) {
   const cuotasConPermisos=cuotas.map(q=>({...q,puede_quitar:!q.fecha_saldada&&!aplicaciones.some(a=>a.cuota_id===q.id)&&calcularMora(q,negocio,todayAR()).acumulada===0&&!recordatorios.some(r=>r.cuota_id===q.id)}));
   return {...data,cuotas:cuotasConPermisos,version:createHash('sha256').update(JSON.stringify(data)).digest('hex')};
 }
-export async function corregirFinanciacion(id,input,actor) {
-  const {version,motivo,solicitud_id,datos}=input;
-  if(typeof motivo!=='string'||!motivo.trim()||motivo.length>2000)throw err('Indicá un motivo de corrección');
-  if(typeof solicitud_id!=='string'||!/^[a-f0-9-]{36}$/i.test(solicitud_id))throw err('Solicitud inválida');
-  if(!datos||typeof datos!=='object'||Array.isArray(datos))throw err('Datos inválidos');
+function validarDatos(datos) {
   const keys=['monto_total_centavos','entrega_inicial_centavos','fecha_inicio','fecha_entrega_producto','producto_descripcion','condiciones','cuotas'];
   if(Object.keys(datos).some(k=>!keys.includes(k)))throw err('Campo no editable');
   integer(datos.monto_total_centavos,'importe',{min:1});integer(datos.entrega_inicial_centavos,'entrega');
@@ -42,18 +38,41 @@ export async function corregirFinanciacion(id,input,actor) {
   if(!Array.isArray(datos.cuotas)||datos.cuotas.length>600)throw err('Plan inválido');
   for(const q of datos.cuotas){integer(q.monto_centavos,'importe de cuota',{min:1});dateISO(q.fecha_vencimiento);if(q.fecha_vencimiento<datos.fecha_inicio)throw err('El vencimiento no puede ser anterior a la compra');}
   if(datos.monto_total_centavos>datos.entrega_inicial_centavos&&!datos.cuotas.length)throw err('El saldo requiere al menos una cuota');
+}
+export async function corregirFinanciacion(id,input,actor,{soloCuotas=false}={}) {
+  if(!input||typeof input!=='object'||Array.isArray(input))throw err('Datos inválidos');
+  const {version,motivo,solicitud_id,datos:datosOriginales}=input;
+  if(typeof motivo!=='string'||!motivo.trim()||motivo.length>2000)throw err('Indicá un motivo de corrección');
+  if(typeof solicitud_id!=='string'||!/^[a-f0-9-]{36}$/i.test(solicitud_id))throw err('Solicitud inválida');
+  if(!datosOriginales||typeof datosOriginales!=='object'||Array.isArray(datosOriginales))throw err('Datos inválidos');
+  if(soloCuotas){
+    const campos=['version','motivo','solicitud_id','datos','negocio_id','confirmar_correccion_pagos'];
+    if(Object.keys(input).some(k=>!campos.includes(k))||Object.keys(datosOriginales).some(k=>k!=='cuotas'))throw err('El permiso de cuotas permite corregir únicamente importes y vencimientos');
+    if(!Array.isArray(datosOriginales.cuotas)||datosOriginales.cuotas.length>600)throw err('Plan inválido');
+    for(const q of datosOriginales.cuotas){
+      if(!q||typeof q!=='object'||Array.isArray(q)||typeof q.id!=='string'||!q.id||Object.keys(q).some(k=>!['id','monto_centavos','fecha_vencimiento'].includes(k)))throw err('Sólo podés corregir cuotas existentes, sin modificar otros campos');
+      integer(q.monto_centavos,'importe de cuota',{min:1});dateISO(q.fecha_vencimiento);
+    }
+  }else validarDatos(datosOriginales);
   return db.transaction(async()=>{
     // A documentary correction is not a new physical cash receipt/refund.
-    await db.query("SELECT set_config('zilky.correccion_financiacion','1',true)");
+    if(!soloCuotas)await db.query("SELECT set_config('zilky.correccion_financiacion','1',true)");
     const first=await getCredito(id);if(!first)throw err('Financiación no encontrada',404);
     await db.lockClienteNegocio(first.cliente_id,first.negocio_id);
     await db.prepare('SELECT id FROM creditos WHERE id=? FOR UPDATE').get(id);
     const logs=await db.prepare("SELECT * FROM auditoria WHERE entidad='credito' AND entidad_id=? AND accion='corregir_financiacion'").all(id);
-    const requestHash=createHash('sha256').update(JSON.stringify({version,datos,motivo:motivo.trim()})).digest('hex');
+    const requestHash=createHash('sha256').update(JSON.stringify({version,datos:datosOriginales,motivo:motivo.trim(),...(soloCuotas?{soloCuotas:true}:{})})).digest('hex');
     const log=logs.find(l=>JSON.parse(l.datos_nuevos).solicitud_id===solicitud_id);
     if(log){const old=JSON.parse(log.datos_nuevos);if(old.requestHash!==requestHash||log.empleado!==actor)throw err('Solicitud reutilizada con otros datos',409);return {id,reintentado:true};}
     if(await db.prepare('SELECT 1 FROM venta_devoluciones WHERE venta_id=?').get(first.venta_id))throw err('La venta tiene devoluciones. Requiere conciliación antes de corregir el plan',409);
     const before=await vistaFinanciacion(id);if(before.version!==version)throw err('La financiación cambió. Volvé a revisar el plan.',409);
+    if(soloCuotas&&(datosOriginales.cuotas.length!==before.cuotas.length||datosOriginales.cuotas.some((q,i)=>q.id!==before.cuotas[i].id)))throw err('Conservá las mismas cuotas y su orden; este permiso no permite agregar ni quitar cuotas');
+    const datos=soloCuotas?{
+      monto_total_centavos:before.credito.monto_total_centavos,entrega_inicial_centavos:before.credito.entrega_inicial_centavos,
+      fecha_inicio:before.credito.fecha_inicio,fecha_entrega_producto:before.credito.fecha_entrega_producto,
+      producto_descripcion:before.credito.producto_descripcion??'',condiciones:before.credito.condiciones??'',cuotas:datosOriginales.cuotas,
+    }:datosOriginales;
+    if(soloCuotas)validarDatos(datos);
     const fechaEntrega=datos.fecha_entrega_producto===undefined?before.credito.fecha_entrega_producto:datos.fecha_entrega_producto;
     if(fechaEntrega&&fechaEntrega<datos.fecha_inicio)throw err('La compra no puede ser posterior a la entrega o retiro del producto');
     if(await db.prepare("SELECT 1 FROM credito_incidencias WHERE credito_id=? AND tipo IN ('equipo_entregado','equipo_retirado') AND fecha<?").get(id,datos.fecha_inicio))throw err('La compra no puede ser posterior a una entrega o retiro de equipo registrado',409);
@@ -69,13 +88,15 @@ export async function corregirFinanciacion(id,input,actor) {
     for(const q of datos.cuotas.filter(q=>q.id)){
       const old=before.cuotas.find(x=>x.id===q.id),abonado=old.monto_centavos-old.saldo_pendiente_centavos;
       if(q.monto_centavos<abonado)throw err('El importe corregido es menor al capital cobrado. Requiere conciliar el excedente.',409);
-      if(old.fecha_saldada&&(q.monto_centavos!==old.monto_centavos||q.fecha_vencimiento!==old.fecha_vencimiento))throw err('Conservá las cuotas saldadas; corregí únicamente las pendientes',409);
+      if((old.fecha_saldada||(soloCuotas&&old.saldo_pendiente_centavos<=0))&&(q.monto_centavos!==old.monto_centavos||q.fecha_vencimiento!==old.fecha_vencimiento))throw err('Conservá las cuotas saldadas; corregí únicamente las pendientes',409);
     }
     // Originales y vínculos completos permanecen en auditoría; pagos/aplicaciones no se borran.
     for(const q of eliminadas)await db.prepare('DELETE FROM cuotas WHERE id=?').run(q.id);
     for(let i=0;i<datos.cuotas.length;i++){
       const q=datos.cuotas[i],old=before.cuotas.find(x=>x.id===q.id);
       if(old){
+        const cambiaCuota=q.monto_centavos!==old.monto_centavos||q.fecha_vencimiento!==old.fecha_vencimiento;
+        if(soloCuotas&&!cambiaCuota)continue;
         const saldo=q.monto_centavos-old.monto_centavos+old.saldo_pendiente_centavos;
         let saldada=old.fecha_saldada,atraso=old.dias_atraso_al_pagar;
         if(saldo===0&&!saldada){
@@ -88,18 +109,19 @@ export async function corregirFinanciacion(id,input,actor) {
         // interest before backdated receipts have been entered. Preserve amounts
         // already recorded/collected/forgiven; freeze new interest only when an
         // installment with payment activity is financially changed.
-        const cambiaCuota=q.monto_centavos!==old.monto_centavos||q.fecha_vencimiento!==old.fecha_vencimiento;
         const tieneActividad=before.aplicaciones.some(a=>a.cuota_id===q.id);
         const moraRegistrada=Math.max(old.mora_generada_centavos||0,(old.mora_pagada_centavos||0)+(old.mora_perdonada_centavos||0));
         const moraGenerada=cambiaCuota&&tieneActividad?calcularMora(old,negocio,todayAR()).acumulada:moraRegistrada;
-        await db.prepare('UPDATE cuotas SET numero=?,monto_centavos=?,saldo_pendiente_centavos=?,fecha_vencimiento=?,mora_generada_centavos=?,fecha_saldada=?,dias_atraso_al_pagar=? WHERE id=?').run(i+1,q.monto_centavos,saldo,q.fecha_vencimiento,moraGenerada,saldada,atraso,q.id);
+        await db.prepare('UPDATE cuotas SET numero=?,monto_centavos=?,saldo_pendiente_centavos=?,fecha_vencimiento=?,mora_generada_centavos=?,fecha_saldada=?,dias_atraso_al_pagar=? WHERE id=?').run(soloCuotas?old.numero:i+1,q.monto_centavos,saldo,q.fecha_vencimiento,moraGenerada,saldada,atraso,q.id);
       }
       else await crearCuota({credito_id:id,numero:i+1,monto_centavos:q.monto_centavos,fecha_vencimiento:q.fecha_vencimiento});
     }
-    await db.prepare('UPDATE creditos SET monto_total_centavos=?,entrega_inicial_centavos=?,saldo_financiado_centavos=?,fecha_inicio=?,producto_descripcion=?,condiciones=? WHERE id=?').run(datos.monto_total_centavos,datos.entrega_inicial_centavos,datos.monto_total_centavos-datos.entrega_inicial_centavos,datos.fecha_inicio,datos.producto_descripcion.trim(),datos.condiciones.trim(),id);
-    await db.prepare('UPDATE creditos SET fecha_entrega_producto=? WHERE id=?').run(fechaEntrega??null,id);
-    await db.prepare('UPDATE ventas SET monto_total_centavos=?,entrega_inicial_centavos=?,fecha=? WHERE id=?').run(datos.monto_total_centavos,datos.entrega_inicial_centavos,datos.fecha_inicio,first.venta_id);
-    if(datos.entrega_inicial_centavos!==before.credito.entrega_inicial_centavos){
+    if(!soloCuotas){
+      await db.prepare('UPDATE creditos SET monto_total_centavos=?,entrega_inicial_centavos=?,saldo_financiado_centavos=?,fecha_inicio=?,producto_descripcion=?,condiciones=? WHERE id=?').run(datos.monto_total_centavos,datos.entrega_inicial_centavos,datos.monto_total_centavos-datos.entrega_inicial_centavos,datos.fecha_inicio,datos.producto_descripcion.trim(),datos.condiciones.trim(),id);
+      await db.prepare('UPDATE creditos SET fecha_entrega_producto=? WHERE id=?').run(fechaEntrega??null,id);
+      await db.prepare('UPDATE ventas SET monto_total_centavos=?,entrega_inicial_centavos=?,fecha=? WHERE id=?').run(datos.monto_total_centavos,datos.entrega_inicial_centavos,datos.fecha_inicio,first.venta_id);
+    }
+    if(!soloCuotas&&datos.entrega_inicial_centavos!==before.credito.entrega_inicial_centavos){
       const entrega=before.pagos.find(p=>p.tipo==='entrega_inicial'&&!p.anulado);
       if(entrega){
         await db.prepare('UPDATE pagos SET anulado=1,motivo_anulacion=? WHERE id=?').run('Corrección de entrega: '+motivo.trim(),entrega.id);
@@ -108,9 +130,9 @@ export async function corregirFinanciacion(id,input,actor) {
       if(datos.entrega_inicial_centavos>0)await registrarEntregaInicial({credito_id:id,monto_centavos:datos.entrega_inicial_centavos,fecha_hora:entrega?.fecha_hora||`${datos.fecha_inicio}T12:00:00-03:00`,medio_pago:entrega?.medio_pago||'no_especificado',usuario_id:actor});
     }
     await sincronizarComision(id,todayAR(),'Corrección de financiación');
-    await avisarCorreccionCaja(first.negocio_id,id,datos.entrega_inicial_centavos-before.credito.entrega_inicial_centavos,actor);
+    if(!soloCuotas)await avisarCorreccionCaja(first.negocio_id,id,datos.entrega_inicial_centavos-before.credito.entrega_inicial_centavos,actor);
     await recalcularEstadoCredito(id,negocio,todayAR(),actor);
-    await auditar('credito',id,'corregir_financiacion',before,{solicitud_id,requestHash,datos,despues:await vistaFinanciacion(id)},actor,motivo.trim());
+    await auditar('credito',id,'corregir_financiacion',before,{solicitud_id,requestHash,datos:datosOriginales,...(soloCuotas?{solo_cuotas:true}:{}),despues:await vistaFinanciacion(id)},actor,motivo.trim());
     return {id};
   });
 }

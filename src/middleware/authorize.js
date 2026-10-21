@@ -1,7 +1,7 @@
 import { verificarToken } from '../lib/auth.js';
 import { getUsuarioById, getUsuarioNegocios } from '../repositories/usuarios.js';
 import { db } from '../db/connection.js';
-export const PERMISOS = ['clientes.ver','clientes.editar','ventas.crear','pagos.registrar','productos.ver','costos.ver','cobranzas.ver','dashboard_financiero.ver','comprobantes.ver','comprobantes.anular','empleados.gestionar'];
+export const PERMISOS = ['clientes.ver','clientes.editar','cuotas.editar','ventas.crear','pagos.registrar','productos.ver','costos.ver','cobranzas.ver','dashboard_financiero.ver','comprobantes.ver','comprobantes.anular','empleados.gestionar'];
 export function parsePermisos(value) {
   try { const p=typeof value==='string'?JSON.parse(value):value; return p && typeof p==='object' && !Array.isArray(p)?p:{}; } catch { return {}; }
 }
