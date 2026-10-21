@@ -38,6 +38,15 @@ explícita en un entorno controlado.
 
 ## Integridad financiera
 
+En **Más → Empleados y permisos → Editar permisos**, el administrador puede
+habilitar **Editar cuotas** por empleado y negocio. Requiere también **clientes.ver**
+en ese negocio. Al recargar la app, el empleado autorizado puede corregir importes y
+vencimientos de cuotas pendientes desde la ficha del cliente. Debe indicar un motivo;
+el historial conserva quién hizo el cambio y los valores anteriores. Este permiso no
+habilita cambiar la compra o el anticipo, agregar o quitar cuotas, modificar cuotas
+saldadas, perdonar mora ni anular ventas o pagos. Se puede revocar en el mismo lugar,
+y el servidor comprueba el permiso en cada consulta y corrección.
+
 En **Nueva venta**, **Fecha de compra** indica cuándo se hizo la operación y
 **Fecha de la primera cuota** indica el vencimiento acordado. Son independientes:
 una compra con entrega en junio puede empezar a pagar cuotas en julio. La comisión

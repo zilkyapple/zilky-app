@@ -6,6 +6,7 @@ import {db} from '../db/connection.js';
 import {vistaFinanciacion,corregirFinanciacion} from '../services/financiacionService.js';
 import { Router } from 'express';
 import { crearVenta } from '../services/ventasService.js';
+import { getCredito } from '../repositories/creditos.js';
 import { requirePermiso, exigirPermisoNegocio, exigirCliente, requireAdmin, negocioSolicitado } from '../middleware/authorize.js';
 export const ventasRouter = Router();
 
@@ -40,11 +41,35 @@ ventasRouter.post('/', requirePermiso('ventas.crear'), async (req, res, next) =>
   } catch (err) { next(err); }
 });
 
-ventasRouter.get('/creditos/:id/correccion',requireAdmin,async(req,res,next)=>{
-  try{const v=await vistaFinanciacion(req.params.id);exigirPermisoNegocio(req,v.credito.negocio_id,'ventas.crear');res.json(v);}catch(e){next(e);}
+async function autorizarCorreccion(req) {
+  const soloCuotas=req.usuario.rol!=='administrador';
+  const negocio=negocioSolicitado(req);
+  if(soloCuotas&&!negocio)throw Object.assign(new Error('Seleccioná el negocio de la financiación'),{status:400});
+  if(soloCuotas){
+    exigirPermisoNegocio(req,negocio,'cuotas.editar');
+    exigirPermisoNegocio(req,negocio,'clientes.ver');
+  }
+  const credito=await getCredito(req.params.id);
+  if(!credito)throw Object.assign(new Error('Financiación no encontrada'),{status:404});
+  exigirPermisoNegocio(req,credito.negocio_id,soloCuotas?'cuotas.editar':'ventas.crear');
+  if(soloCuotas)exigirPermisoNegocio(req,credito.negocio_id,'clientes.ver');
+  return {soloCuotas};
+}
+ventasRouter.get('/creditos/:id/correccion',requirePermiso('cuotas.editar'),async(req,res,next)=>{
+  try{
+    const {soloCuotas}=await autorizarCorreccion(req);
+    const v=await vistaFinanciacion(req.params.id);
+    if(!soloCuotas)return res.json(v);
+    res.json({solo_cuotas:true,credito:{id:v.credito.id,negocio_id:v.credito.negocio_id,fecha_inicio:v.credito.fecha_inicio},
+      cuotas:v.cuotas,version:v.version,aplicaciones:v.aplicaciones,
+      pagos:v.pagos.map(p=>({id:p.id,tipo:p.tipo,monto_centavos:p.monto_centavos,fecha_hora:p.fecha_hora,anulado:p.anulado}))});
+  }catch(e){next(e);}
 });
-ventasRouter.patch('/creditos/:id/correccion',requireAdmin,async(req,res,next)=>{
-  try{const v=await vistaFinanciacion(req.params.id);exigirPermisoNegocio(req,v.credito.negocio_id,'ventas.crear');res.json(await corregirFinanciacion(req.params.id,req.body,req.usuarioId));}catch(e){next(e);}
+ventasRouter.patch('/creditos/:id/correccion',requirePermiso('cuotas.editar'),async(req,res,next)=>{
+  try{
+    const {soloCuotas}=await autorizarCorreccion(req);
+    res.json(await corregirFinanciacion(req.params.id,req.body,req.usuarioId,{soloCuotas}));
+  }catch(e){next(e);}
 });
 
 ventasRouter.get('/catalogo',requirePermiso('ventas.crear'),async(req,res,next)=>{try{
