@@ -5,6 +5,11 @@ const sections={iphone:['Fundas','Accesorios','Auriculares'],ropa:['Short','Jean
 const models=['iPhone SE','iPhone 11','iPhone 11 Pro','iPhone 11 Pro Max','iPhone 12 mini','iPhone 12','iPhone 12 Pro','iPhone 12 Pro Max','iPhone 13 mini','iPhone 13','iPhone 13 Pro','iPhone 13 Pro Max','iPhone 14','iPhone 14 Plus','iPhone 14 Pro','iPhone 14 Pro Max','iPhone 15','iPhone 15 Plus','iPhone 15 Pro','iPhone 15 Pro Max','iPhone 16','iPhone 16 Plus','iPhone 16 Pro','iPhone 16 Pro Max','iPhone 16e','iPhone 17','iPhone 17 Pro','iPhone 17 Pro Max','iPhone Air'];
 const mediaTypes=new Set(['image/jpeg','image/png','image/webp','video/mp4','video/webm','video/quicktime']);
 const orderLabels={pendiente:'Pendiente',confirmado:'Confirmado',cancelado:'Cancelado'};
+const paymentLabels={sin_cobrar:'Sin cobrar',parcial:'Cobro parcial',cobrado:'Cobrado'};
+const nowARInput=()=>{
+  const p=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:'America/Argentina/Buenos_Aires',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(new Date()).map(({type,value})=>[type,value]));
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;
+};
 
 export async function optimizarFoto(file,valid=()=>true){
   if(!valid()||!['image/jpeg','image/png','image/webp'].includes(file.type))return file;
@@ -36,6 +41,8 @@ export async function tiendaAdminView(view,ctx){
   const {api,setHTML,toast,negocio}=ctx;
   const canEdit=()=>ctx.admin===true||ctx.puede?.('tienda.editar',negocio)===true;
   const canOrders=()=>ctx.admin===true||ctx.puede?.('tienda.pedidos',negocio)===true;
+  const canPay=()=>canOrders()&&(ctx.admin===true||ctx.puede?.('pagos.registrar',negocio)===true);
+  const canVoid=()=>canOrders()&&(ctx.admin===true||ctx.puede?.('comprobantes.anular',negocio)===true);
   if(!negocio){setHTML(view,'<div class="empty-state"><p>Elegí un negocio para administrar su tienda.</p></div>');return;}
   if(!canEdit()&&!canOrders()){setHTML(view,'<div class="empty-state"><p>No tenés permiso para administrar la tienda de este negocio.</p></div>');return;}
   const root=document.createElement('section');root.className='tienda-admin';view.replaceChildren(root);
@@ -44,10 +51,10 @@ export async function tiendaAdminView(view,ctx){
   const key='zilky-tienda-pendiente:'+userId+':'+negocio,uploadKey=key+':archivo';
   const query='?negocio_id='+encodeURIComponent(negocio);
   const valid=()=>root.isConnected&&view.contains(root)&&getToken()===token&&(!ctx.valid||ctx.valid());
-  const allowed=kind=>kind==='config'?ctx.admin===true:kind==='pedido'?canOrders():canEdit();
+  const allowed=kind=>kind==='config'?ctx.admin===true:kind==='pedido'?canOrders():kind==='cobro'?canPay():kind==='anular_cobro'?canVoid():canEdit();
   const call=(path,opts)=>{if(!valid())throw Error('La pantalla cambió. Abrí nuevamente la tienda.');return api(path,opts);};
-  let config=null,products=[],catalog=[],orders=[],selectedOrder=null,editing=null,productMode='nuevo';
-  let tab=canEdit()?'catalogo':'pedidos',busy=false,loading=false,loadId=0,detailId=0,mediaId=0,screenId=0;
+  let config=null,products=[],catalog=[],orders=[],selectedOrder=null,editing=null,productMode='nuevo',voidId=null;
+  let tab=canEdit()?'catalogo':'pedidos',busy=false,loading=false,loadId=0,detailId=0,mediaId=0,screenId=0,ordersLoad=0;
   let media=[],mediaVersion='',mediaLimits={imagen_bytes:8388608,video_bytes:31457280,max_archivos_producto:12},mediaBytes=0,uploadFiles=new Map();
   const previewErrors=new Set();
   const previewLoading=new Map();
@@ -62,6 +69,12 @@ export async function tiendaAdminView(view,ctx){
   const stamp=value=>{if(!value)return '—';const date=new Date(value);return Number.isNaN(date.getTime())?'—':date.toLocaleString('es-AR',{timeZone:'America/Argentina/Buenos_Aires'});};
   const stockLabel=value=>value===null||value===undefined?'Sin control de stock':`${value} disponible${Number(value)===1?'':'s'}`;
   const currentProduct=id=>products.find(p=>p.id===id);
+  const isOrdersTab=()=>['pedidos','encargos'].includes(tab);
+  const paymentSummary=d=>{
+    if(d.resumen_cobros)return d.resumen_cobros;
+    const cobrado=(d.cobros||[]).filter(c=>!c.anulado).reduce((sum,c)=>sum+Number(c.monto_centavos||0),0),saldo=Math.max(0,Number(d.pedido.total_centavos||0)-cobrado);
+    return {cobrado_centavos:cobrado,saldo_centavos:saldo,estado:cobrado===0?'sin_cobrar':saldo>0?'parcial':'cobrado'};
+  };
 
   function pendingUI(){
     if(!valid())return;
@@ -76,7 +89,7 @@ export async function tiendaAdminView(view,ctx){
     const link=config?.habilitada&&config?.slug?new URL('/tienda/'+encodeURIComponent(config.slug),location.origin).href:'';
     return `<header class="ta-heading"><div><h1>Tienda web</h1><p>${esc(config?.nombre||'Catálogo y pedidos del negocio')}</p></div>${canEdit()?'<button type="button" class="btn btn-primary" data-ta-new>Agregar producto</button>':''}</header>
       ${link?`<div class="ta-share"><a href="${esc(link)}" target="_blank" rel="noopener noreferrer">Ver tienda ↗</a><input aria-label="Enlace público de la tienda" readonly value="${esc(link)}"><button type="button" class="btn btn-secondary" data-ta-copy>Copiar enlace</button></div>`:ctx.admin?'<p class="ta-hint">Configurá y publicá la tienda para compartir su enlace.</p>':''}
-      <nav class="ta-tabs" aria-label="Administración de tienda">${canEdit()?`<button type="button" class="btn btn-secondary" data-ta-tab="catalogo" aria-pressed="${tab==='catalogo'}">Catálogo</button>`:''}${ctx.admin?`<button type="button" class="btn btn-secondary" data-ta-tab="tienda" aria-pressed="${tab==='tienda'}">Configurar tienda</button>`:''}${canOrders()?`<button type="button" class="btn btn-secondary" data-ta-tab="pedidos" aria-pressed="${tab==='pedidos'}">Pedidos</button>`:''}</nav><div id="ta-pending"></div><p id="ta-status" class="ta-status" role="status" aria-live="polite"></p>`;
+      <nav class="ta-tabs" aria-label="Administración de tienda">${canEdit()?`<button type="button" class="btn btn-secondary" data-ta-tab="catalogo" aria-pressed="${tab==='catalogo'}">Catálogo</button>`:''}${ctx.admin?`<button type="button" class="btn btn-secondary" data-ta-tab="tienda" aria-pressed="${tab==='tienda'}">Configurar tienda</button>`:''}${canOrders()?`<button type="button" class="btn btn-secondary" data-ta-tab="pedidos" aria-pressed="${tab==='pedidos'}">Pedidos</button><button type="button" class="btn btn-secondary" data-ta-tab="encargos" aria-pressed="${tab==='encargos'}">Encargos</button>`:''}</nav><div id="ta-pending"></div><p id="ta-status" class="ta-status" role="status" aria-live="polite"></p>`;
   }
 
   function configHTML(){
@@ -118,21 +131,38 @@ export async function tiendaAdminView(view,ctx){
     setHTML(box,filtered.length?filtered.map(p=>`<article class="ta-product"><div><span class="ta-tag ${p.publicado?'ta-tag-live':''}">${p.publicado?'Publicado':'Borrador'}</span><h3>${esc(p.nombre)}</h3><p>${esc(p.categoria||'Sin sección')}${p.talle?' · '+esc(p.talle):''}${p.color?' · '+esc(p.color):''}</p>${(p.modelos||[]).length?`<p class="ta-hint">${esc(p.modelos.join(' · '))}</p>`:''}<p class="ta-price">${esc(money(p.precio_centavos))}</p><p class="ta-hint">${esc(stockLabel(p.stock))} · ${(p.media||[]).length} archivo(s)</p></div><button type="button" class="btn btn-secondary" data-ta-edit="${esc(p.id)}">Editar</button></article>`).join(''):'<div class="ta-empty"><h3>No hay productos para mostrar</h3><p>Agregá un producto del inventario o creá uno nuevo para preparar el catálogo.</p></div>');
   }
 
+  function paymentHTML(d){
+    const p=d.pedido,cobros=d.cobros||[];
+    if(p.estado!=='confirmado'&&!cobros.length)return '';
+    const summary=paymentSummary(d),date=nowARInput();
+    const voidPayment=voidId&&cobros.find(c=>c.id===voidId&&!c.anulado);
+    return `<section class="ta-payments"><div class="ta-heading"><h3>${p.estado==='cancelado'?'Cobros conservados':'Cobros de esta venta'}</h3><span class="ta-tag" data-ta-payment-summary data-estado="${esc(summary.estado)}">${esc(paymentLabels[summary.estado]||summary.estado)}</span></div>
+      <dl class="ta-payment-summary"><div><dt>Cobrado</dt><dd>${esc(money(summary.cobrado_centavos))}</dd></div><div><dt>Pendiente de cobro</dt><dd>${esc(money(summary.saldo_centavos))}</dd></div></dl>
+      ${p.estado==='confirmado'&&summary.saldo_centavos>0?(canPay()?`<form id="ta-payment-form" class="ta-form"><h3>Registrar cobro</h3><p class="ta-hint">Completá este registro cuando recibas el dinero.</p><div class="ta-grid"><label>Importe recibido ($)<input name="monto" type="number" min="0.01" step="0.01" max="${esc(summary.saldo_centavos/100)}" value="${esc(summary.saldo_centavos/100)}" required></label><label>Medio de pago<select name="medio_pago"><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option></select></label></div>
+      <label>Fecha real del cobro<input name="fecha_hora" type="datetime-local" step="1" value="${date}" data-ta-date-default="${date}"><small>Hora de Argentina. Si no la cambiás, se usa la hora al guardar.</small></label><label>Nota (opcional)<textarea name="nota" rows="2" maxlength="1000"></textarea></label><button type="submit" class="btn btn-primary" data-ta-mutation>Registrar cobro</button></form>`:'<p class="ta-hint">Necesitás el permiso Registrar pagos de este negocio para registrar un cobro.</p>'):''}
+      ${cobros.length?`<div class="ta-payment-history"><h3>Historial de cobros</h3>${cobros.map(c=>`<article class="ta-payment-row" data-ta-payment-id="${esc(c.id)}"><div><strong>${esc(money(c.monto_centavos))}</strong><span class="ta-tag">${c.anulado?'Anulado':esc(c.medio_pago==='transferencia'?'Transferencia':'Efectivo')}</span><p>${esc(stamp(c.fecha_hora))}</p>${c.comprobante?.numero?`<p>Comprobante ${esc(c.comprobante.numero)}</p>`:''}${c.nota?`<p>${esc(c.nota)}</p>`:''}</div>${canVoid()&&!c.anulado?`<button type="button" class="btn btn-secondary" data-ta-payment-void="${esc(c.id)}">Anular cobro</button>`:''}</article>`).join('')}</div>`:''}
+      ${voidPayment&&canVoid()?`<form id="ta-payment-void-form" class="ta-form"><h3>Anular cobro de ${esc(money(voidPayment.monto_centavos))}</h3><p class="ta-hint">Se anula este cobro y su comprobante. El pedido y el stock se conservan.</p><label>Motivo de la anulación<textarea name="motivo" required maxlength="2000" rows="2"></textarea></label><div class="ta-actions"><button type="button" class="btn btn-secondary" data-ta-payment-void-cancel>Volver</button><button type="submit" class="btn btn-danger" data-ta-mutation>Anular cobro</button></div></form>`:''}</section>`;
+  }
+
   function orderHTML(){
-    const d=selectedOrder,p=d?.pedido;
-    return `<div class="ta-list-heading"><h2>Pedidos</h2><div class="ta-actions"><button type="button" class="btn btn-secondary" data-ta-orders-refresh>Actualizar</button><button type="button" class="btn btn-secondary" data-ta-csv>Descargar contactos CSV</button></div></div><p class="ta-hint">Los pedidos pendientes todavía no descuentan stock. El cobro se gestiona por separado.</p>
-      <div id="ta-orders" class="ta-orders">${orders.length?orders.map(o=>`<button type="button" class="ta-order-row" data-ta-order="${esc(o.id)}"><span><strong>Pedido ${esc(o.codigo||o.id.slice(0,8))}</strong><small>${esc([o.contacto?.nombre,o.contacto?.apellido].filter(Boolean).join(' ')||'Cliente')} · ${esc(stamp(o.created_at))}</small></span><span><strong>${esc(money(o.total_centavos))}</strong><small>${esc(orderLabels[o.estado]||o.estado)}</small></span></button>`).join(''):'<div class="ta-empty"><p>Todavía no hay pedidos.</p></div>'}</div>
+    const d=selectedOrder,p=d?.pedido,encargos=tab==='encargos';
+    const hasEncargos=d?.has_encargos||p?.has_encargos||(d?.items||[]).some(item=>item.es_encargo);
+    const insufficient=(d?.stock||[]).some(s=>s.insuficiente),paid=d?paymentSummary(d).cobrado_centavos:0;
+    return `<div class="ta-list-heading"><h2>${encargos?'Encargos':'Pedidos'}</h2><div class="ta-actions"><button type="button" class="btn btn-secondary" data-ta-orders-refresh>Actualizar</button><button type="button" class="btn btn-secondary" data-ta-csv>Descargar contactos CSV</button></div></div><p class="ta-hint">${encargos?'Solicitudes de productos para encargar. Confirmá la venta cuando las unidades estén disponibles.':'Los pedidos pendientes todavía no descuentan stock. Confirmá la venta y registrá el cobro cuando recibas el dinero.'}</p>
+      <div id="ta-orders" class="ta-orders">${orders.length?orders.map(o=>`<button type="button" class="ta-order-row" data-ta-order="${esc(o.id)}"><span><strong>Pedido ${esc(o.codigo||o.id.slice(0,8))}</strong>${o.has_encargos?'<span class="ta-tag ta-tag-order">Para encargar</span>':''}<small>${esc([o.contacto?.nombre,o.contacto?.apellido].filter(Boolean).join(' ')||'Cliente')} · ${esc(stamp(o.created_at))}</small></span><span><strong>${esc(money(o.total_centavos))}</strong><small>${esc(orderLabels[o.estado]||o.estado)}</small></span></button>`).join(''):`<div class="ta-empty"><p>${encargos?'Todavía no hay encargos.':'Todavía no hay pedidos.'}</p></div>`}</div>
       <div id="ta-order-detail">${p?`<article class="card ta-order-detail"><div class="ta-heading"><h2>Pedido ${esc(p.codigo||p.id.slice(0,8))}</h2><span class="ta-tag">${esc(orderLabels[p.estado]||p.estado)}</span></div><p>${esc(stamp(p.created_at))}</p>
       <dl class="ta-contact"><div><dt>Cliente</dt><dd>${esc([p.contacto?.nombre,p.contacto?.apellido].filter(Boolean).join(' ')||'—')}</dd></div><div><dt>Teléfono</dt><dd>${esc(p.contacto?.telefono||'—')}</dd></div><div><dt>Email</dt><dd>${esc(p.contacto?.email||'—')}</dd></div></dl>${p.nota?`<p>Nota: ${esc(p.nota)}</p>`:''}
-      <div class="ta-order-items">${(d.items||[]).map(item=>`<div><span>${esc(item.nombre)}<small>${esc(item.cantidad)} × ${esc(money(item.precio_unitario_centavos))}</small></span><strong>${esc(money(item.subtotal_centavos??item.cantidad*item.precio_unitario_centavos))}</strong></div>`).join('')}</div><p class="ta-order-total">Total del pedido <strong>${esc(money(p.total_centavos))}</strong></p>
+      <div class="ta-order-items">${(d.items||[]).map(item=>{const options=item.opciones||{},parts=[...(options.modelos||[]),options.talle?'Talle '+options.talle:'',options.color].filter(Boolean);return `<div><span>${esc(item.nombre)}${item.es_encargo?'<span class="ta-tag ta-tag-order">Para encargar</span>':''}${parts.length?`<small>${esc(parts.join(' · '))}</small>`:''}<small>${esc(item.cantidad)} × ${esc(money(item.precio_unitario_centavos))}</small></span><strong>${esc(money(item.subtotal_centavos??item.cantidad*item.precio_unitario_centavos))}</strong></div>`;}).join('')}</div><p class="ta-order-total">${hasEncargos&&p.estado==='pendiente'?'Total estimado del pedido':p.estado==='confirmado'?'Total de la venta':'Total del pedido'} <strong>${esc(money(p.total_centavos))}</strong></p>
       ${(d.stock||[]).length?`<h3>${p.estado==='confirmado'?'Stock a restituir si cancelás':'Stock del inventario'}</h3><ul class="ta-stock-list">${d.stock.map(s=>`<li>${esc(s.nombre)} · ${esc(s.cantidad)} unidad(es)${s.controlado===false?' · Sin control de stock':` · Disponible: ${esc(s.stock_actual)}${s.insuficiente?' · Stock insuficiente':''}`}</li>`).join('')}</ul>`:''}
-      ${p.estado==='pendiente'?`<button type="button" class="btn btn-primary" data-ta-confirm="${esc(p.id)}" data-ta-mutation ${(d.stock||[]).some(s=>s.insuficiente)?'disabled data-ta-locked="true"':''}>Confirmar pedido y descontar stock</button>`:''}
-      ${['pendiente','confirmado'].includes(p.estado)?`<details class="ta-cancel"><summary>Cancelar pedido</summary><p class="ta-hint">${p.estado==='confirmado'?'Se restituyen las unidades que descontó este pedido.':'El pedido pendiente se cierra sin modificar stock.'}</p><label>Motivo de la cancelación<textarea id="ta-cancel-reason" maxlength="1000" rows="2"></textarea></label><button type="button" class="btn btn-danger" data-ta-cancel="${esc(p.id)}" data-ta-mutation>Confirmar cancelación</button></details>`:p.motivo_cancelacion?`<p>Motivo: ${esc(p.motivo_cancelacion)}</p>`:''}</article>`:''}</div>`;
+      ${p.estado==='pendiente'?`${insufficient?'<p class="ta-stock-notice">Falta stock para confirmar esta venta. Cargá las unidades recibidas en el inventario y actualizá la disponibilidad.</p>':''}<div class="ta-actions"><button type="button" class="btn btn-primary" data-ta-confirm="${esc(p.id)}" data-ta-mutation ${insufficient?'disabled data-ta-locked="true"':''}>Confirmar venta y descontar stock</button><button type="button" class="btn btn-secondary" data-ta-order="${esc(p.id)}">Actualizar disponibilidad</button></div><p class="ta-hint">Confirmar la venta descuenta stock. El cobro se registra después de recibir el dinero.</p>`:''}
+      ${paymentHTML(d)}
+      ${['pendiente','confirmado'].includes(p.estado)?`<details class="ta-cancel"><summary>Cancelar pedido</summary><p class="ta-hint">${paid>0?`Hay ${esc(money(paid))} cobrado; cancelar ${p.estado==='confirmado'?'repone el stock y ':''}conserva los cobros. Coordiná la devolución del dinero por separado.`:p.estado==='confirmado'?'Se restituyen las unidades que descontó este pedido.':'El pedido pendiente se cierra sin modificar stock.'}</p><label>Motivo de la cancelación<textarea id="ta-cancel-reason" maxlength="1000" rows="2"></textarea></label><button type="button" class="btn btn-danger" data-ta-cancel="${esc(p.id)}" data-ta-mutation>Confirmar cancelación</button></details>`:p.motivo_cancelacion?`<p>Motivo: ${esc(p.motivo_cancelacion)}</p>`:''}</article>`:''}</div>`;
   }
 
   function render(){
     if(!valid())return;
-    setHTML(root,header()+`<div id="ta-content">${tab==='tienda'&&ctx.admin?configHTML():tab==='pedidos'&&canOrders()?orderHTML():canEdit()?catalogHTML():'<p>No tenés permiso para ver esta sección.</p>'}</div>`);
+    setHTML(root,header()+`<div id="ta-content">${tab==='tienda'&&ctx.admin?configHTML():isOrdersTab()&&canOrders()?orderHTML():canEdit()?catalogHTML():'<p>No tenés permiso para ver esta sección.</p>'}</div>`);
+    const date=root.querySelector('#ta-payment-form [name="fecha_hora"]');if(date)date.dataset.taDateDefault=date.value;
     if(tab==='catalogo'){paintProducts();if(editing?.id)paintMedia();}
     pendingUI();
   }
@@ -144,22 +174,23 @@ export async function tiendaAdminView(view,ctx){
       const [settings,list,existing]=await Promise.all([call('/tiendas'+query),canEdit()?call('/tiendas/productos'+query):[],canEdit()?call('/tiendas/catalogo'+query):[]]);
       if(!valid()||id!==loadId)return;
       config=settings.config||settings;products=Array.isArray(list)?list:list.productos||[];catalog=Array.isArray(existing)?existing:existing.productos||[];
-      if(tab==='pedidos')await loadOrders(false);if(valid()&&id===loadId)render();
+      if(isOrdersTab())await loadOrders(false);if(valid()&&id===loadId)render();
     }catch(error){if(valid()&&id===loadId){setHTML(root,'<div class="ta-empty"><p>No se pudo cargar la tienda.</p><button type="button" class="btn btn-secondary" data-ta-load>Volver a intentar</button><p id="ta-status" role="status"></p></div>');fail(error);}}
     finally{loading=false;}
   }
 
   async function loadOrders(paint=true){
     if(!valid()||!canOrders())return;
-    const list=await call('/tiendas/pedidos'+query);if(!valid()||!canOrders())return;
-    orders=Array.isArray(list)?list:list.pedidos||[];if(paint&&tab==='pedidos')render();
+    const sequence=++ordersLoad,currentTab=tab;
+    const list=await call('/tiendas/pedidos'+query+(currentTab==='encargos'?'&encargos=true':''));if(!valid()||!canOrders()||sequence!==ordersLoad||currentTab!==tab)return;
+    orders=Array.isArray(list)?list:list.pedidos||[];if(paint&&isOrdersTab())render();
   }
 
   async function openOrder(id){
     if(!valid()||!canOrders())return;const current=++detailId;screenId++;
     const data=await call('/tiendas/pedidos/'+encodeURIComponent(id)+query);
-    if(!valid()||current!==detailId||tab!=='pedidos'||!canOrders())return;
-    selectedOrder=data;render();root.querySelector('#ta-order-detail')?.scrollIntoView?.({behavior:'smooth',block:'start'});
+    if(!valid()||current!==detailId||!isOrdersTab()||!canOrders())return;
+    selectedOrder=data;voidId=null;render();root.querySelector('#ta-order-detail')?.scrollIntoView?.({behavior:'smooth',block:'start'});
   }
 
   async function complete(pending,result,screen){
@@ -169,8 +200,11 @@ export async function tiendaAdminView(view,ctx){
       else if(pending.kind==='config')config=result?.config||result;
       return;
     }
-    if(pending.kind==='pedido'){
-      selectedOrder=result?.pedido?result:null;await loadOrders(false);if(!valid()||screen!==screenId)return;render();toast(pending.path.endsWith('/cancelar')?'Pedido cancelado':'Pedido confirmado. El cobro se gestiona por separado.');
+    if(['pedido','cobro','anular_cobro'].includes(pending.kind)){
+      selectedOrder=result?.pedido?result:null;voidId=null;
+      try{await loadOrders(false);}catch(error){fail(error);}
+      if(!valid()||screen!==screenId)return;render();
+      toast(pending.kind==='cobro'?'Cobro registrado':pending.kind==='anular_cobro'?'Cobro anulado; stock conservado':pending.path.endsWith('/cancelar')?'Pedido cancelado':'Venta confirmada. El cobro se registra al recibir el dinero.');
     }else if(pending.kind==='producto'){
       const id=result?.producto?.id||result?.id||pending.entity;
       const saved=result?.producto||result;
@@ -282,11 +316,25 @@ export async function tiendaAdminView(view,ctx){
   }
 
   root.addEventListener('submit',async event=>{
-    const form=event.target;if(!['ta-config','ta-product-form'].includes(form.id))return;event.preventDefault();
+    const form=event.target;if(!['ta-config','ta-product-form','ta-payment-form','ta-payment-void-form'].includes(form.id))return;event.preventDefault();
     if(!valid()||busy)return;
     try{
       const values=new FormData(form);
-      if(form.id==='ta-config'){
+      if(form.id==='ta-payment-form'){
+        if(!canPay()||selectedOrder?.pedido?.estado!=='confirmado')return;
+        const monto=Math.round(Number(values.get('monto'))*100),summary=paymentSummary(selectedOrder),medio=String(values.get('medio_pago')||'');
+        if(!Number.isSafeInteger(monto)||monto<=0||monto>summary.saldo_centavos)throw Error('El importe debe ser mayor a cero y no superar el saldo de la venta.');
+        if(!['efectivo','transferencia'].includes(medio))throw Error('Elegí efectivo o transferencia.');
+        const body={version:selectedOrder.version,monto_centavos:monto,medio_pago:medio};
+        const date=String(values.get('fecha_hora')||''),input=form.elements.fecha_hora;
+        if(date&&date!==input.dataset.taDateDefault)body.fecha_hora=date+(date.length===16?':00':'')+'-03:00';
+        const nota=String(values.get('nota')||'').trim();if(nota)body.nota=nota;
+        await mutate('cobro','/tiendas/pedidos/'+encodeURIComponent(selectedOrder.pedido.id)+'/cobros','POST',body,selectedOrder.pedido.id);
+      }else if(form.id==='ta-payment-void-form'){
+        if(!canVoid()||!selectedOrder?.pedido?.id||!selectedOrder.cobros?.some(c=>c.id===voidId&&!c.anulado))return;
+        const motivo=String(values.get('motivo')||'').trim();if(!motivo)throw Error('Indicá el motivo de la anulación del cobro.');
+        await mutate('anular_cobro','/tiendas/pedidos/'+encodeURIComponent(selectedOrder.pedido.id)+'/cobros/'+encodeURIComponent(voidId)+'/anular','POST',{version:selectedOrder.version,motivo},selectedOrder.pedido.id);
+      }else if(form.id==='ta-config'){
         if(!ctx.admin)return;
         await mutate('config','/tiendas/config','PUT',{habilitada:values.has('habilitada'),slug:String(values.get('slug')||'').trim(),nombre:String(values.get('nombre')||'').trim(),descripcion:String(values.get('descripcion')||'').trim(),tipo:values.get('tipo'),whatsapp:String(values.get('whatsapp')||'').trim(),secciones:lines(values.get('secciones'))});
       }else{
@@ -339,7 +387,7 @@ export async function tiendaAdminView(view,ctx){
     const button=event.target.closest('button');if(!button||button.disabled||!root.contains(button)||!valid())return;
     try{
       if(button.hasAttribute('data-ta-load'))return await load();
-      if(button.dataset.taTab){const next=button.dataset.taTab;if(next==='tienda'&&!ctx.admin||next==='catalogo'&&!canEdit()||next==='pedidos'&&!canOrders())return;preserveProduct();tab=next;detailId++;screenId++;render();if(tab==='pedidos')await loadOrders();return;}
+      if(button.dataset.taTab){const next=button.dataset.taTab;if(next==='tienda'&&!ctx.admin||next==='catalogo'&&!canEdit()||['pedidos','encargos'].includes(next)&&!canOrders())return;preserveProduct();if(['pedidos','encargos'].includes(next)){selectedOrder=null;voidId=null;}tab=next;detailId++;screenId++;render();if(isOrdersTab())await loadOrders();return;}
       if(button.hasAttribute('data-ta-new'))return await openProduct(null);
       if(button.dataset.taEdit)return await openProduct(currentProduct(button.dataset.taEdit));
       if(button.hasAttribute('data-ta-product-close')){editing=null;screenId++;mediaId++;revokePreviews();render();return;}
@@ -356,6 +404,8 @@ export async function tiendaAdminView(view,ctx){
       if(button.hasAttribute('data-ta-orders-refresh'))return await loadOrders();
       if(button.hasAttribute('data-ta-csv')&&canOrders()){if(!ctx.download)throw Error('La descarga de contactos no está disponible.');await ctx.download('/tiendas/contactos.csv'+query,'contactos-tienda.csv');return;}
       if(button.dataset.taOrder)return await openOrder(button.dataset.taOrder);
+      if(button.dataset.taPaymentVoid&&canVoid()&&selectedOrder?.cobros?.some(c=>c.id===button.dataset.taPaymentVoid&&!c.anulado)){voidId=button.dataset.taPaymentVoid;render();root.querySelector('#ta-payment-void-form')?.scrollIntoView?.({behavior:'smooth',block:'center'});return;}
+      if(button.hasAttribute('data-ta-payment-void-cancel')){voidId=null;render();return;}
       if(button.dataset.taConfirm&&canOrders()&&selectedOrder?.pedido?.id===button.dataset.taConfirm)return await mutate('pedido','/tiendas/pedidos/'+encodeURIComponent(button.dataset.taConfirm)+'/confirmar','POST',{version:selectedOrder.version},button.dataset.taConfirm);
       if(button.dataset.taCancel&&canOrders()&&selectedOrder?.pedido?.id===button.dataset.taCancel){const motivo=root.querySelector('#ta-cancel-reason')?.value.trim();if(!motivo)throw Error('Indicá el motivo de la cancelación.');return await mutate('pedido','/tiendas/pedidos/'+encodeURIComponent(button.dataset.taCancel)+'/cancelar','POST',{version:selectedOrder.version,motivo},button.dataset.taCancel);}
       if(button.dataset.taMediaRemove&&canEdit()&&editing?.id)return await mutate('media','/tiendas/productos/'+encodeURIComponent(editing.id)+'/media/'+encodeURIComponent(button.dataset.taMediaRemove)+query,'DELETE',{version:mediaVersion},editing.id);

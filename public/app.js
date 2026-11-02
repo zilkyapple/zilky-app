@@ -306,7 +306,7 @@ async function viewTienda(view) {
     const blob=await(await requestFile(path)).blob();if(!valid())return;
     const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
   };
-  const {tiendaAdminView}=await import('./tiendaAdmin.js?v=20261102-tienda');
+  const {tiendaAdminView}=await import('./tiendaAdmin.js?v=20261102-cobros-encargos');
   if(valid())await tiendaAdminView(view,{api,setHTML,toast,negocio,admin:usuario?.rol==='administrador',puede,usuario,valid,refresh:render,upload,mediaPreview,download});
 }
 
@@ -645,7 +645,7 @@ async function viewClienteDetail(view, id) {
 
     <details class="client-section" open>
     <summary>Financiaciones y cuotas (${esc(c.creditos.length)})</summary>
-    ${c.creditos.length === 0 ? `<div class="empty-state"><p>Todavía no compró nada${esc(state.negocioActual ? ' en ' + negocioNombre(state.negocioActual) : '')}.</p></div>` : c.creditos.map((cr) => creditoCardHtml(cr)).join('')}
+    ${c.creditos.length === 0 ? `<div class="empty-state"><p>${c.pagos.some(p=>p.tipo==='pedido_web')?'No tiene financiaciones registradas': 'Todavía no compró nada'}${esc(state.negocioActual ? ' en ' + negocioNombre(state.negocioActual) : '')}.</p></div>` : c.creditos.map((cr) => creditoCardHtml(cr)).join('')}
     </details>
 
     <details class="client-section">
@@ -659,18 +659,20 @@ async function viewClienteDetail(view, id) {
   `);
 }
 
+function etiquetaPago(tipo) { return tipo==='entrega_inicial'?'Entrega inicial':tipo==='pedido_web'?'Cobro de pedido web':'Pago de cuota'; }
 function pagoHistorialHtml(p) {
   const momento=fechaHoraPagoAR(p.fecha_hora);
   const desglose=Number.isSafeInteger(p.capital_aplicado_centavos)&&Number.isSafeInteger(p.mora_aplicada_centavos);
   return `<div class="hist-row" style="display:block">
     <div style="display:flex;justify-content:space-between;align-items:start;gap:12px;flex-wrap:wrap">
-      <div style="min-width:0;flex:1 1 150px"><div class="hd">${esc(p.tipo==='entrega_inicial'?'Entrega inicial · ':'Pago de cuota · ')}${esc(p.medio_pago)}${p.anulado?' · <span style="color:var(--danger)">ANULADO</span>':''}</div>
+      <div style="min-width:0;flex:1 1 150px"><div class="hd">${esc(etiquetaPago(p.tipo))} · ${esc(p.medio_pago)}${p.anulado?' · <span style="color:var(--danger)">ANULADO</span>':''}</div>
         <div class="hm">${esc(fmtFecha(momento.fecha))} ${esc(momento.hora.slice(0,5))}</div></div>
       <div class="amt" style="white-space:nowrap;${esc(p.anulado?'color:var(--text-faint);text-decoration:line-through':'')}">+${esc(formatARS(p.monto_centavos))}</div>
     </div>
-    ${p.tipo!=='entrega_inicial'&&desglose?`<p class="field-hint" style="margin:8px 0">Aplicado a capital: ${esc(formatARS(p.capital_aplicado_centavos))} · A mora: ${esc(formatARS(p.mora_aplicada_centavos))}${p.remanente_centavos>0?` · A saldo a favor: ${esc(formatARS(p.remanente_centavos))}`:''}${p.anulado?' · Aplicación anulada.':''}</p>`:''}
+    ${!['entrega_inicial','pedido_web'].includes(p.tipo)&&desglose?`<p class="field-hint" style="margin:8px 0">Aplicado a capital: ${esc(formatARS(p.capital_aplicado_centavos))} · A mora: ${esc(formatARS(p.mora_aplicada_centavos))}${p.remanente_centavos>0?` · A saldo a favor: ${esc(formatARS(p.remanente_centavos))}`:''}${p.anulado?' · Aplicación anulada.':''}</p>`:''}
+    ${p.tipo==='pedido_web'?'<p class="field-hint">Cobro registrado desde Tienda web y pedidos.</p>':''}
     ${(p.aplicaciones||[]).length?`<details style="margin-top:8px"><summary>Ver aplicación del pago</summary>${p.aplicaciones.map(a=>`<p class="field-hint">Cuota ${esc(a.numero)} · Capital: ${esc(formatARS(a.capital_centavos))} · Mora: ${esc(formatARS(a.interes_mora_centavos))}</p>`).join('')}</details>`:''}
-    ${state.usuario?.rol==='administrador'&&!p.anulado&&p.id&&p.negocio_id?`<button class="btn btn-secondary" style="margin-top:10px" data-action="corregir-fecha-pago" data-id="${esc(p.id)}" data-negocio="${esc(p.negocio_id)}">Corregir fecha del pago</button>`:''}
+    ${state.usuario?.rol==='administrador'&&p.tipo!=='pedido_web'&&!p.anulado&&p.id&&p.negocio_id?`<button class="btn btn-secondary" style="margin-top:10px" data-action="corregir-fecha-pago" data-id="${esc(p.id)}" data-negocio="${esc(p.negocio_id)}">Corregir fecha del pago</button>`:''}
     ${(p.correcciones_fecha||[]).length?`<details style="margin-top:10px"><summary>Correcciones de fecha (${esc(p.correcciones_fecha.length)})</summary>${p.correcciones_fecha.map(c=>{
       const anterior=fechaHoraPagoAR(c.fecha_anterior),nueva=fechaHoraPagoAR(c.fecha_nueva);
       return `<p class="field-hint">${esc(fmtFecha(c.fecha_hora))} · ${esc(c.autor||'Administrador')}<br>${esc(fmtFecha(anterior.fecha))} ${esc(anterior.hora)} → ${esc(fmtFecha(nueva.fecha))} ${esc(nueva.hora)} (Argentina)<br>${esc(c.motivo)}</p>`;
@@ -1340,11 +1342,11 @@ async function viewComprobantes(view, clienteId = null) {
         <span class="avatar">${esc(c.estado === 'anulado' ? '✕' : '✓')}</span>
         <div class="list-item-body">
           <div class="list-item-title">${esc(c.numero)}${c.estado === 'anulado' ? ' <span class="badge badge-mora">Anulado</span>' : ''}</div>
-          <div class="list-item-sub">${esc(c.tipo_pago==='entrega_inicial'?'Entrega inicial':'Pago de cuota')} · ${esc(fmtFecha(c.fecha_hora))} · ${esc(c.medio_pago || '')}</div>
+          <div class="list-item-sub">${esc(etiquetaPago(c.tipo_pago))} · ${esc(fmtFecha(c.fecha_hora))} · ${esc(c.medio_pago || '')}</div>
         </div>
         <div class="list-item-trail">
           <div class="list-item-amount" style="${esc(c.estado === 'anulado' ? 'text-decoration:line-through;color:var(--text-faint)' : '')}">${esc(formatARS(c.monto_centavos))}</div>
-          ${c.estado !== 'anulado' && c.tipo_pago !== 'entrega_inicial' && puede('comprobantes.anular',state.negocioActual) ? `<button class="btn btn-ghost" style="padding:4px 8px;font-size:11px;margin-top:4px" data-action="anular-comprobante" data-id="${esc(c.id)}">Anular</button>` : ''}
+          ${c.estado !== 'anulado' && !['entrega_inicial','pedido_web'].includes(c.tipo_pago) && puede('comprobantes.anular',state.negocioActual) ? `<button class="btn btn-ghost" style="padding:4px 8px;font-size:11px;margin-top:4px" data-action="anular-comprobante" data-id="${esc(c.id)}">Anular</button>` : ''}
         </div>
       </div>
     `).join('')}

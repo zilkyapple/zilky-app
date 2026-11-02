@@ -56,8 +56,24 @@ El carrito y los pedidos pendientes no reservan ni descuentan stock. Al confirma
 un pedido se comprueba la disponibilidad y se descuenta una sola vez; cancelar un
 pendiente no mueve existencias y cancelar uno confirmado repone sólo lo que ese
 pedido descontó. Los reintentos no duplican pedidos ni movimientos. La confirmación
-es un pedido de mercadería: no registra automáticamente una venta, cuotas ni dinero
-cobrado; esos cobros se gestionan por separado.
+de la venta no registra dinero automáticamente. Después aparece **Registrar cobro**:
+se indica el importe realmente recibido, efectivo o transferencia y su fecha. Se
+admiten cobros parciales hasta completar el total, sin volver a descontar stock.
+Quien registra cobros necesita `tienda.pedidos` y `pagos.registrar` en ese negocio.
+Los cobros generan un pago y comprobante del sistema y se reflejan en caja e Inicio,
+sin crear cuotas, mora ni saldo a favor. La ficha financiera del cliente se crea al
+registrar el primer cobro, sin unir automáticamente identidades por teléfono.
+
+Si un cobro se cargó por error, puede anularse desde el pedido con motivo y permiso
+`comprobantes.anular`; los originales se conservan. Cancelar una venta con dinero
+recibido repone la mercadería y conserva esos cobros reales: no presume que se hizo
+una devolución de dinero. Los períodos de caja cerrados mantienen sus valores.
+
+Los productos agotados ofrecen **Pedir por encargo**. El cliente puede combinarlos
+con otros artículos en el carrito; cada línea queda marcada **Para encargar**, con
+el modelo, talle y color que pidió originalmente. **Encargos** permite consultar
+esas solicitudes dentro de la app. Siguen pendientes y sin movimientos de stock
+hasta que haya unidades disponibles y el negocio confirme la venta completa.
 
 Nombre, apellido, celular argentino normalizado como **+54 9** y email opcional se
 guardan con el pedido en tablas privadas por negocio, sin sobrescribir fichas de

@@ -67,6 +67,9 @@ export async function resumenGeneral(negocioId = null) {
   const cajaMesRow = await db.prepare(`SELECT COALESCE(SUM(monto_centavos),0) t FROM pagos WHERE substr(fecha_hora,1,7) = ? ${nf.replace('cr.negocio_id', 'negocio_id')} AND anulado = 0`).get(mesActual, ...np);
   const capitalColocadoRow = await db.prepare(`SELECT COALESCE(SUM(cr.saldo_financiado_centavos),0) t FROM creditos cr LEFT JOIN ventas v ON v.id=cr.venta_id WHERE COALESCE(v.estado,'activa') NOT IN ('anulada','devuelta') ${nf}`).get(...np);
   const ventasVendidoRow = await db.prepare(`SELECT COALESCE(SUM(monto_total_centavos-devolucion_centavos),0) t FROM ventas WHERE 1=1 ${nf.replace('cr.negocio_id', 'negocio_id')}`).get(...np);
+  // Confirming a web order is its sale; collecting it does not create another
+  // venta or a financing agreement. Pending/cancelled orders are not sales.
+  const pedidosVendidoRow = await db.prepare(`SELECT COALESCE(SUM(total_centavos),0) t FROM tienda_pedidos WHERE estado='confirmado' ${nf.replace('cr.negocio_id', 'negocio_id')}`).get(...np);
   const clientesTotalesRow = negocioId
     ? await db.prepare(`SELECT COUNT(DISTINCT cr.cliente_id)::int t FROM creditos cr JOIN clientes cl ON cl.id=cr.cliente_id WHERE cl.consumidor_final_negocio IS NULL ${nf}`).get(...np)
     : await db.prepare(`SELECT COUNT(*)::int t FROM clientes WHERE consumidor_final_negocio IS NULL`).get();
@@ -85,7 +88,7 @@ export async function resumenGeneral(negocioId = null) {
   }
 
   return {
-    vendidoTotalCentavos: Number(ventasVendidoRow.t),
+    vendidoTotalCentavos: Number(ventasVendidoRow.t) + Number(pedidosVendidoRow.t),
     cobradoHoyCentavos: cajaHoyRow.t,
     cobradoMesCentavos: cajaMesRow.t,
     porCobrarHoyCentavos: porCobrarHoy,
@@ -207,6 +210,7 @@ export async function historialFinancieroCliente(clienteId, negocioId = null) {
 
   const fv = filtroNegocioSql('negocio_id', negocioId);
   const fc = filtroNegocioSql('cr.negocio_id', negocioId);
+  const fp = filtroNegocioSql('tp.negocio_id', negocioId);
 
   const argsVentas = [clienteId, ...fv.params];
   const argsCuotas = [clienteId, ...fc.params];
@@ -231,9 +235,24 @@ export async function historialFinancieroCliente(clienteId, negocioId = null) {
   const fechasRow = await db.prepare(`SELECT MAX(fecha) t FROM ventas WHERE cliente_id = ? AND estado NOT IN ('anulada','devuelta') ${fv.sql}`).get(...argsVentas);
   const ultimoPagoRow = await db.prepare(`SELECT MAX(fecha_hora) t FROM pagos WHERE cliente_id = ? AND anulado = 0 ${fv.sql}`).get(...argsPagos);
   const finalizadasRow = await db.prepare(`SELECT COUNT(*)::int t FROM creditos cr LEFT JOIN ventas v ON v.id=cr.venta_id WHERE cr.cliente_id = ? ${fc.sql} AND cr.estado = 'finalizado' AND COALESCE(v.estado,'activa') NOT IN ('anulada','devuelta')`).get(...argsCreditos);
+  const pedidosRow = await db.prepare(`
+    SELECT COUNT(*)::int AS compras, MAX(substr(tp.confirmado_fecha,1,10)) AS ultima_compra,
+      COUNT(*) FILTER (WHERE tp.total_centavos > 0 AND COALESCE((
+        SELECT SUM(p.monto_centavos)
+        FROM tienda_pedido_cobros tc
+        JOIN pagos p ON p.id=tc.pago_id AND p.negocio_id=tp.negocio_id AND p.cliente_id=tp.cliente_id
+        JOIN comprobantes c ON c.id=tc.comprobante_id AND c.pago_id=p.id
+          AND c.negocio_id=tp.negocio_id AND c.cliente_id=tp.cliente_id
+        WHERE tc.pedido_id=tp.id AND tc.negocio_id=tp.negocio_id
+          AND p.tipo='pedido_web' AND p.credito_id IS NULL AND p.anulado=0 AND c.estado<>'anulado'
+      ),0) >= tp.total_centavos)::int AS finalizadas
+    FROM tienda_pedidos tp
+    WHERE tp.cliente_id=? AND tp.estado='confirmado' ${fp.sql}
+  `).get(clienteId, ...fp.params);
+  const ultimaCompra = [fechasRow.t, pedidosRow.ultima_compra].filter(Boolean).sort().at(-1) || null;
 
   return {
-    cantidadCompras: compras.t,
+    cantidadCompras: compras.t + pedidosRow.compras,
     cuotasTotales: cuotasRow.total,
     cuotasPagadas: cuotasRow.pagadas,
     cuotasPagadasATiempo: cuotasRow.a_tiempo,
@@ -243,8 +262,8 @@ export async function historialFinancieroCliente(clienteId, negocioId = null) {
     totalCobradoCentavos: cobradoRow.t,
     atrasoPromedioDias: Math.round(Number(cuotasRow.atraso_promedio) * 10) / 10,
     atrasoMaximoDias: cuotasRow.atraso_maximo,
-    fechaUltimaCompra: fechasRow.t,
+    fechaUltimaCompra: ultimaCompra,
     fechaUltimoPago: ultimoPagoRow.t,
-    comprasFinalizadas: finalizadasRow.t,
+    comprasFinalizadas: finalizadasRow.t + pedidosRow.finalizadas,
   };
 }

@@ -11,6 +11,7 @@ const listing=()=>({id:'web1',producto_id:'core1',nombre:'Funda transparente',de
 const core=()=>[{id:'core1',nombre:'Funda transparente',stock:5,precio_contado_centavos:123456,categoria:'Fundas'}];
 const order=()=>({id:'pedido1',codigo:'PED-001',estado:'pendiente',total_centavos:246912,contacto:{nombre:'Ana Contacto Privado',apellido:'Prueba',telefono:'5491166667777',email:'ana.privada@qa.invalid'},created_at:'2026-11-02T12:00:00Z'});
 const detail=()=>({pedido:order(),items:[{producto_id:'core1',nombre:'Funda transparente',cantidad:2,precio_unitario_centavos:123456,subtotal_centavos:246912}],stock:[{producto_id:'core1',nombre:'Funda transparente',cantidad:2,stock_actual:5,stock_despues:3}],version:'v-pedido'});
+const confirmedDetail=()=>({...detail(),pedido:{...order(),estado:'confirmado'},cobros:[],resumen_cobros:{cobrado_centavos:0,saldo_centavos:246912,estado:'sin_cobrar'}});
 const route=path=>path.split('?')[0];
 const isWrite=call=>call.opts.method&&call.opts.method!=='GET';
 
@@ -272,5 +273,146 @@ test('Tienda admin: una consulta tardía no reemplaza otra pantalla',async()=>{
   try {
     const pending=b.mount();b.view.textContent='Otra pantalla';resolveConfig({config:config(),estadisticas:{}});await pending;
     assert.equal(b.view.textContent,'Otra pantalla');assert.equal(b.el('#ta-config,[data-ta-new]'),null);
+  }finally{b.w.close();}
+});
+
+test('Tienda admin: confirmar una venta conserva el cobro en cero hasta registrar dinero recibido',async()=>{
+  const b=browser({permisos:['tienda.pedidos','pagos.registrar'],respond:(path,opts,fallback)=>isWrite({opts})?confirmedDetail():fallback(path,opts)});
+  try{
+    await b.mount();b.el('[data-ta-order="pedido1"]').click();await tick();
+    assert.equal(b.el('#ta-payment-form'),null);assert.equal(b.el('[data-ta-payment-summary]'),null);
+    assert.equal(b.el('[data-ta-confirm]').textContent,'Confirmar venta y descontar stock');
+    b.el('[data-ta-confirm]').click();await tick();
+    assert.match(writes(b)[0].path,/\/confirmar$/);
+    const body=JSON.parse(writes(b)[0].opts.body);
+    assert.deepEqual(Object.keys(body).sort(),['negocio_id','solicitud_id','version']);
+    assert.equal(b.el('[data-ta-payment-summary]').dataset.estado,'sin_cobrar');
+    assert.equal(b.el('#ta-payment-form [name="monto"]').value,'2469.12');
+    assert.match(b.el('.ta-payment-summary').textContent,/Cobrado.*0,00/);
+  }finally{b.w.close();}
+});
+
+test('Tienda admin: leer pedidos permite consultar cobros, registrarlos requiere permiso de pagos del mismo negocio',async()=>{
+  for(const permisos of [['tienda.pedidos'],['tienda.pedidos','pagos.registrar'],['pagos.registrar']]){
+    const b=browser({permisos,respond:(path,opts,fallback)=>route(path)==='/tiendas/pedidos/pedido1'?confirmedDetail():fallback(path,opts)});
+    try{
+      await b.mount();
+      if(!permisos.includes('tienda.pedidos')){assert.equal(b.calls.length,0);continue;}
+      b.el('[data-ta-order="pedido1"]').click();await tick();
+      assert.ok(b.el('[data-ta-payment-summary]'));
+      assert.equal(Boolean(b.el('#ta-payment-form')),permisos.includes('pagos.registrar'));
+      if(!permisos.includes('pagos.registrar'))assert.match(b.el('#ta-order-detail').textContent,/Necesitás el permiso Registrar pagos/);
+    }finally{b.w.close();}
+  }
+});
+
+test('Tienda admin: un cobro parcial usa centavos, fecha argentina explícita y sólo efectivo o transferencia',async()=>{
+  const b=browser({permisos:['tienda.pedidos','pagos.registrar'],respond:(path,opts,fallback)=>{
+    if(route(path)==='/tiendas/pedidos/pedido1/cobros')return {...confirmedDetail(),resumen_cobros:{cobrado_centavos:100000,saldo_centavos:146912,estado:'parcial'}};
+    return route(path)==='/tiendas/pedidos/pedido1'?confirmedDetail():fallback(path,opts);
+  }});
+  try{
+    await b.mount();b.el('[data-ta-order="pedido1"]').click();await tick();
+    b.el('#ta-payment-form [name="monto"]').value='1000';b.el('#ta-payment-form [name="medio_pago"]').value='transferencia';
+    b.el('#ta-payment-form [name="fecha_hora"]').value='2026-11-02T13:45:20';b.el('#ta-payment-form [name="nota"]').value='Transferencia recibida';
+    submit(b,'#ta-payment-form');submit(b,'#ta-payment-form');await tick();
+    assert.equal(writes(b).length,1);const body=JSON.parse(writes(b)[0].opts.body);
+    assert.equal(body.monto_centavos,100000);assert.equal(body.medio_pago,'transferencia');assert.equal(new Date(body.fecha_hora).toISOString(),'2026-11-02T16:45:20.000Z');assert.match(body.fecha_hora,/-03:00$/);
+    assert.equal(body.nota,'Transferencia recibida');assert.equal(body.version,'v-pedido');assert.equal(body.negocio_id,'n');
+    assert.equal(b.el('[data-ta-payment-summary]').dataset.estado,'parcial');assert.equal(b.el('#ta-payment-form [name="monto"]').value,'1469.12');
+  }finally{b.w.close();}
+});
+
+test('Tienda admin: la fecha sin editar queda a cargo del servidor y un cobro no supera el saldo',async()=>{
+  const b=browser({permisos:['tienda.pedidos','pagos.registrar'],respond:(path,opts,fallback)=>route(path)==='/tiendas/pedidos/pedido1'?confirmedDetail():fallback(path,opts)});
+  try{
+    await b.mount();b.el('[data-ta-order="pedido1"]').click();await tick();
+    b.el('#ta-payment-form [name="monto"]').value='2500';submit(b,'#ta-payment-form');await tick();assert.equal(writes(b).length,0);
+    b.el('#ta-payment-form [name="monto"]').value='100';submit(b,'#ta-payment-form');await tick();
+    const body=JSON.parse(writes(b)[0].opts.body);assert.equal(body.monto_centavos,10000);assert.equal('fecha_hora' in body,false);assert.equal('nota' in body,false);
+  }finally{b.w.close();}
+});
+
+test('Tienda admin: respuesta incierta de un cobro conserva cuerpo y UUID al cambiar campos y recargar',async()=>{
+  let uncertain=true;
+  const b=browser({permisos:['tienda.pedidos','pagos.registrar'],respond:(path,opts,fallback)=>{
+    if(route(path)==='/tiendas/pedidos/pedido1/cobros'){if(uncertain)throw Error('Respuesta de red perdida');return {...confirmedDetail(),resumen_cobros:{cobrado_centavos:10000,saldo_centavos:236912,estado:'parcial'}};}
+    return route(path)==='/tiendas/pedidos/pedido1'?confirmedDetail():fallback(path,opts);
+  }});
+  try{
+    await b.mount();b.el('[data-ta-order="pedido1"]').click();await tick();
+    b.el('#ta-payment-form [name="monto"]').value='100';submit(b,'#ta-payment-form');await tick();
+    const first=writes(b)[0];assert.ok(b.el('[data-ta-retry]'));assert.ok(storageText(b).includes('monto_centavos'));
+    assert.equal(storageText(b).includes(order().contacto.email),false);
+    b.el('#ta-payment-form [name="monto"]').value='500';await b.mount();uncertain=false;
+    b.el('[data-ta-retry]').click();await tick();
+    assert.equal(writes(b).length,2);assert.equal(writes(b)[1].opts.body,first.opts.body);assert.equal(writes(b)[1].path,first.path);
+    assert.equal(b.el('[data-ta-retry]'),null);assert.equal(b.el('[data-ta-payment-summary]').dataset.estado,'parcial');
+  }finally{b.w.close();}
+});
+
+test('Tienda admin: revocar pagos mientras el formulario está abierto bloquea el envío y el reintento',async()=>{
+  const b=browser({permisos:['tienda.pedidos','pagos.registrar'],respond:(path,opts,fallback)=>{
+    if(route(path)==='/tiendas/pedidos/pedido1/cobros')throw Error('Red interrumpida');
+    return route(path)==='/tiendas/pedidos/pedido1'?confirmedDetail():fallback(path,opts);
+  }});
+  try{
+    await b.mount();b.el('[data-ta-order="pedido1"]').click();await tick();
+    b.allowed.delete('pagos.registrar');submit(b,'#ta-payment-form');await tick();assert.equal(writes(b).length,0);
+    b.allowed.add('pagos.registrar');submit(b,'#ta-payment-form');await tick();assert.equal(writes(b).length,1);
+    b.allowed.delete('pagos.registrar');b.el('[data-ta-retry]').click();await tick();assert.equal(writes(b).length,1);
+  }finally{b.w.close();}
+});
+
+test('Tienda admin: anular un cobro exige permiso y motivo, y conserva la versión revisada',async()=>{
+  const paid={...confirmedDetail(),cobros:[{id:'cobro1',pago_id:'pago1',monto_centavos:10000,medio_pago:'efectivo',fecha_hora:'2026-11-02T13:00:00-03:00',comprobante:{numero:'QA-0001'},anulado:false}],resumen_cobros:{cobrado_centavos:10000,saldo_centavos:236912,estado:'parcial'}};
+  for(const permisos of [['tienda.pedidos'],['tienda.pedidos','comprobantes.anular']]){
+    const b=browser({permisos,respond:(path,opts,fallback)=>{
+      if(route(path).endsWith('/cobros/cobro1/anular'))return {...confirmedDetail(),cobros:[{...paid.cobros[0],anulado:true}]};
+      return route(path)==='/tiendas/pedidos/pedido1'?paid:fallback(path,opts);
+    }});
+    try{
+      await b.mount();b.el('[data-ta-order="pedido1"]').click();await tick();
+      assert.match(b.el('[data-ta-payment-id="cobro1"]').textContent,/QA-0001/);
+      assert.equal(Boolean(b.el('[data-ta-payment-void]')),permisos.includes('comprobantes.anular'));
+      if(!permisos.includes('comprobantes.anular'))continue;
+      b.el('[data-ta-payment-void]').click();submit(b,'#ta-payment-void-form');await tick();assert.equal(writes(b).length,0);
+      b.el('#ta-payment-void-form [name="motivo"]').value='Importe cargado por error';submit(b,'#ta-payment-void-form');await tick();
+      const body=JSON.parse(writes(b)[0].opts.body);assert.equal(body.version,'v-pedido');assert.equal(body.motivo,'Importe cargado por error');
+      assert.match(writes(b)[0].path,/\/cobros\/cobro1\/anular$/);assert.equal(b.el('[data-ta-payment-summary]').dataset.estado,'sin_cobrar');assert.match(b.el('[data-ta-payment-id="cobro1"]').textContent,/Anulado/);
+    }finally{b.w.close();}
+  }
+});
+
+test('Tienda admin: cancelar una venta cobrada comunica la conservación de cobros y no crea un reintegro',async()=>{
+  const paid={...confirmedDetail(),cobros:[{id:'cobro1',monto_centavos:246912,medio_pago:'transferencia',fecha_hora:'2026-11-02T13:00:00-03:00'}],resumen_cobros:{cobrado_centavos:246912,saldo_centavos:0,estado:'cobrado'}};
+  const b=browser({permisos:['tienda.pedidos','pagos.registrar'],respond:(path,opts,fallback)=>route(path)==='/tiendas/pedidos/pedido1'?paid:route(path).endsWith('/cancelar')?{...paid,pedido:{...paid.pedido,estado:'cancelado'}}:fallback(path,opts)});
+  try{
+    await b.mount();b.el('[data-ta-order="pedido1"]').click();await tick();
+    assert.equal(b.el('#ta-payment-form'),null);assert.match(b.el('.ta-cancel').textContent,/cancelar repone el stock y conserva los cobros/);
+    b.el('#ta-cancel-reason').value='Cliente no retira';b.el('[data-ta-cancel]').click();await tick();
+    assert.equal(writes(b).length,1);assert.match(writes(b)[0].path,/\/cancelar$/);
+    assert.equal('monto_centavos' in JSON.parse(writes(b)[0].opts.body),false);assert.equal(b.el('[data-ta-payment-summary]').dataset.estado,'cobrado');
+    assert.ok(b.el('[data-ta-payment-id="cobro1"]'));assert.equal(b.el('#ta-payment-form'),null);
+  }finally{b.w.close();}
+});
+
+test('Tienda admin: Encargos filtra pedidos y muestra variantes guardadas, importe estimado y falta de stock',async()=>{
+  let available=false;
+  const requested={...detail(),pedido:{...order(),has_encargos:true},has_encargos:true,items:[{...detail().items[0],es_encargo:true,opciones:{modelos:['iPhone 15 Pro'],talle:'M',color:'Azul'}}],stock:[{...detail().stock[0],stock_actual:0,insuficiente:true}]};
+  const b=browser({permisos:['tienda.pedidos'],respond:(path,opts,fallback)=>{
+    if(route(path)==='/tiendas/pedidos')return [{...order(),has_encargos:true}];
+    if(route(path)==='/tiendas/pedidos/pedido1')return available?{...requested,version:'v-stock-nuevo',stock:[{...requested.stock[0],stock_actual:5,insuficiente:false}]}:requested;
+    return fallback(path,opts);
+  }});
+  try{
+    await b.mount();b.el('[data-ta-tab="encargos"]').click();await tick();
+    assert.ok(b.calls.some(c=>c.path==='/tiendas/pedidos?negocio_id=n&encargos=true'));
+    b.el('[data-ta-order="pedido1"]').click();await tick();
+    assert.match(b.el('#ta-order-detail').textContent,/Para encargar.*iPhone 15 Pro · Talle M · Azul/s);assert.match(b.el('.ta-order-total').textContent,/Total estimado/);
+    assert.match(b.el('.ta-stock-notice').textContent,/Falta stock/);assert.equal(b.el('[data-ta-confirm]').disabled,true);b.el('[data-ta-confirm]').click();await tick();assert.equal(writes(b).length,0);
+    available=true;b.el('#ta-order-detail [data-ta-order="pedido1"]').click();await tick();assert.equal(b.el('[data-ta-confirm]').disabled,false);
+    b.el('[data-ta-confirm]').click();await tick();assert.equal(JSON.parse(writes(b)[0].opts.body).version,'v-stock-nuevo');
+    assert.equal('monto_centavos' in JSON.parse(writes(b)[0].opts.body),false);
   }finally{b.w.close();}
 });

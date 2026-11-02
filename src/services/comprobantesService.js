@@ -22,6 +22,7 @@ export async function anularComprobante(comprobanteId, { motivo, usuarioId }) {
   return db.transaction(async () => {
   const inicial=await getComprobante(comprobanteId);
   if(!inicial) throw badRequest('Comprobante no encontrado');
+  if(inicial.tipo_pago==='pedido_web')throw Object.assign(new Error('Anulá el cobro desde el pedido de la tienda'),{status:409});
   await db.lockClienteNegocio(inicial.cliente_id,inicial.negocio_id);
   await db.prepare('SELECT id FROM comprobantes WHERE id=? FOR UPDATE').get(comprobanteId);
   const comprobante = await getComprobante(comprobanteId);
