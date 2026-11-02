@@ -34,6 +34,7 @@ function aplicarPermisosUI(root) {
   const admin=state.usuario?.rol==='administrador';
   const links={'#/productos':'productos.ver','#/comprobantes':'comprobantes.ver','#/ventas/nueva':'ventas.crear','#/clientes':'clientes.ver','#/cobrar':'cobranzas.ver','#/calendario':'cobranzas.ver'};
   root.querySelectorAll('a[href]').forEach(a=>{const href=a.getAttribute('href');if(links[href])a.hidden=!puede(links[href]);if(href?.startsWith('#/ventas/nueva/'))a.hidden=!puede('ventas.crear');if(href==='#/configuracion')a.hidden=!admin;if(href==='#/empleados')a.hidden=!puede('empleados.gestionar',null);});
+  root.querySelectorAll('a[href="#/tienda"]').forEach(a=>a.hidden=!admin&&!puede('tienda.editar')&&!puede('tienda.pedidos'));
   const actions={'registrar-pago':'pagos.registrar','editar-cliente':'clientes.editar','editar-seguimiento':'clientes.editar','crear-cliente-inline':'clientes.editar','nueva-venta':'ventas.crear','ir-cobrar':'cobranzas.ver','anular-comprobante':'comprobantes.anular','corregir-financiacion':'cuotas.editar'};
   root.querySelectorAll('[data-action]').forEach(el=>{const action=el.dataset.action;if(actions[action])el.hidden=!puede(actions[action],el.dataset.negocio||state.negocioActual);if(['abrir-crear-negocio','crear-producto'].includes(action))el.hidden=!admin;});
 }
@@ -268,6 +269,7 @@ async function render() {
     else if (root === 'ventas' && parts[1] === 'historial') await viewHistorialVentas(view);
     else if (root === 'ventas') await viewVentaNueva(view, parts[1] === 'nueva' ? parts[2] || null : parts[1] || null);
     else if (root === 'productos') await viewProductos(view);
+    else if (root === 'tienda') await viewTienda(view);
     else if (root === 'comprobantes') await viewComprobantes(view, parts[1] === 'cliente' ? parts[2] || null : null);
     else if (root === 'configuracion') await viewConfiguracion(view);
     else if (root === 'empleados') await viewEmpleados(view);
@@ -282,6 +284,31 @@ async function render() {
   }
 }
 const notFound = () => '<div class="empty-state"><p>No encontrado.</p></div>';
+
+async function viewTienda(view) {
+  const negocio=state.negocioActual,usuario=state.usuario,token=getToken(),usuarioId=state.usuario?.id,rol=state.usuario?.rol;
+  if(!negocio){setHTML(view,'<div class="empty-state"><p>Elegí un negocio en Cambiar para administrar su tienda web.</p></div>');return;}
+  const permitido=()=>puede('tienda.editar',negocio)||puede('tienda.pedidos',negocio);
+  if(!permitido()){setHTML(view,'<div class="empty-state"><p>No tenés permiso para administrar la tienda de este negocio.</p></div>');return;}
+  const valid=()=>view.isConnected&&getToken()===token&&state.negocioActual===negocio&&state.usuario?.id===usuarioId&&state.usuario?.rol===rol&&permitido();
+  async function requestFile(path,opts={}) {
+    if(!valid())throw new Error('La sesión o el negocio cambió. Volvé a abrir la tienda.');
+    const res=await fetch('/api'+path,{...opts,headers:{Authorization:'Bearer '+token,...opts.headers}});
+    if(!res.ok){let error;try{error=await res.json();}catch{}throw Object.assign(new Error(error?.error||'No se pudo completar la operación'),{status:res.status});}
+    if(!valid())throw new Error('La sesión o el negocio cambió. Volvé a abrir la tienda.');
+    return res;
+  }
+  const upload=async(path,file,{solicitudId}={})=>{
+    const res=await requestFile(path,{method:'POST',headers:{'Content-Type':file.type||'application/octet-stream','X-Filename':encodeURIComponent(file.name||'archivo'),...(solicitudId?{'X-Solicitud-Id':solicitudId}:{})},body:file});return res.json();
+  };
+  const mediaPreview=async path=>(await requestFile(path)).blob();
+  const download=async(path,filename='contactos-tienda.csv')=>{
+    const blob=await(await requestFile(path)).blob();if(!valid())return;
+    const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  };
+  const {tiendaAdminView}=await import('./tiendaAdmin.js?v=20261102-tienda');
+  if(valid())await tiendaAdminView(view,{api,setHTML,toast,negocio,admin:usuario?.rol==='administrador',puede,usuario,valid,refresh:render,upload,mediaPreview,download});
+}
 
 async function viewHistorialVentas(view) {
   const token=getToken(),negocio=state.negocioActual,usuarioId=state.usuario?.id,rol=state.usuario?.rol;
@@ -1411,6 +1438,7 @@ async function viewMas(view) {
   setHTML(view, `
     <div class="section-title">Más</div>
     <a class="list-item" href="#/productos"><span class="avatar">${iconProductos()}</span><div class="list-item-body"><div class="list-item-title">Productos y stock</div></div><span class="chev">${iconChevron()}</span></a>
+    <a class="list-item" href="#/tienda"><span class="avatar">${iconProductos()}</span><div class="list-item-body"><div class="list-item-title">Tienda web y pedidos</div><div class="list-item-sub">Catálogo para compartir con tus clientes</div></div><span class="chev">${iconChevron()}</span></a>
     <a class="list-item" href="#/comprobantes"><span class="avatar">🧾</span><div class="list-item-body"><div class="list-item-title">Comprobantes</div></div><span class="chev">${iconChevron()}</span></a>
     <a class="list-item" href="#/configuracion"><span class="avatar">⚙️</span><div class="list-item-body"><div class="list-item-title">Configuración del negocio</div></div><span class="chev">${iconChevron()}</span></a>
     <a class="list-item" href="#/empleados"><span class="avatar">👥</span><div class="list-item-body"><div class="list-item-title">Empleados y permisos</div></div><span class="chev">${iconChevron()}</span></a>
@@ -1425,8 +1453,8 @@ async function viewMas(view) {
 }
 
 // ---------------- Empleados y permisos ----------------
-const PERMISOS_EMPLEADO = ['clientes.ver','clientes.editar','cuotas.editar','ventas.crear','pagos.registrar','productos.ver','cobranzas.ver','costos.ver','comprobantes.anular','empleados.gestionar'];
-const ETIQUETAS_PERMISOS_EMPLEADO = {'cuotas.editar':'Editar cuotas'};
+const PERMISOS_EMPLEADO = ['clientes.ver','clientes.editar','cuotas.editar','ventas.crear','pagos.registrar','productos.ver','tienda.editar','tienda.pedidos','cobranzas.ver','costos.ver','comprobantes.anular','empleados.gestionar'];
+const ETIQUETAS_PERMISOS_EMPLEADO = {'cuotas.editar':'Editar cuotas','tienda.editar':'Administrar productos de la tienda web','tienda.pedidos':'Gestionar pedidos y contactos de la tienda web'};
 function parseJsonSeguro(v, fallback = {}) { if (v && typeof v === 'object') return v; try { return JSON.parse(v || ''); } catch { return fallback; } }
 function resumenAsignaciones(asignaciones, negocioMap) {
   return asignaciones.filter(a => a.activo !== 0).map(a => `<details><summary>${esc(negocioMap[a.negocio_id]?.nombre || a.negocio_id)}</summary><p>${esc(Object.entries(parseJsonSeguro(a.permisos)).filter(([,v])=>v===true).map(([p])=>ETIQUETAS_PERMISOS_EMPLEADO[p]||p).join(' · ') || 'Sin permisos habilitados')}</p></details>`).join('') || 'Sin negocios asignados';
@@ -1459,7 +1487,7 @@ async function viewEmpleados(view) {
   setHTML(view, html);
 }
 function bloquePermisos(n, prefijo, permisos, activo) {
-  return `<fieldset class="employee-business"><legend><label><input type="checkbox" class="${esc(prefijo)}-negocio-check" data-id="${esc(n.id)}" ${activo ? 'checked' : ''}> ${esc(n.nombre)}</label></legend><div class="employee-permissions">${PERMISOS_EMPLEADO.map(p => `<label><input type="checkbox" class="${esc(prefijo)}-permiso-check" data-negocio="${esc(n.id)}" data-permiso="${esc(p)}" ${permisos[p] === true ? 'checked' : ''} ${activo ? '' : 'disabled'}> ${p==='cuotas.editar'?`<span>${esc(ETIQUETAS_PERMISOS_EMPLEADO[p])}<br><small class="field-hint">Corregir vencimientos e importes de cuotas pendientes. Requiere ver clientes.</small></span>`:esc(p)}</label>`).join('')}</div></fieldset>`;
+  return `<fieldset class="employee-business"><legend><label><input type="checkbox" class="${esc(prefijo)}-negocio-check" data-id="${esc(n.id)}" ${activo ? 'checked' : ''}> ${esc(n.nombre)}</label></legend><div class="employee-permissions">${PERMISOS_EMPLEADO.map(p => `<label><input type="checkbox" class="${esc(prefijo)}-permiso-check" data-negocio="${esc(n.id)}" data-permiso="${esc(p)}" ${permisos[p] === true ? 'checked' : ''} ${activo ? '' : 'disabled'}> ${p==='cuotas.editar'?`<span>${esc(ETIQUETAS_PERMISOS_EMPLEADO[p])}<br><small class="field-hint">Corregir vencimientos e importes de cuotas pendientes. Requiere ver clientes.</small></span>`:esc(ETIQUETAS_PERMISOS_EMPLEADO[p]||p)}</label>`).join('')}</div></fieldset>`;
 }
 document.addEventListener('change', e => {
   if (e.target.matches('.inv-negocio-check,.edit-negocio-check')) {

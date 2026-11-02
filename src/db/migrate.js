@@ -1,4 +1,6 @@
 import {ventasComisionesSchema} from './ventasComisionesSchema.js';
+import {tiendasSchema} from './tiendasSchema.js';
+import {tiendaMediaSchema} from './tiendaMediaSchema.js';
 import {stockSchema} from './stockSchema.js';
 import {comisionesSchema} from './comisionesSchema.js';
 import {contratosSchema} from './contratosSchema.js';
@@ -483,6 +485,8 @@ export async function migrate() {
     await db.exec(comisionesSchema);
     await db.exec(stockSchema);
     await db.exec(ventasComisionesSchema);
+    await db.exec(tiendasSchema);
+    await db.exec(tiendaMediaSchema);
     await db.exec(`
       ALTER TABLE creditos ADD COLUMN IF NOT EXISTS producto_descripcion TEXT;
       ALTER TABLE creditos ADD COLUMN IF NOT EXISTS condiciones TEXT;

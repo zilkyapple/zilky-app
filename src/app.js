@@ -2,6 +2,9 @@ import {exportacionesRouter} from './routes/exportaciones.js';
 import {comisionesRouter} from './routes/comisiones.js';
 import {contratosRouter} from './routes/contratos.js';
 import {cajasRouter} from './routes/cajas.js';
+import { tiendasRouter, tiendaPublicaRouter } from './routes/tiendas.js';
+import { tiendaPedidosRouter, tiendaPedidosPublicosRouter } from './routes/tiendaPedidos.js';
+import { tiendaMediaRouter, tiendaMediaPublicaRouter } from './routes/tiendaMedia.js';
 import express from 'express';
 import cors from 'cors';
 import path from 'node:path';
@@ -21,22 +24,33 @@ import { cargarUsuario, requireAuth } from './middleware/authorize.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const app = express();
+app.set('trust proxy', 1);
+app.set('query parser', 'simple');
 
 app.use((req,res,next)=>{
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
   res.setHeader('X-Content-Type-Options','nosniff');
   res.setHeader('Referrer-Policy','no-referrer');
   if(req.path.startsWith('/api'))res.setHeader('Cache-Control','no-store');
-  else if(['/', '/index.html', '/app.js', '/styles.css'].includes(req.path))res.setHeader('Cache-Control','no-cache');
+  else if(['/', '/index.html', '/app.js', '/styles.css', '/tienda.html', '/tienda.js', '/tienda.css', '/tiendaAdmin.js', '/tiendaAdmin.css'].includes(req.path)||req.path.startsWith('/tienda/'))res.setHeader('Cache-Control','no-cache');
   next();
 });
-app.use(express.json());
+app.use(express.json({inflate:false}));
+
+// El catálogo y los pedidos de clientes se abren sin una cuenta de empleado.
+app.use('/api/tienda-publica', tiendaPublicaRouter);
+app.use('/api/tienda-publica', tiendaPedidosPublicosRouter);
+app.use('/api/tienda-media', tiendaMediaPublicaRouter);
 
 // Cargar usuario en todas las rutas /api (puede ser null si no hay token)
 app.use('/api', cargarUsuario);
 
 app.use('/api/auth', authRouter);
 app.use('/api', requireAuth); // a partir de acá todo requiere token válido
+
+app.use('/api/tiendas', tiendaMediaRouter);
+app.use('/api/tiendas', tiendaPedidosRouter);
+app.use('/api/tiendas', tiendasRouter);
 
 app.use('/api/cajas', cajasRouter);
 app.use('/api/exportaciones',exportacionesRouter);
@@ -52,6 +66,7 @@ app.use('/api/comprobantes', comprobantesRouter);
 app.use('/api/usuarios', usuariosRouter);
 app.use('/api/invitaciones', invitacionesRouter);
 
+app.get('/tienda/:slug', (req,res)=>res.sendFile(path.join(__dirname,'..','public','tienda.html')));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 app.use((err, req, res, next) => {
