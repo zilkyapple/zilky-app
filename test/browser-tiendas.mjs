@@ -25,7 +25,7 @@ await fs.mkdir(output, { recursive: true });
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aVioAAAAASUVORK5CYII=', 'base64');
 // MP4 H.264 real de medio segundo, generado para esta prueba; no usa ffmpeg en CI.
 const video = gunzipSync(Buffer.from('H4sIAAAAAAACA61UTWzcRBSeTdIq9Ie2IpEARWKACC7JxvYumx9kKZsoYlGL4NIipErWeDxeuzv+yXiSeHuAIAKqxLFSET1EXKpCqVCFED0BPYDEz6E3RCQuqAVRKn4ULrmQ5Y13t+sEyAlrx/PevO97P/OeFyGEXdmM/SQKEOpDaodlkGWqB3FZR6j/2yCKlhFCPFj2HLTj6f8ZOIOogNSv9xR2onbrs2jPpw/8FqQgDZBPy0YWs/+f3iAu2jvOv8Z9B1aaqaPMkQnsI4wnssdQfgc63L5m4PgEBBw4u2s3YD2MTn6eKeOew0XXsuw7LI88BXpUI6HDmcL0jQZ+6IIwtBxkTvNpjjpt24gjmJsr49CS4LgtF24n0uYg30hk4uQw11TT/uMqVOEpqsFe6yKGTwC+ohf16aKu6Zj7dmpUyjnGg60WvCuAmi846GDrB/RQHfarG3NrL58emFVdgdeh1744wFYLaL9399Y3j934a2tLcY/GJIk7eag1ZEvRueTJC13/icwa0M33cNZ7wEJd+XO1UtrDHm6fDXTsB9BO/V4j/w/7CORCd+XSiY9qYDubuy+V/y+q9g6mu4ZhHdlDh3pp1IsxsB92suRINXgvBSzb1fNofshgMAWJY55v8ZjfnuTR92QUZUNEMnJWFHTbhW5PQrNLoA66gsGU9l8KAASJf7B/X6t15fuFO5/8tFG7fmHsO7zx+G+/q4nA45hGgmEdRFHStSlc0pk+7U6DoVYEwMRzLyw8M17G1VPzgHQYBcN8FDc5cyU2NK00bmhGCQ49KeOZiYmVlZWi+kYiTsJiJOoTKkrRkwEHTBRLPwqTGUyJTaipY/gOzBJ2mM0j2jD1GW1GwyQkvJkwU0tLM1qq6yUcMNNjKU6WbJAmcZw0gQpvSzimXtSABC8c+ClzLOVRB4YlSFhnpl7B1BNRQCyg6lgKxrmfgDSVTjlUgkAXA1ODFIhzNgqZaehjuo5dkkgrThp+rBBtB4uxFbluwqQ5bmDpCWAkZhnzKGoQDxSre6bjhPuU9Q40HIosBvUDIlUefiiZ4ARAcG7zJUGaFo2CmEjQKVwR/EX6IbgAoCAK4woSsAQuy7biJsi+YxogE4fEqgrbsn2iIsHksKyuFebXPWmDFMUstOpRDNb2YQzUBmuCb9N4SuuIFvxxgYoTykJGl6RZ1nAWXV2pYIkHdEGte+Uqu6AmFS4O4PtnqixQTKNU1PCiKsbUihUQY+U420lqVqZBSCSL4eb8GJoEAwE9BF9kEfqvuolWYYLL7Nwaerq1fev9raFPm08+8eH5zbmP6PM3h97imw9Mjlw7eeTmlR/DP9jHx49voi/RvtuP/CrfVH+l1YujfP6V7ctr6E/l577q+lz6egudf1UphXUi5z5DX622FXpGKcpyrHrRe/bdqvf2icF6a3v9aP91ODxYXX9j4djYRI99SXYJoFw+03UF7KvA5sB+sbU9NXv/uTb764XhPPtOPvbdNvtvMzCxbqMHAAA=', 'base64'));
-const results = [], errors = [], captures = [], requests = [], external = [], rejectedResponses = [];
+const results = [], errors = [], captures = [], requests = [], external = [], rejectedResponses = [], measurements = [];
 let browser, server, owner, publicPage, employeePage, failed;
 const check = async (name, fn) => { try { await fn(); results.push({ name, passed: true }); console.log('PASS ' + name); } catch (error) { results.push({ name, passed: false, error: error.message }); throw error; } };
 const financialTables = ['ventas', 'creditos', 'cuotas', 'pagos', 'pago_aplicaciones', 'comprobantes', 'comision_acuerdos', 'comision_generaciones', 'comision_eventos'];
@@ -76,7 +76,15 @@ try {
   }
   async function capture(page, name) {
     await page.screenshot({ path: path.join(output, name + '.png'), fullPage: true });
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Desborde horizontal en ' + name);
+    const bounds = await page.evaluate(() => ({ viewport: innerWidth, documentWidth: document.documentElement.scrollWidth,
+      overflow: [...document.querySelectorAll('body *')].map(element => {
+        const rect = element.getBoundingClientRect(), style = getComputedStyle(element);
+        return { selector: element.tagName.toLowerCase() + (element.id ? '#' + element.id : '') + (typeof element.className === 'string' && element.className ? '.' + element.className.trim().replace(/\s+/g, '.') : ''),
+          text: (element.textContent || '').trim().slice(0, 110), left: rect.left, right: rect.right, width: rect.width,
+          clientWidth: element.clientWidth, scrollWidth: element.scrollWidth, display: style.display, overflowWrap: style.overflowWrap, minWidth: style.minWidth };
+      }).filter(e => e.width > 0 && (e.left < -1 || e.right > innerWidth + 1 || e.scrollWidth > e.clientWidth + 1)).slice(0, 40) }));
+    measurements.push({ name, ...bounds });
+    assert.ok(bounds.documentWidth <= bounds.viewport, 'Desborde horizontal en ' + name + ': ' + JSON.stringify(bounds));
     captures.push(name);
   }
   async function privateApi(page, pathname, method = 'GET', body) {
@@ -159,7 +167,16 @@ try {
   await check('El dueño confirma una sola vez y cancela restituyendo sólo el stock del pedido', async () => {
     await owner.setViewportSize({ width: 390, height: 844 }); await owner.locator('[data-ta-tab="pedidos"]').click();
     await owner.locator(`[data-ta-order="${firstOrder.id}"]`).click(); await owner.locator(`[data-ta-confirm="${firstOrder.id}"]`).waitFor();
-    await capture(owner, '07-pedido-pendiente-admin-movil');
+    for (const width of [375, 390]) {
+      await owner.setViewportSize({ width, height: 844 });
+      await capture(owner, width === 390 ? '07-pedido-pendiente-admin-movil' : '07-pedido-pendiente-admin-375px');
+      const orderBounds = await owner.locator('#ta-order-detail .ta-order-detail').evaluate(detail => {
+        const right = detail.getBoundingClientRect().right, heading = detail.querySelector('h2');
+        return { viewport: innerWidth, right, headingRight: heading.getBoundingClientRect().right, headingWidth: heading.clientWidth, headingTextWidth: heading.scrollWidth };
+      });
+      measurements.push({ name: 'pedido-codigo-largo-' + width, ...orderBounds });
+      assert.ok(orderBounds.right <= width && orderBounds.headingRight <= width && orderBounds.headingTextWidth <= orderBounds.headingWidth + 1, 'El código del pedido debe permanecer dentro de la tarjeta: ' + JSON.stringify(orderBounds));
+    }
     const confirmed = owner.waitForResponse(r => new URL(r.url()).pathname.endsWith('/' + firstOrder.id + '/confirmar') && r.request().method() === 'POST');
     await owner.locator(`[data-ta-confirm="${firstOrder.id}"]`).evaluate(b => { b.click(); b.click(); });
     assert.equal((await confirmed).status(), 200); await owner.locator('#ta-order-detail .ta-tag').filter({ hasText: 'Confirmado' }).waitFor();
@@ -208,7 +225,7 @@ try {
   failed = error;
   for (const [name, page] of [['dueno', owner], ['publica', publicPage], ['empleado', employeePage]]) if (page) { await page.screenshot({ path: path.join(output, 'fallo-' + name + '.png'), fullPage: true }).catch(() => {}); await fs.writeFile(path.join(output, 'fallo-' + name + '.html'), await page.content()).catch(() => {}); }
 } finally {
-  await fs.writeFile(path.join(output, 'resultado.json'), JSON.stringify({ results, javascriptErrors: errors, captures, requests, rejectedResponses, externalRequestsBlocked: [...new Set(external)], ...(failed ? { error: failed.stack } : {}) }, null, 2));
+  await fs.writeFile(path.join(output, 'resultado.json'), JSON.stringify({ results, javascriptErrors: errors, captures, requests, rejectedResponses, measurements, externalRequestsBlocked: [...new Set(external)], ...(failed ? { error: failed.stack } : {}) }, null, 2));
   if (browser) await browser.close(); if (server) await new Promise(resolve => server.close(resolve)); await pool.end();
 }
 if (failed) throw failed;

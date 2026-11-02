@@ -5,6 +5,7 @@
 .tienda-admin p { line-height:1.6; }
 .tienda-admin .ta-heading,.tienda-admin .ta-list-heading { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:14px; margin-bottom:16px; }
 .tienda-admin .ta-heading>div { min-width:0; }
+.tienda-admin .ta-heading>h2 { flex:1 1 0; min-width:0; overflow-wrap:anywhere; }
 .tienda-admin .ta-heading p { margin:6px 0 0; font-size:13px; color:var(--text-muted); }
 .tienda-admin .ta-heading>.btn { flex:none; }
 .tienda-admin .ta-share { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:12px; margin:16px 0; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); }
@@ -66,10 +67,11 @@
 .tienda-admin .ta-orders { display:grid; gap:8px; }
 .tienda-admin .ta-order-row { display:flex; justify-content:space-between; align-items:center; gap:14px; min-width:0; padding:16px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); color:var(--text); text-align:left; cursor:pointer; }
 .tienda-admin .ta-order-row>span { min-width:0; }
+.tienda-admin .ta-order-row>span:first-child { flex:1 1 0; overflow-wrap:anywhere; }
 .tienda-admin .ta-order-row>span:last-child { flex:none; text-align:right; }
 .tienda-admin .ta-order-row strong { display:block; font-size:13px; }
 .tienda-admin .ta-order-row small { display:block; margin-top:5px; overflow-wrap:anywhere; }
-.tienda-admin .ta-order-detail { margin-top:20px; display:grid; gap:16px; }
+.tienda-admin .ta-order-detail { min-width:0; margin-top:20px; display:grid; gap:16px; overflow-wrap:anywhere; }
 .tienda-admin .ta-order-detail>.ta-heading { margin:0; }
 .tienda-admin .ta-order-detail>p { margin:0; font-size:13px; }
 .tienda-admin .ta-contact { display:grid; gap:10px; margin:0; }
