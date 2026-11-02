@@ -38,6 +38,41 @@ explícita en un entorno controlado.
 
 ## Integridad financiera
 
+### Tienda web y pedidos
+
+Desde **Más → Tienda web y pedidos**, elegí un negocio y abrí **Configurar tienda**.
+El dueño puede elegir nombre, dirección pública, descripción, secciones, tipo de
+catálogo y WhatsApp, y habilitar o pausar la tienda. Cada negocio tiene su propio
+enlace **/tienda/nombre-elegido** y comienza deshabilitado. La página de clientes
+usa fondo negro, detalles rosas y texto blanco, sin pedir una cuenta de empleado.
+
+En **Catálogo** se pueden vincular productos existentes sin duplicar inventario o
+crear nuevos con stock inicial. Las fundas se filtran por modelos compatibles de
+iPhone; la ropa admite secciones, talle y color. Se pueden publicar u ocultar
+productos y ordenar o quitar sus fotos y videos. El stock de un producto existente
+se ajusta desde **Productos y stock**, no al editar su ficha web.
+
+El carrito y los pedidos pendientes no reservan ni descuentan stock. Al confirmar
+un pedido se comprueba la disponibilidad y se descuenta una sola vez; cancelar un
+pendiente no mueve existencias y cancelar uno confirmado repone sólo lo que ese
+pedido descontó. Los reintentos no duplican pedidos ni movimientos. La confirmación
+es un pedido de mercadería: no registra automáticamente una venta, cuotas ni dinero
+cobrado; esos cobros se gestionan por separado.
+
+Nombre, apellido, celular argentino normalizado como **+54 9** y email opcional se
+guardan con el pedido en tablas privadas por negocio, sin sobrescribir fichas de
+clientes financieros. **Pedidos → Descargar contactos CSV** permite abrirlos en
+Excel. Los permisos **Administrar productos de la tienda web** (`tienda.editar`) y
+**Gestionar pedidos y contactos de la tienda web** (`tienda.pedidos`) se habilitan
+por empleado y negocio en **Empleados y permisos**. Publicar o pausar la tienda
+sigue siendo una decisión del administrador.
+
+Fotos y videos se conservan en PostgreSQL, no en archivos temporales del servidor.
+Límites iniciales: 500 productos por tienda, 12 archivos por producto, 8 MB por foto,
+30 MB por video y 200 MB de archivos por negocio. Los videos se cargan a pedido y
+admiten lectura por rangos; las imágenes usan carga diferida. Archivos de productos
+ocultos o tiendas pausadas no se exponen por sus enlaces públicos.
+
 En **Más → Empleados y permisos → Editar permisos**, el administrador puede
 habilitar **Editar cuotas** por empleado y negocio. Requiere también **clientes.ver**
 en ese negocio. Al recargar la app, el empleado autorizado puede corregir importes y

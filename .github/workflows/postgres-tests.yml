@@ -59,6 +59,7 @@ jobs:
           BROWSER_ARTIFACTS=/tmp/zilky-sales-browser/venta-error node test/browser-venta-error.mjs
           BROWSER_ARTIFACTS=/tmp/zilky-sales-browser/fecha-compra node test/browser-fecha-compra.mjs
           BROWSER_ARTIFACTS=/tmp/zilky-sales-browser/permiso-cuotas node test/browser-permiso-cuotas.mjs
+          BROWSER_ARTIFACTS=/tmp/zilky-sales-browser/tiendas node test/browser-tiendas.mjs
       - name: Browser screenshots and results
         if: always() && matrix.node == 24
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

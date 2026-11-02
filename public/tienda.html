@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0d0b10">
+  <meta name="description" content="Explorá el catálogo, armá tu pedido y coordiná con el negocio.">
+  <title>Tienda online</title>
+  <link rel="stylesheet" href="/tienda.css?v=20261102-tienda">
+  <script src="/tienda.js?v=20261102-tienda" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#catalogo">Ir al catálogo</a>
+  <header class="shop-header">
+    <a class="shop-brand" id="shopHome" href="#"><span class="shop-mark" aria-hidden="true">z.</span><span id="shopBrandName">Tienda online</span></a>
+    <button class="button button-quiet cart-toggle" id="openCart" type="button" disabled aria-haspopup="dialog" aria-controls="cartDialog">Tu carrito <span class="cart-count" id="cartCount">0</span></button>
+  </header>
+  <main>
+    <section class="shop-state" id="shopState" role="status" aria-live="polite"><span class="loading-dot" aria-hidden="true"></span><h1>Cargando la tienda…</h1><p>Estamos preparando el catálogo.</p></section>
+    <div id="shopContent" hidden>
+      <section class="shop-hero" aria-labelledby="shopTitle">
+        <div class="hero-copy"><p class="eyebrow" id="shopEyebrow">TIENDA ONLINE</p><h1 id="shopTitle"></h1><p class="hero-description" id="shopDescription"></p><a class="hero-link" href="#catalogo">Encontrá tu próximo favorito <span class="shop-arrow arrow-down" aria-hidden="true"></span></a></div>
+        <div class="hero-stamp" aria-hidden="true"><span>Elegí.</span><span>Pedí.</span><span class="pink">Disfrutá.</span><span class="stamp-star">✦</span></div>
+      </section>
+      <section class="catalog" id="catalogo" aria-labelledby="catalogTitle">
+        <div class="catalog-heading"><div><p class="eyebrow">EL CATÁLOGO</p><h2 id="catalogTitle">Encontrá lo que buscás</h2></div><p class="result-count" id="resultCount" role="status" aria-live="polite"></p></div>
+        <form class="catalog-filters" id="filterForm" role="search">
+          <div class="field search-field"><label for="productSearch">Buscar productos</label><input id="productSearch" type="search" placeholder="¿Qué estás buscando?" maxlength="150" autocomplete="off"></div>
+          <div class="field" id="modelField" hidden><label for="modelFilter">Modelo de iPhone</label><select id="modelFilter"><option value="">Todos los modelos</option></select></div>
+          <div class="field" id="sizeField" hidden><label for="sizeFilter">Talle</label><select id="sizeFilter"><option value="">Todos los talles</option></select></div>
+          <div class="field" id="colorField" hidden><label for="colorFilter">Color</label><select id="colorFilter"><option value="">Todos los colores</option></select></div>
+        </form>
+        <div class="category-chips" id="categoryChips" role="group" aria-label="Filtrar por categoría"></div>
+        <div class="product-grid" id="productGrid"></div>
+        <div class="catalog-empty" id="catalogEmpty" hidden><span aria-hidden="true">✦</span><h3 id="emptyTitle">No encontramos productos</h3><p id="emptyDescription">Probá con otra búsqueda o cambiá los filtros.</p><button class="button button-outline" id="clearFilters" type="button">Limpiar filtros</button></div>
+      </section>
+      <footer class="shop-footer"><div><strong id="footerStoreName"></strong><p>Elegí tus productos. El negocio confirma disponibilidad y coordina el pago.</p></div><a class="footer-contact" id="shopWhatsapp" target="_blank" rel="noopener noreferrer" hidden>Consultar por WhatsApp <span class="shop-arrow" aria-hidden="true"></span></a><p class="powered-by">Una tienda con <strong>Zilky</strong></p></footer>
+    </div>
+  </main>
+  <div class="mobile-cart" id="mobileCart" hidden><button class="button button-pink" id="openMobileCart" type="button" aria-haspopup="dialog" aria-controls="cartDialog"><span>Ver carrito <span id="mobileCartCount"></span></span><strong id="mobileCartTotal"></strong></button></div>
+  <div class="shop-toast" id="shopToast" role="status" aria-live="polite"></div>
+
+  <dialog class="product-dialog" id="productDialog" aria-labelledby="productTitle">
+    <button class="dialog-close" id="closeProduct" type="button" aria-label="Cerrar producto">×</button>
+    <div class="product-detail-layout"><div class="detail-gallery"><div class="gallery-stage" id="galleryStage"></div><div class="gallery-thumbs" id="galleryThumbs" role="group" aria-label="Fotos y videos del producto"></div></div><div class="detail-copy"><p class="eyebrow" id="productCategory"></p><h2 id="productTitle" tabindex="-1"></h2><p class="detail-price" id="productPrice"></p><p class="availability" id="productAvailability"></p><div class="detail-description" id="productDescription"></div><dl class="product-attributes" id="productAttributes"></dl><div class="detail-buy"><div class="field"><label for="detailQuantity">Cantidad</label><input id="detailQuantity" type="number" inputmode="numeric" min="1" max="99" step="1" value="1"></div><button class="button button-pink" id="addDetailProduct" type="button">Agregar al carrito <span aria-hidden="true">+</span></button></div><p class="fine-print">El negocio confirma disponibilidad y coordina el pago de tu pedido.</p></div></div>
+  </dialog>
+
+  <dialog class="cart-dialog" id="cartDialog" aria-labelledby="cartTitle">
+    <div class="cart-heading"><div><p class="eyebrow">TUS FAVORITOS, JUNTOS</p><h2 id="cartTitle" tabindex="-1">Tu carrito</h2></div><button class="dialog-close" id="closeCart" type="button" aria-label="Cerrar carrito">×</button></div>
+    <div id="cartContent"><div class="cart-notice" id="pendingNotice" role="status" hidden><strong>Hay un pedido pendiente de confirmar.</strong><p>Comprobá su resultado con el mismo botón antes de hacer otro pedido. Tus datos quedan guardados sólo en esta sesión para reintentarlo.</p></div><div class="cart-empty" id="cartEmpty"><span aria-hidden="true">✦</span><h3>Tu carrito te está esperando</h3><p>Elegí algo del catálogo y agregalo acá.</p><button class="button button-pink" id="continueShopping" type="button">Explorar productos</button></div><div id="cartWithItems" hidden><div class="cart-items" id="cartItems"></div><div class="cart-totals"><span>Total estimado</span><strong id="cartTotal"></strong></div><p class="fine-print">Los precios y la disponibilidad se confirman con el negocio antes del pago.</p><form id="checkoutForm"><h3>¿A quién contactamos?</h3><p class="form-intro">Completá tus datos para que el negocio pueda confirmar tu pedido.</p><div class="form-row"><div class="field"><label for="orderName">Nombre <span aria-hidden="true">*</span></label><input id="orderName" name="nombre" autocomplete="given-name" maxlength="100" required></div><div class="field"><label for="orderSurname">Apellido <span aria-hidden="true">*</span></label><input id="orderSurname" name="apellido" autocomplete="family-name" maxlength="100" required></div></div><div class="field"><label for="orderPhone">Celular de Argentina <span aria-hidden="true">*</span></label><div class="phone-input"><span aria-hidden="true">+54 9</span><input id="orderPhone" name="telefono" type="tel" inputmode="tel" autocomplete="tel-national" placeholder="11 2345 6789" maxlength="30" aria-describedby="phoneHint" required></div><p class="field-hint" id="phoneHint">10 dígitos con código de área, sin 0 ni 15.</p></div><div class="field"><label for="orderEmail">Email <span class="optional">(opcional)</span></label><input id="orderEmail" name="email" type="email" autocomplete="email" maxlength="254"></div><div class="field"><label for="orderNote">¿Algo que debamos saber? <span class="optional">(opcional)</span></label><textarea id="orderNote" name="nota" rows="3" maxlength="1000" placeholder="Dejanos una nota para este pedido"></textarea></div><div class="contact-notice"><p>Usaremos tu celular y, si lo indicás, tu email para contactarte por este pedido.</p><label class="consent"><input id="orderConsent" name="acepta_contacto" type="checkbox" required><span>Acepto que el negocio me contacte para gestionar este pedido.</span></label></div><p class="checkout-error" id="checkoutError" role="alert" hidden></p><button class="button button-pink checkout-submit" id="submitOrder" type="submit">Enviar pedido <span class="shop-arrow" aria-hidden="true"></span></button><p class="fine-print checkout-reassurance">No se realiza ningún cobro al enviar el pedido.</p></form></div></div>
+    <section class="order-success" id="orderSuccess" hidden aria-labelledby="orderSuccessTitle" tabindex="-1"><span class="success-mark" aria-hidden="true">✓</span><p class="eyebrow">GRACIAS POR ELEGIRNOS</p><h2 id="orderSuccessTitle">¡Pedido recibido!</h2><p class="order-code" id="orderCode"></p><p>Recibimos tu pedido. El negocio confirma disponibilidad y coordina el pago.</p><div class="success-items" id="successItems"></div><p class="success-total">Total del pedido <strong id="successTotal"></strong></p><p class="fine-print">Conservá el número de tu pedido para consultar.</p><button class="button button-pink" id="successContinue" type="button">Seguir mirando</button></section>
+  </dialog>
+</body>
+</html>
