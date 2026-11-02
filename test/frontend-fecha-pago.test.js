@@ -39,6 +39,34 @@ async function revisar(b){b.el('pagoCorRevisar').click();await tick();}
 const posts=b=>b.calls.filter(c=>c.opts.method==='POST');
 const patches=b=>b.calls.filter(c=>c.opts.method==='PATCH');
 
+test('Historial: un cobro web no se presenta como cuota, mora o saldo a favor ni usa el editor de fechas de financiación',()=>{
+  const b=browser();
+  try {
+    const p={...vista().pago,tipo:'pedido_web',credito_id:null,capital_aplicado_centavos:0,mora_aplicada_centavos:0,remanente_centavos:15500000};
+    b.w.setHTML(b.el('view'),b.w.pagoHistorialHtml(p));
+    assert.match(b.el('view').textContent,/Cobro de pedido web/);
+    assert.doesNotMatch(b.el('view').textContent,/Pago de cuota|Aplicado a capital|A mora|saldo a favor/);
+    assert.equal(b.el('view').querySelector('[data-action="corregir-fecha-pago"]'),null);
+    assert.match(b.el('view').textContent,/155\.000/);
+    b.w.setHTML(b.el('view'),b.w.pagoHistorialHtml({...p,tipo:'cuota',credito_id:'credito'}));
+    assert.match(b.el('view').textContent,/Pago de cuota|Aplicado a capital/);
+    assert.ok(b.el('view').querySelector('[data-action="corregir-fecha-pago"]'));
+  }finally{b.w.close();}
+});
+
+test('Comprobantes: identifica cobros web y conserva la anulación genérica sólo para pagos de cuotas',async()=>{
+  const b=browser(()=>response([
+    {id:'web',numero:'WEB-QA',tipo_pago:'pedido_web',estado:'emitido',medio_pago:'transferencia',fecha_hora:'2026-08-24T12:00:00-03:00',monto_centavos:10000},
+    {id:'cuota',numero:'CUOTA-QA',tipo_pago:'cuota',estado:'emitido',medio_pago:'efectivo',fecha_hora:'2026-08-24T12:00:00-03:00',monto_centavos:20000},
+  ]));
+  try {
+    await b.w.viewComprobantes(b.el('view'));
+    assert.match(b.el('view').textContent,/Cobro de pedido web/);
+    assert.equal(b.el('view').querySelector('[data-action="anular-comprobante"][data-id="web"]'),null);
+    assert.ok(b.el('view').querySelector('[data-action="anular-comprobante"][data-id="cuota"]'));
+  }finally{b.w.close();}
+});
+
 test('Historial de pagos: explica capital, mora y saldo a favor, permite corregir pagos activos y conserva auditoría como texto seguro',()=>{
   const b=browser();
   try {

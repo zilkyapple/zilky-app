@@ -4,6 +4,7 @@ import { auditar } from '../lib/audit.js';
 import { integer, text } from '../lib/validation.js';
 import { fail, huella, solicitudId } from '../lib/solicitud.js';
 import { nowAR, todayAR } from '../lib/dates.js';
+import { resumenCobrosPedido } from '../lib/tiendaCobros.js';
 
 const estados = ['pendiente', 'confirmado', 'cancelado'];
 const maxImporte = 2147483647;
@@ -38,7 +39,7 @@ function contactoValido(input) {
 function publico(pedido, items) {
   // Es el comprobante de recepción original, no una consulta de estado o datos personales.
   return { id: pedido.id, codigo: pedido.codigo, estado: 'pendiente', total_centavos: pedido.total_centavos,
-    items: items.map(i => ({ producto_id: i.producto_web_id, nombre: i.nombre, cantidad: i.cantidad, precio_unitario_centavos: i.precio_unitario_centavos, subtotal_centavos: i.subtotal_centavos })) };
+    items: items.map(i => ({ producto_id: i.producto_web_id, nombre: i.nombre, cantidad: i.cantidad, precio_unitario_centavos: i.precio_unitario_centavos, subtotal_centavos: i.subtotal_centavos, es_encargo: i.es_encargo === true })) };
 }
 function cantidadesDeItems(items) {
   const resultado = new Map();
@@ -74,9 +75,10 @@ export async function crearPedidoPublico(slug, input, { antesDeCrear } = {}) {
   if (!Array.isArray(input.items) || !input.items.length || input.items.length > 100) throw fail('Elegí entre 1 y 100 productos');
   const vistos = new Set();
   for (const item of input.items) {
-    objeto(item, ['producto_id', 'cantidad'], 'Producto del pedido');
+    objeto(item, ['producto_id', 'cantidad', 'es_encargo'], 'Producto del pedido');
     if (typeof item.producto_id !== 'string' || !item.producto_id || item.producto_id.length > 100 || vistos.has(item.producto_id)) throw fail('El pedido tiene productos repetidos o inválidos');
     vistos.add(item.producto_id); integer(item.cantidad, 'Cantidad', { min: 1, max: 999 });
+    if (item.es_encargo !== undefined && typeof item.es_encargo !== 'boolean') throw fail('Indicá si el producto es un encargo');
   }
   const solicitudHash = huella(input);
   return db.transaction(async () => {
@@ -104,17 +106,19 @@ export async function crearPedidoPublico(slug, input, { antesDeCrear } = {}) {
       const componentes = componentesDb.map(({ producto_id, cantidad, nombre }) => ({ producto_id, cantidad, nombre }));
       integer(ficha.precio_centavos, 'Precio');
       items.push({ id: id(), producto_web_id: ficha.id, producto_id: ficha.producto_id, nombre: ficha.nombre, descripcion: ficha.descripcion,
-        cantidad: inputItem.cantidad, precio_unitario_centavos: ficha.precio_centavos, subtotal_centavos: total([ficha.precio_centavos * inputItem.cantidad]), componentes });
+        cantidad: inputItem.cantidad, precio_unitario_centavos: ficha.precio_centavos, subtotal_centavos: total([ficha.precio_centavos * inputItem.cantidad]), componentes,
+        es_encargo: inputItem.es_encargo === true, opciones: { modelos: ficha.modelos, talle: ficha.talle, color: ficha.color } });
     }
     const cantidades = cantidadesDeItems(items), inventario = await productosInventario(tienda.negocio_id, cantidades);
-    if (inventario.some(p => p.stock !== null && p.stock < cantidades.get(p.id))) throw fail('No hay stock suficiente para el carrito. Actualizá el catálogo.', 409);
+    const cantidadesNormales = cantidadesDeItems(items.filter(i => !i.es_encargo));
+    if (inventario.some(p => (cantidadesNormales.get(p.id) || 0) > 0 && p.stock !== null && p.stock < cantidadesNormales.get(p.id))) throw fail('No hay stock suficiente para el carrito. Actualizá el catálogo.', 409);
     const pedidoId = id(), codigo = 'WEB-' + todayAR().replaceAll('-', '') + '-' + pedidoId.replaceAll('-', '').toUpperCase();
     const importe = total(items.map(i => i.subtotal_centavos));
     if (input.total_esperado_centavos !== undefined && input.total_esperado_centavos !== importe) throw fail('Los precios cambiaron; revisá tu carrito antes de confirmar el pedido.', 409);
     await db.prepare(`INSERT INTO tienda_pedidos(id,negocio_id,codigo,solicitud_id,solicitud_hash,contacto,nota,acepta_contacto,total_centavos)
       VALUES(?,?,?,?,?,?::jsonb,?,TRUE,?)`).run(pedidoId, tienda.negocio_id, codigo, input.solicitud_id, solicitudHash, JSON.stringify(contacto), nota, importe);
-    for (const item of items) await db.prepare(`INSERT INTO tienda_pedido_items(id,pedido_id,producto_web_id,producto_id,nombre,descripcion,precio_unitario_centavos,cantidad,subtotal_centavos,componentes)
-      VALUES(?,?,?,?,?,?,?,?,?,?::jsonb)`).run(item.id, pedidoId, item.producto_web_id, item.producto_id, item.nombre, item.descripcion, item.precio_unitario_centavos, item.cantidad, item.subtotal_centavos, JSON.stringify(item.componentes));
+    for (const item of items) await db.prepare(`INSERT INTO tienda_pedido_items(id,pedido_id,producto_web_id,producto_id,nombre,descripcion,precio_unitario_centavos,cantidad,subtotal_centavos,componentes,es_encargo,opciones)
+      VALUES(?,?,?,?,?,?,?,?,?,?::jsonb,?,?::jsonb)`).run(item.id, pedidoId, item.producto_web_id, item.producto_id, item.nombre, item.descripcion, item.precio_unitario_centavos, item.cantidad, item.subtotal_centavos, JSON.stringify(item.componentes), item.es_encargo, JSON.stringify(item.opciones));
     await db.prepare('INSERT INTO tienda_contactos(id,pedido_id,negocio_id,nombre,apellido,telefono,email,acepta_contacto) VALUES(?,?,?,?,?,?,?,TRUE)').run(id(), pedidoId, tienda.negocio_id, contacto.nombre, contacto.apellido, contacto.telefono, contacto.email);
     const pedido = await db.prepare('SELECT * FROM tienda_pedidos WHERE id=?').get(pedidoId);
     await auditar('tienda_pedido', pedidoId, 'crear', null, { negocio_id: tienda.negocio_id, pedido, items }, null, 'Pedido recibido desde la tienda web; pendiente de confirmación');
@@ -140,16 +144,20 @@ async function cargar(n, pedidoId, bloquear = false) {
     if (despues !== null && (!Number.isSafeInteger(despues) || despues > maxImporte || despues < -2147483648)) throw fail('El stock resultante requiere conciliación', 409);
     return { producto_id: p.id, nombre: p.nombre, cantidad, stock_actual: p.stock, stock_despues: despues, controlado: p.stock !== null, insuficiente: pedido.estado === 'pendiente' && p.stock !== null && p.stock < cantidad };
   });
-  const version = huella({ pedido, items, stock });
-  return { pedido, items, stock, version };
+  const { cobros, resumen_cobros } = await resumenCobrosPedido(pedido);
+  const has_encargos = items.some(i => i.es_encargo);
+  const version = huella({ pedido, items, stock, cobros, resumen_cobros });
+  return { pedido, items, stock, cobros, resumen_cobros, has_encargos, version };
 }
 function detallePublicable(v) {
   const { solicitud_hash, solicitud_id, ...pedido } = v.pedido;
-  return { pedido, items: v.items, stock: v.stock, version: v.version };
+  return { pedido: { ...pedido, has_encargos: v.has_encargos }, items: v.items, stock: v.stock, cobros: v.cobros, resumen_cobros: v.resumen_cobros, has_encargos: v.has_encargos, version: v.version };
 }
-export async function listarPedidosTienda(n, { estado } = {}) {
+export async function listarPedidosTienda(n, { estado, encargos } = {}) {
   if (estado !== undefined && !estados.includes(estado)) throw fail('Estado de pedido inválido');
-  return (await db.prepare('SELECT * FROM tienda_pedidos WHERE negocio_id=?' + (estado ? ' AND estado=?' : '') + ' ORDER BY created_at DESC,id DESC LIMIT 200').all(...[n, ...(estado ? [estado] : [])]))
+  if (encargos !== undefined && !['true', 'false'].includes(encargos)) throw fail('Filtro de encargos inválido');
+  const tiene = 'EXISTS(SELECT 1 FROM tienda_pedido_items i WHERE i.pedido_id=p.id AND i.es_encargo=TRUE)';
+  return (await db.prepare('SELECT p.*,' + tiene + ' AS has_encargos FROM tienda_pedidos p WHERE p.negocio_id=?' + (estado ? ' AND p.estado=?' : '') + (encargos === undefined ? '' : ' AND ' + (encargos === 'false' ? 'NOT ' : '') + tiene) + ' ORDER BY p.created_at DESC,p.id DESC LIMIT 200').all(...[n, ...(estado ? [estado] : [])]))
     .map(({ solicitud_hash, solicitud_id, ...pedido }) => pedido);
 }
 export async function detallePedidoTienda(n, pedidoId) { return detallePublicable(await cargar(n, pedidoId)); }

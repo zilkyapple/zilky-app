@@ -56,11 +56,12 @@ function thumbnail(product, alt = '') {
 function available(product) {
   return product?.disponible === true && (product.stock_disponible === null || product.stock_disponible === undefined || Number(product.stock_disponible) > 0);
 }
-function quantityLimit(product) {
+function quantityLimit(product, esEncargo = false) {
+  if (esEncargo) return 99;
   return Number.isSafeInteger(product?.stock_disponible) ? Math.max(0, Math.min(99, product.stock_disponible)) : 99;
 }
 function stockLabel(product) {
-  if (!available(product)) return 'No disponible';
+  if (!available(product)) return 'Sin stock · Por encargo';
   const stock = product.stock_disponible;
   return Number.isSafeInteger(stock) ? stock === 1 ? '1 disponible' : stock + ' disponibles' : 'Disponible para pedir';
 }
@@ -195,9 +196,11 @@ function renderProducts() {
     const info = element('div', 'product-card-info');
     info.append(element('p', 'eyebrow', product.categoria || ''), element('h3', '', product.nombre), element('p', 'product-variant', variants(product)));
     open.append(picture, info); open.addEventListener('click', () => openProduct(product));
-    const bottom = element('div', 'product-bottom'), add = element('button', 'button button-pink add-product', '+');
-    add.type = 'button'; add.dataset.add = product.id; add.disabled = !available(product) || Boolean(shop.pending);
-    add.setAttribute('aria-label', 'Agregar ' + product.nombre + ' al carrito'); add.addEventListener('click', () => addToCart(product.id, 1));
+    const esEncargo = !available(product);
+    const bottom = element('div', 'product-bottom'), add = element('button', 'button button-pink add-product' + (esEncargo ? ' add-product-encargo' : ''), esEncargo ? 'Pedir por encargo' : '+');
+    add.type = 'button'; add.dataset.add = product.id; add.dataset.encargo = String(esEncargo); add.disabled = Boolean(shop.pending) || shop.busy;
+    add.setAttribute('aria-label', esEncargo ? 'Pedir ' + product.nombre + ' por encargo' : 'Agregar ' + product.nombre + ' al carrito');
+    add.addEventListener('click', () => addToCart(product.id, 1, esEncargo));
     bottom.append(element('strong', 'product-price', money(product.precio_centavos)), add); card.append(open, bottom); $('productGrid').append(card);
   }
 }
@@ -239,8 +242,13 @@ function openProduct(product) {
   $('productDescription').textContent = product.descripcion || 'Consultá con el negocio por más detalles de este producto.';
   $('productAttributes').replaceChildren();
   for (const [label, value] of [['Modelo', (product.modelos || []).join(', ')], ['Talle', product.talle], ['Color', product.color]]) if (value) $('productAttributes').append(element('dt', '', label), element('dd', '', value));
-  $('detailQuantity').value = '1'; $('detailQuantity').max = String(quantityLimit(product)); $('detailQuantity').disabled = !available(product) || Boolean(shop.pending);
-  $('addDetailProduct').disabled = !available(product) || Boolean(shop.pending);
+  const esEncargo = !available(product), blocked = Boolean(shop.pending) || shop.busy;
+  $('detailQuantity').value = '1'; $('detailQuantity').max = String(quantityLimit(product, esEncargo)); $('detailQuantity').disabled = blocked;
+  $('addDetailProduct').disabled = blocked; $('addDetailProduct').dataset.encargo = String(esEncargo);
+  $('addDetailProduct').textContent = esEncargo ? 'Pedir por encargo' : 'Agregar al carrito +';
+  $('detailOrderNotice').textContent = esEncargo
+    ? 'Es una solicitud de encargo. El negocio debe confirmar si puede conseguirlo, su precio y la disponibilidad.'
+    : 'El negocio debe confirmar la venta, la disponibilidad y coordinar el pago de tu pedido.';
   renderGallery(); showDialog($('productDialog'), $('productTitle'));
 }
 function renderGallery() {
@@ -269,27 +277,38 @@ function readCart() {
     if (!Array.isArray(data)) return [];
     const seen = new Set();
     return data.slice(0, maxItems).filter(item => {
-      if (!item || typeof item.id !== 'string' || seen.has(item.id) || !shop.productos.some(p => p.id === item.id) || !Number.isSafeInteger(item.cantidad) || item.cantidad < 1 || item.cantidad > 99) return false;
+      if (!item || typeof item.id !== 'string' || seen.has(item.id) || !shop.productos.some(p => p.id === item.id) || !Number.isSafeInteger(item.cantidad) || item.cantidad < 1 || item.cantidad > 99 || (item.es_encargo !== undefined && typeof item.es_encargo !== 'boolean')) return false;
       seen.add(item.id); return true;
-    }).map(({id, cantidad}) => ({id, cantidad}));
+    }).map(({id, cantidad, es_encargo}) => ({id, cantidad, es_encargo: es_encargo === true}));
   } catch { return []; }
 }
-function saveCart() { try { localStorage.setItem(cartKey(), JSON.stringify(shop.cart.map(({id, cantidad}) => ({id, cantidad})))); } catch { /* An in-memory cart remains usable without local storage. */ } }
-function addToCart(id, cantidad) {
+function saveCart() { try { localStorage.setItem(cartKey(), JSON.stringify(shop.cart.map(({id, cantidad, es_encargo}) => ({id, cantidad, es_encargo: es_encargo === true})))); } catch { /* An in-memory cart remains usable without local storage. */ } }
+function addToCart(id, cantidad, esEncargo = false) {
   if (shop.pending || shop.busy) return announce('Primero comprobá el pedido pendiente en tu carrito.');
   const product = shop.productos.find(p => p.id === id), current = shop.cart.find(item => item.id === id);
-  if (!available(product)) return announce('Este producto no está disponible para pedir.');
-  if (!Number.isSafeInteger(cantidad) || cantidad < 1 || cantidad + (current?.cantidad || 0) > quantityLimit(product)) return announce('Revisá la cantidad disponible para este producto.');
+  if (!product) return announce('Este producto ya no está en el catálogo.');
+  if (!Number.isSafeInteger(cantidad) || cantidad < 1 || cantidad > 99) return announce('Elegí una cantidad entre 1 y 99.');
+  if (esEncargo && current && !current.es_encargo) return convertToEncargo(id);
+  const requested = current ? current.es_encargo === true : esEncargo;
+  if (!requested && !available(product)) return announce('Este producto se quedó sin stock. Revisalo en tu carrito para pedirlo por encargo.');
+  if (!Number.isSafeInteger(cantidad) || cantidad < 1 || cantidad + (current?.cantidad || 0) > quantityLimit(product, requested)) return announce(requested ? 'Podés pedir hasta 99 unidades de un producto por encargo.' : 'Revisá la cantidad disponible para este producto.');
   if (!current && shop.cart.length >= maxItems) return announce('Podés incluir hasta 50 productos distintos por pedido.');
-  if (current) current.cantidad += cantidad; else shop.cart.push({id, cantidad});
-  shop.success = null; saveCart(); renderCart(); announce('Agregaste ' + product.nombre + ' al carrito.');
+  if (current) current.cantidad += cantidad; else shop.cart.push({id, cantidad, es_encargo: requested});
+  shop.success = null; saveCart(); renderCart(); announce(requested ? 'Agregaste ' + product.nombre + ' para encargar.' : 'Agregaste ' + product.nombre + ' al carrito.');
+}
+function convertToEncargo(id) {
+  if (shop.pending || shop.busy) return;
+  const item = shop.cart.find(row => row.id === id), product = shop.productos.find(p => p.id === id);
+  if (!item || !product || item.es_encargo) return;
+  item.es_encargo = true; saveCart(); renderCart(); announce('Este producto quedó para encargar. El negocio debe confirmar disponibilidad y precio.');
+  [...$('cartItems').children].find(row => row.dataset.cartItem === id)?.querySelector('[data-quantity="1"]')?.focus();
 }
 function changeQuantity(id, delta) {
   if (shop.pending || shop.busy) return;
   const item = shop.cart.find(row => row.id === id), product = shop.productos.find(p => p.id === id);
   if (!item || !product) return;
   const next = item.cantidad + delta;
-  if (next < 1 || (delta > 0 && next > quantityLimit(product))) return;
+  if (next < 1 || (delta > 0 && next > quantityLimit(product, item.es_encargo))) return;
   item.cantidad = next; saveCart(); renderCart();
   [...$('cartItems').children].find(row => row.dataset.cartItem === id)?.querySelector('[data-quantity="' + delta + '"]')?.focus();
 }
@@ -301,7 +320,7 @@ function cartRows() {
   if (shop.pending) return shop.pending.resumen;
   return shop.cart.map(item => {
     const product = shop.productos.find(p => p.id === item.id);
-    return {id: item.id, cantidad: item.cantidad, nombre: product?.nombre || 'Producto no disponible', precio_centavos: product?.precio_centavos || 0, product};
+    return {id: item.id, cantidad: item.cantidad, es_encargo: item.es_encargo === true, nombre: product?.nombre || 'Producto no disponible', precio_centavos: product?.precio_centavos || 0, product};
   });
 }
 function renderCart() {
@@ -313,17 +332,31 @@ function renderCart() {
   $('mobileCart').hidden = !count || !$('shopState').hidden;
   $('cartContent').hidden = Boolean(shop.success); $('orderSuccess').hidden = !shop.success;
   $('cartEmpty').hidden = count > 0; $('cartWithItems').hidden = !count; $('pendingNotice').hidden = !shop.pending;
+  $('cartEncargoNotice').hidden = !rows.some(row => row.es_encargo);
   $('cartItems').replaceChildren(); $('cartTotal').textContent = money(total);
-  for (const row of rows) {
-    const product = row.product || shop.productos.find(p => p.id === row.id), item = element('article', 'cart-item'); item.dataset.cartItem = row.id;
+  const displayRows = [...rows].sort((a, b) => Number(a.es_encargo === true) - Number(b.es_encargo === true));
+  const mixed = rows.some(row => row.es_encargo) && rows.some(row => !row.es_encargo); let previousGroup = null;
+  for (const row of displayRows) {
+    const group = row.es_encargo ? 'Para encargar' : 'Productos del pedido';
+    if ((mixed || row.es_encargo) && previousGroup !== group) $('cartItems').append(element('h3', 'cart-group-title', group));
+    previousGroup = group;
+    const product = row.product || shop.productos.find(p => p.id === row.id), item = element('article', 'cart-item'); item.dataset.cartItem = row.id; item.dataset.encargo = String(row.es_encargo === true);
     const cover = element('div', 'cart-item-image'); cover.append(product ? thumbnail(product) : element('span', '', 'z.'));
     const copy = element('div'); copy.append(element('h3', '', row.nombre));
+    if (row.es_encargo) {
+      const tag = element('span', 'encargo-tag', 'Para encargar'); tag.dataset.cartEncargo = ''; copy.append(tag);
+      copy.append(element('p', 'product-variant encargo-description', 'Disponibilidad y precio a confirmar.'));
+    }
     if (product && variants(product)) copy.append(element('p', 'product-variant', variants(product)));
-    if (!shop.pending && !available(product)) copy.append(element('p', 'product-variant', 'Ya no está disponible. Quitalo del carrito.'));
+    if (!shop.pending && !row.es_encargo && product && (!available(product) || row.cantidad > quantityLimit(product))) {
+      copy.append(element('p', 'product-variant', available(product) ? 'La cantidad supera la disponibilidad. Ajustala o pedilo por encargo.' : 'Se quedó sin stock. Podés quitarlo o pedirlo por encargo.'));
+      const convert = element('button', 'convert-to-encargo', 'Pedir por encargo'); convert.type = 'button'; convert.dataset.convertEncargo = row.id; convert.disabled = blocked;
+      convert.addEventListener('click', () => convertToEncargo(row.id)); copy.append(convert);
+    } else if (!shop.pending && !product) copy.append(element('p', 'product-variant', 'Este producto ya no está en el catálogo. Quitalo del carrito.'));
     const controls = element('div', 'cart-item-controls');
     for (const [delta, text, label] of [[-1, '−', 'Restar una unidad de '], [1, '+', 'Sumar una unidad de ']]) {
       const button = element('button', 'quantity-step', text); button.type = 'button'; button.dataset.quantity = String(delta); button.setAttribute('aria-label', label + row.nombre);
-      button.disabled = blocked || (delta < 0 ? row.cantidad <= 1 : row.cantidad >= quantityLimit(product)); button.addEventListener('click', () => changeQuantity(row.id, delta));
+      button.disabled = blocked || (delta < 0 ? row.cantidad <= 1 : row.cantidad >= quantityLimit(product, row.es_encargo)); button.addEventListener('click', () => changeQuantity(row.id, delta));
       if (delta > 0) controls.append(element('span', 'quantity-value', String(row.cantidad)));
       controls.append(button);
     }
@@ -331,10 +364,10 @@ function renderCart() {
     controls.append(remove); copy.append(controls); item.append(cover, copy, element('strong', 'cart-item-price', money(row.precio_centavos * row.cantidad))); $('cartItems').append(item);
   }
   for (const input of $('checkoutForm').querySelectorAll('input,textarea')) input.disabled = blocked;
-  $('submitOrder').disabled = shop.busy || shop.catalogStale || (!shop.pending && (!count || rows.some(row => !available(row.product) || row.cantidad > quantityLimit(row.product))));
+  $('submitOrder').disabled = shop.busy || shop.catalogStale || (!shop.pending && (!count || rows.some(row => !row.product || (!row.es_encargo && !available(row.product)) || row.cantidad > quantityLimit(row.product, row.es_encargo))));
   const arrow = element('span', 'shop-arrow'); arrow.setAttribute('aria-hidden', 'true');
   $('submitOrder').replaceChildren(document.createTextNode(shop.busy ? 'Comprobando pedido…' : shop.pending ? 'Comprobar pedido pendiente' : 'Enviar pedido'), arrow);
-  for (const button of document.querySelectorAll('[data-add]')) button.disabled = blocked || !available(shop.productos.find(p => p.id === button.dataset.add));
+  for (const button of document.querySelectorAll('[data-add]')) button.disabled = blocked;
 }
 function showCart() {
   closeDialog($('productDialog')); renderCart();
@@ -344,10 +377,10 @@ function readPending() {
   try {
     const pending = JSON.parse(sessionStorage.getItem(pendingKey()) || 'null'), body = pending?.request;
     if (!body || !/^[a-f0-9-]{36}$/i.test(body.solicitud_id) || !body.contacto || !Array.isArray(body.items) || !body.items.length || body.items.length > maxItems || body.acepta_contacto !== true || !Array.isArray(pending.resumen)) return null;
-    if (!body.items.every(item => typeof item.producto_id === 'string' && Number.isSafeInteger(item.cantidad) && item.cantidad > 0 && item.cantidad <= 99)) return null;
+    if (!body.items.every(item => typeof item.producto_id === 'string' && Number.isSafeInteger(item.cantidad) && item.cantidad > 0 && item.cantidad <= 99 && (item.es_encargo === undefined || typeof item.es_encargo === 'boolean'))) return null;
     const resumen = pending.resumen.filter(row => typeof row.id === 'string' && typeof row.nombre === 'string' && Number.isSafeInteger(row.precio_centavos) && row.precio_centavos >= 0 && Number.isSafeInteger(row.cantidad) && row.cantidad > 0 && row.cantidad <= 99);
     if (resumen.length !== body.items.length || !body.items.every(item => resumen.some(row => row.id === item.producto_id && row.cantidad === item.cantidad))) return null;
-    return {request: body, resumen};
+    return {request: body, resumen: resumen.map(row => ({...row, es_encargo: body.items.find(item => item.producto_id === row.id).es_encargo === true}))};
   } catch { return null; }
 }
 function savePending(pending) {
@@ -378,12 +411,12 @@ async function submitOrder(event) {
     if (!$('checkoutForm').reportValidity()) return;
     const telefono = normalizePhone($('orderPhone').value);
     if (!telefono) { checkoutError('Ingresá un celular argentino de 10 dígitos con código de área, sin 0 ni 15.'); $('orderPhone').focus(); return; }
-    if (!shop.cart.length || shop.cart.some(item => { const product = shop.productos.find(p => p.id === item.id); return !available(product) || item.cantidad > quantityLimit(product); })) return checkoutError('Revisá la disponibilidad y las cantidades de tu carrito.');
+    if (!shop.cart.length || shop.cart.some(item => { const product = shop.productos.find(p => p.id === item.id); return !product || (!item.es_encargo && !available(product)) || item.cantidad > quantityLimit(product, item.es_encargo); })) return checkoutError('Revisá la disponibilidad y las cantidades de tu carrito.');
     const contacto = {nombre: $('orderName').value.trim(), apellido: $('orderSurname').value.trim(), telefono, email: $('orderEmail').value.trim()};
     if (!contacto.nombre || !contacto.apellido) return checkoutError('Completá tu nombre y apellido.');
     const total = cartRows().reduce((sum, row) => sum + row.cantidad * row.precio_centavos, 0);
-    const pending = {request: {solicitud_id: crypto.randomUUID(), contacto, items: shop.cart.map(item => ({producto_id: item.id, cantidad: item.cantidad})), nota: $('orderNote').value.trim(), acepta_contacto: true, total_esperado_centavos: total},
-      resumen: cartRows().map(({id, cantidad, nombre, precio_centavos}) => ({id, cantidad, nombre, precio_centavos}))};
+    const pending = {request: {solicitud_id: crypto.randomUUID(), contacto, items: shop.cart.map(item => ({producto_id: item.id, cantidad: item.cantidad, es_encargo: item.es_encargo === true})), nota: $('orderNote').value.trim(), acepta_contacto: true, total_esperado_centavos: total},
+      resumen: cartRows().map(({id, cantidad, nombre, precio_centavos, es_encargo}) => ({id, cantidad, nombre, precio_centavos, es_encargo: es_encargo === true}))};
     try { savePending(pending); shop.pending = pending; }
     catch (error) { checkoutError(error.message); return; }
   }
@@ -410,8 +443,12 @@ async function submitOrder(event) {
 }
 function renderSuccess(result) {
   $('orderCode').textContent = 'Pedido ' + result.codigo; $('successTotal').textContent = money(result.total_centavos); $('successItems').replaceChildren();
+  $('successEncargoNotice').hidden = !result.items.some(item => item.es_encargo === true);
   for (const item of result.items) {
-    const row = element('div', 'success-item'); row.append(element('span', '', item.cantidad + ' × ' + item.nombre), element('strong', '', money(item.subtotal_centavos))); $('successItems').append(row);
+    const row = element('div', 'success-item'); row.dataset.encargo = String(item.es_encargo === true);
+    const copy = element('div'); copy.append(element('span', '', item.cantidad + ' × ' + item.nombre));
+    if (item.es_encargo === true) copy.append(element('span', 'encargo-tag', 'Para encargar'));
+    row.append(copy, element('strong', '', money(item.subtotal_centavos))); $('successItems').append(row);
   }
 }
 
@@ -423,7 +460,7 @@ $('clearFilters').addEventListener('click', () => {
   for (const chip of $('categoryChips').children) chip.setAttribute('aria-pressed', String(!chip.dataset.category));
   renderProducts(); $('productSearch').focus();
 });
-$('addDetailProduct').addEventListener('click', () => addToCart(shop.product.id, Number($('detailQuantity').value)));
+$('addDetailProduct').addEventListener('click', () => addToCart(shop.product.id, Number($('detailQuantity').value), $('addDetailProduct').dataset.encargo === 'true'));
 $('closeProduct').addEventListener('click', () => closeDialog($('productDialog')));
 for (const id of ['openCart', 'openMobileCart']) $(id).addEventListener('click', showCart);
 for (const id of ['closeCart', 'continueShopping', 'successContinue']) $(id).addEventListener('click', () => closeDialog($('cartDialog')));

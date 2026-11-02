@@ -13,7 +13,13 @@ const sample=(overrides={})=>({tienda:{slug:'mi-tienda',nombre:'Tienda QA',descr
   {id:'remera-l',nombre:'Remera',categoria:'Ropa',modelos:[],talle:'L',color:'Negro',precio_centavos:2000000,disponible:false,stock_disponible:0,media:[]},
 ],...overrides});
 const response=(body,status=200)=>({ok:status>=200&&status<300,status,json:async()=>body});
-const receipt=(body,total=body.total_esperado_centavos)=>({id:'pedido-qa',codigo:'QA-123',estado:'pendiente',total_centavos:total,items:body.items.map(item=>({producto_id:item.producto_id,nombre:'Producto confirmado',cantidad:item.cantidad,precio_unitario_centavos:total/item.cantidad,subtotal_centavos:total}))});
+const receipt=(body,total=body.total_esperado_centavos)=>{
+  const items=body.items.map(item=>({producto_id:item.producto_id,nombre:'Producto solicitado',cantidad:item.cantidad,es_encargo:item.es_encargo===true,
+    precio_unitario_centavos:sample().productos.find(product=>product.id===item.producto_id)?.precio_centavos||0}));
+  for(const item of items)item.subtotal_centavos=item.precio_unitario_centavos*item.cantidad;
+  items[0].subtotal_centavos+=total-items.reduce((sum,item)=>sum+item.subtotal_centavos,0);
+  return {id:'pedido-qa',codigo:'QA-123',estado:'pendiente',total_centavos:total,items};
+};
 async function browser({catalog=sample(),respond,local={},session={}}={}){
   const dom=new JSDOM(html,{url:'https://zilky.test/tienda/mi-tienda',runScripts:'outside-only',pretendToBeVisual:true});
   const w=dom.window,calls=[];let uuid=0;
@@ -72,17 +78,17 @@ test('Tienda pública: textos y opciones no ejecutan HTML; URLs peligrosas no en
   }finally{b.close();}
 });
 
-test('Tienda pública: carrito respeta stock, permite quitar y persiste únicamente IDs y cantidades por tienda',async()=>{
+test('Tienda pública: carrito normal respeta stock, permite quitar y persiste sólo ID, cantidad e intención por tienda',async()=>{
   const b=await browser();try{
     b.el('[data-add="iphone-13"]').click();b.el('[data-add="iphone-13"]').click();b.el('#openCart').click();
     b.el('[data-cart-item="iphone-13"] [data-quantity="1"]').click();
     assert.equal(b.el('[data-cart-item="iphone-13"] .quantity-value').textContent,'3');
     assert.equal(b.el('[data-cart-item="iphone-13"] [data-quantity="1"]').disabled,true);
     b.el('[data-cart-item="iphone-13"] [data-quantity="-1"]').click();assert.match(b.el('#cartTotal').textContent,/200\.000/);
-    assert.deepEqual(JSON.parse(b.w.localStorage.getItem('zilky-tienda-carrito:mi-tienda')),[{id:'iphone-13',cantidad:2}]);
+    assert.deepEqual(JSON.parse(b.w.localStorage.getItem('zilky-tienda-carrito:mi-tienda')),[{id:'iphone-13',cantidad:2,es_encargo:false}]);
     b.fill();assert.doesNotMatch(JSON.stringify(b.w.localStorage),/Lucía|Pérez|lucia|2345|Nota/);
     b.el('[data-cart-item="iphone-13"] .remove-item').click();assert.equal(b.el('#cartEmpty').hidden,false);assert.equal(b.el('#mobileCart').hidden,true);
-    assert.equal(b.el('[data-add="remera-l"]').disabled,true);
+    assert.equal(b.el('[data-add="remera-l"]').disabled,false);assert.equal(b.el('[data-add="remera-l"]').dataset.encargo,'true');
   }finally{b.close();}
 });
 
@@ -105,8 +111,8 @@ test('Tienda pública: exige consentimiento y celular argentino; servidor confir
     b.el('#orderConsent').checked=true;b.el('#orderPhone').value='123';await b.submit();assert.equal(b.calls.filter(call=>call.body).length,0);assert.equal(b.el('#checkoutError').hidden,false);
     b.el('#orderPhone').value='+54 (11) 2345-6789';await b.submit();const posts=b.calls.filter(call=>call.body);assert.equal(posts.length,1);
     assert.equal(posts[0].body.contacto.telefono,'+5491123456789');assert.equal(posts[0].body.total_esperado_centavos,10000000);
-    assert.deepEqual(posts[0].body.items,[{producto_id:'iphone-13',cantidad:1}]);assert.equal(posts[0].body.acepta_contacto,true);
-    assert.equal(b.el('#orderSuccess').hidden,false);assert.match(b.el('#orderSuccess').textContent,/El negocio confirma disponibilidad y coordina el pago/);
+    assert.deepEqual(posts[0].body.items,[{producto_id:'iphone-13',cantidad:1,es_encargo:false}]);assert.equal(posts[0].body.acepta_contacto,true);
+    assert.equal(b.el('#orderSuccess').hidden,false);assert.match(b.el('#orderSuccess').textContent,/El negocio debe confirmar la venta y la disponibilidad, y coordinar el pago/);
     assert.equal(b.el('#orderName').value,'');assert.equal(b.el('#orderPhone').value,'');assert.equal(b.el('#orderNote').value,'');
     assert.equal(b.w.sessionStorage.getItem('zilky-tienda-pedido-pendiente:mi-tienda'),null);assert.deepEqual(JSON.parse(b.w.localStorage.getItem('zilky-tienda-carrito:mi-tienda')),[]);
   }finally{b.close();}
@@ -162,4 +168,71 @@ test('Tienda pública: catálogo vacío, tienda no disponible y recuperación de
   let attempts=0;const offline=await browser({respond:()=>{if(++attempts===1)throw new TypeError('Offline');}});try{
     assert.match(offline.el('#shopState').textContent,/No pudimos abrir/);offline.el('#shopState button').click();await tick();await tick();assert.equal(offline.el('#shopContent').hidden,false);
   }finally{offline.close();}
+});
+
+test('Tienda pública: agotado permite solicitar encargo desde detalle y combinarlo con productos disponibles sin prometer venta ni pago',async()=>{
+  const b=await browser();try{
+    const cta=b.el('[data-add="remera-l"]');assert.equal(cta.textContent,'Pedir por encargo');assert.equal(cta.disabled,false);
+    b.el('[data-product="remera-l"] .product-open').click();
+    assert.equal(b.el('#addDetailProduct').textContent,'Pedir por encargo');assert.equal(b.el('#detailQuantity').max,'99');assert.equal(b.el('#detailQuantity').disabled,false);
+    assert.match(b.el('#detailOrderNotice').textContent,/confirmar si puede conseguirlo, su precio y la disponibilidad/);
+    b.el('#detailQuantity').value='2';b.el('#addDetailProduct').click();b.el('#closeProduct').click();
+    b.el('[data-add="iphone-13"]').click();b.el('#openCart').click();
+    assert.equal(b.el('[data-cart-item="remera-l"]').dataset.encargo,'true');assert.equal(b.el('[data-cart-item="remera-l"] [data-cart-encargo]').textContent,'Para encargar');
+    assert.match(b.el('#cartItems').textContent,/Productos del pedido.*Para encargar/s);assert.equal(b.el('#cartEncargoNotice').hidden,false);assert.match(b.el('#cartTotal').textContent,/140\.000/);
+    const saved=JSON.parse(b.w.localStorage.getItem('zilky-tienda-carrito:mi-tienda'));
+    assert.deepEqual(saved,[{id:'remera-l',cantidad:2,es_encargo:true},{id:'iphone-13',cantidad:1,es_encargo:false}]);
+    b.fill();await b.submit();const body=b.calls.find(call=>call.body).body;
+    assert.deepEqual(body.items,[{producto_id:'remera-l',cantidad:2,es_encargo:true},{producto_id:'iphone-13',cantidad:1,es_encargo:false}]);
+    assert.equal(body.total_esperado_centavos,14000000);
+    assert.equal(b.el('#successItems [data-encargo="true"] .encargo-tag').textContent,'Para encargar');
+    assert.equal(b.el('#successEncargoNotice').hidden,false);assert.match(b.el('#successEncargoNotice').textContent,/disponibilidad y precio se coordinan/);
+    assert.match(b.el('#orderSuccess').textContent,/El negocio debe confirmar la venta/);
+  }finally{b.close();}
+});
+
+test('Tienda pública: carrito legado agotado no se transforma en encargo sin una elección explícita ni suma unidades al convertir',async()=>{
+  const data=sample();data.productos[0].stock_disponible=0;data.productos[0].disponible=false;
+  const b=await browser({catalog:data,local:{'zilky-tienda-carrito:mi-tienda':JSON.stringify([{id:'iphone-13',cantidad:2}])}});try{
+    b.el('#openCart').click();assert.equal(b.el('[data-cart-item="iphone-13"]').dataset.encargo,'false');assert.equal(b.el('#submitOrder').disabled,true);
+    assert.equal(b.el('[data-cart-item="iphone-13"] [data-cart-encargo]'),null);
+    b.el('[data-convert-encargo="iphone-13"]').click();assert.equal(b.el('[data-cart-item="iphone-13"]').dataset.encargo,'true');
+    assert.equal(b.el('[data-cart-item="iphone-13"] .quantity-value').textContent,'2');assert.equal(b.el('#submitOrder').disabled,false);
+    b.el('[data-cart-item="iphone-13"] [data-quantity="1"]').click();assert.equal(b.el('[data-cart-item="iphone-13"] .quantity-value').textContent,'3');
+    assert.deepEqual(JSON.parse(b.w.localStorage.getItem('zilky-tienda-carrito:mi-tienda')),[{id:'iphone-13',cantidad:3,es_encargo:true}]);
+  }finally{b.close();}
+});
+
+test('Tienda pública: un encargo mantiene su intención si recupera stock y nunca crea dos renglones del mismo producto',async()=>{
+  const b=await browser({local:{'zilky-tienda-carrito:mi-tienda':JSON.stringify([{id:'iphone-13',cantidad:3,es_encargo:true}])}});try{
+    b.el('[data-add="iphone-13"]').click();b.el('#openCart').click();
+    assert.equal(b.all('[data-cart-item="iphone-13"]').length,1);assert.equal(b.el('[data-cart-item="iphone-13"]').dataset.encargo,'true');
+    assert.equal(b.el('[data-cart-item="iphone-13"] .quantity-value').textContent,'4');assert.equal(b.el('#submitOrder').disabled,false);
+    assert.equal(b.el('[data-cart-item="iphone-13"] [data-quantity="1"]').disabled,false,'Un encargo sigue teniendo límite 99 aunque el stock actual sea 3');
+  }finally{b.close();}
+});
+
+test('Tienda pública: pedido mixto incierto conserva UUID, cantidades y flags al recargar sin reenviarlo automáticamente',async()=>{
+  let local,session,body;
+  const first=await browser({respond:call=>{if(call.body)throw new TypeError('Respuesta perdida');}});try{
+    first.el('[data-add="iphone-13"]').click();first.el('[data-add="remera-l"]').click();first.el('#openCart').click();first.fill();await first.submit();
+    body=first.calls.find(call=>call.body).body;local=Object.fromEntries(Object.entries(first.w.localStorage));session=Object.fromEntries(Object.entries(first.w.sessionStorage));
+  }finally{first.close();}
+  const changed=sample();changed.productos[3].disponible=true;changed.productos[3].stock_disponible=10;
+  const b=await browser({catalog:changed,local,session});try{
+    assert.equal(b.calls.filter(call=>call.body).length,0);b.el('#openCart').click();
+    assert.equal(b.el('[data-cart-item="remera-l"]').dataset.encargo,'true');assert.equal(b.el('[data-cart-item="iphone-13"]').dataset.encargo,'false');
+    assert.equal(b.el('[data-cart-item="remera-l"] [data-quantity="1"]').disabled,true,'Un pedido pendiente no se edita');
+    await b.submit();assert.deepEqual(b.calls.find(call=>call.body).body,body);assert.equal(b.el('#successEncargoNotice').hidden,false);
+    assert.equal(b.w.sessionStorage.length,0);assert.equal(b.el('#orderName').value,'');
+  }finally{b.close();}
+});
+
+test('Tienda pública: reintento anterior sin flags continúa enviando el payload original sin introducir campos nuevos',async()=>{
+  const body={solicitud_id:'11111111-1111-4111-8111-111111111111',contacto:{nombre:'Ana',apellido:'QA',telefono:'+5491123456789',email:''},items:[{producto_id:'iphone-13',cantidad:1}],nota:'',acepta_contacto:true,total_esperado_centavos:10000000};
+  const pending={request:body,resumen:[{id:'iphone-13',cantidad:1,nombre:'iPhone 13',precio_centavos:10000000}]};
+  const b=await browser({session:{'zilky-tienda-pedido-pendiente:mi-tienda':JSON.stringify(pending)}});try{
+    b.el('#openCart').click();assert.equal(b.el('[data-cart-item="iphone-13"]').dataset.encargo,'false');await b.submit();
+    assert.deepEqual(b.calls.find(call=>call.body).body,body);assert.equal(Object.hasOwn(b.calls.find(call=>call.body).body.items[0],'es_encargo'),false);
+  }finally{b.close();}
 });

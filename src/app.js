@@ -4,6 +4,7 @@ import {contratosRouter} from './routes/contratos.js';
 import {cajasRouter} from './routes/cajas.js';
 import { tiendasRouter, tiendaPublicaRouter } from './routes/tiendas.js';
 import { tiendaPedidosRouter, tiendaPedidosPublicosRouter } from './routes/tiendaPedidos.js';
+import { tiendaCobrosRouter } from './routes/tiendaCobros.js';
 import { tiendaMediaRouter, tiendaMediaPublicaRouter } from './routes/tiendaMedia.js';
 import express from 'express';
 import cors from 'cors';
@@ -49,6 +50,7 @@ app.use('/api/auth', authRouter);
 app.use('/api', requireAuth); // a partir de acá todo requiere token válido
 
 app.use('/api/tiendas', tiendaMediaRouter);
+app.use('/api/tiendas', tiendaCobrosRouter);
 app.use('/api/tiendas', tiendaPedidosRouter);
 app.use('/api/tiendas', tiendasRouter);
 

@@ -78,4 +78,21 @@ CREATE TABLE IF NOT EXISTS tienda_contactos (
  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS tienda_contactos_negocio_fecha ON tienda_contactos(negocio_id,created_at DESC,id);
+-- Historical orders remain ordinary orders; only new checkout items opt in.
+ALTER TABLE tienda_pedido_items ADD COLUMN IF NOT EXISTS es_encargo BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE tienda_pedido_items ADD COLUMN IF NOT EXISTS opciones JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE tienda_pedidos ADD COLUMN IF NOT EXISTS cliente_id TEXT REFERENCES clientes(id);
+CREATE TABLE IF NOT EXISTS tienda_pedido_cobros (
+ id TEXT PRIMARY KEY,
+ negocio_id TEXT NOT NULL REFERENCES negocios(id),
+ pedido_id TEXT NOT NULL REFERENCES tienda_pedidos(id),
+ pago_id TEXT NOT NULL UNIQUE REFERENCES pagos(id),
+ comprobante_id TEXT NOT NULL UNIQUE REFERENCES comprobantes(id),
+ solicitud_id TEXT NOT NULL,
+ request_hash TEXT NOT NULL,
+ usuario_id TEXT REFERENCES usuarios(id),
+ created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+ UNIQUE(negocio_id,solicitud_id)
+);
+CREATE INDEX IF NOT EXISTS tienda_pedido_cobros_pedido ON tienda_pedido_cobros(pedido_id,id);
 `;

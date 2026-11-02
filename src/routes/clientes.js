@@ -259,7 +259,7 @@ clientesRouter.get('/:id', requirePermiso('clientes.ver'), async (req, res, next
         WHERE pa.pago_id=? AND cu.credito_id=? ORDER BY cu.numero,pa.id`).all(pago.id,pago.credito_id);
       pago.capital_aplicado_centavos=pago.aplicaciones.reduce((s,a)=>s+a.capital_centavos,0);
       pago.mora_aplicada_centavos=pago.aplicaciones.reduce((s,a)=>s+a.interes_mora_centavos,0);
-      pago.remanente_centavos=pago.tipo==='entrega_inicial'?0:Math.max(0,pago.monto_centavos-pago.capital_aplicado_centavos-pago.mora_aplicada_centavos);
+      pago.remanente_centavos=['entrega_inicial','pedido_web'].includes(pago.tipo)?0:Math.max(0,pago.monto_centavos-pago.capital_aplicado_centavos-pago.mora_aplicada_centavos);
       const cambios=await db.prepare(`SELECT a.fecha_hora,a.motivo,a.datos_anteriores,a.datos_nuevos,u.nombre autor
         FROM auditoria a LEFT JOIN usuarios u ON u.id=a.empleado
         WHERE a.entidad='pago' AND a.entidad_id=? AND a.accion='corregir_fecha_pago' ORDER BY a.fecha_hora,a.id`).all(pago.id);

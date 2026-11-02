@@ -90,6 +90,21 @@
 .tienda-admin .ta-cancel>summary { color:var(--text-muted); font-size:13px; cursor:pointer; }
 .tienda-admin .ta-cancel>summary,.tienda-admin [data-ta-confirm],.tienda-admin [data-ta-cancel] { scroll-margin-block:110px; }
 .tienda-admin .ta-cancel>p,.tienda-admin .ta-cancel>label { margin:14px 0; }
+.tienda-admin .ta-tag-order { display:flex; width:max-content; max-width:100%; margin:6px 0; color:var(--warning); }
+.tienda-admin .ta-stock-notice { margin:0; padding:12px; border:1px solid var(--warning); border-radius:var(--radius-sm); color:var(--warning); font-size:13px; line-height:1.6; }
+.tienda-admin .ta-payments { display:grid; gap:16px; min-width:0; padding-top:18px; border-top:1px solid var(--border); }
+.tienda-admin .ta-payments>.ta-heading { margin:0; }
+.tienda-admin .ta-payment-summary { display:flex; flex-wrap:wrap; gap:12px; margin:0; }
+.tienda-admin .ta-payment-summary>div { flex:1 1 160px; min-width:0; padding:12px; border-radius:var(--radius-sm); background:var(--surface-2); }
+.tienda-admin .ta-payment-summary dt { margin-bottom:6px; font-size:12px; }
+.tienda-admin .ta-payment-summary dd { font-size:19px; font-weight:700; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.tienda-admin .ta-payments .ta-form { margin-bottom:0; }
+.tienda-admin .ta-payment-history { display:grid; gap:12px; min-width:0; }
+.tienda-admin .ta-payment-row { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; min-width:0; padding:14px; border:1px solid var(--border); border-radius:var(--radius-sm); }
+.tienda-admin .ta-payment-row>div { flex:1 1 180px; min-width:0; }
+.tienda-admin .ta-payment-row strong { margin-right:8px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.tienda-admin .ta-payment-row p { margin:6px 0 0; font-size:12px; color:var(--text-muted); overflow-wrap:anywhere; }
+.tienda-admin #ta-payment-form,.tienda-admin #ta-payment-void-form { scroll-margin-block:110px; }
 @media(max-width:540px) {
   .tienda-admin .ta-grid { grid-template-columns:minmax(0,1fr); }
   .tienda-admin .ta-heading { align-items:flex-start; }

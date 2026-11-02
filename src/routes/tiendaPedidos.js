@@ -26,7 +26,7 @@ function negocio(req) {
   return n;
 }
 tiendaPedidosRouter.get('/pedidos', autorizado, async (req, res, next) => {
-  try { res.json(await listarPedidosTienda(negocio(req), { estado: req.query.estado })); } catch (e) { next(e); }
+  try { res.json(await listarPedidosTienda(negocio(req), { estado: req.query.estado, encargos: req.query.encargos })); } catch (e) { next(e); }
 });
 tiendaPedidosRouter.get('/pedidos/:id', autorizado, async (req, res, next) => {
   try { res.json(await detallePedidoTienda(negocio(req), req.params.id)); } catch (e) { next(e); }
