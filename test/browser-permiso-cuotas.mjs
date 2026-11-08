@@ -116,7 +116,9 @@ try {
     assert.equal(await permissionCheckbox().isChecked(),false);
     assert.equal(await adminPage.locator(`.edit-permiso-check[data-negocio="${otherStore.id}"][data-permiso="cuotas.editar"]`).isChecked(),false);
     await permissionCheckbox().check();await capture('01-permiso-cuotas-jefe-escritorio',adminPage);
-    await adminPage.locator('#activeSheet [data-action="cerrar-sheet"]').click();await changePermission(true);
+    await adminPage.locator('#activeSheet [data-action="cerrar-sheet"]').click();
+    await adminPage.locator('#activeSheet').waitFor({state:'detached'});
+    await changePermission(true);
     const assignments=await db.prepare('SELECT * FROM usuario_negocio WHERE usuario_id=?').all(employee.id);
     assert.equal(JSON.parse(assignments.find(a=>a.negocio_id===store.id).permisos)['cuotas.editar'],true);
     assert.equal(JSON.parse(assignments.find(a=>a.negocio_id===otherStore.id).permisos)['cuotas.editar'],false);
