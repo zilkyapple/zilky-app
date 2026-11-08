@@ -80,6 +80,15 @@ function publicProducts(products) {
 function variants(product) {
   return [product.talle && 'Talle ' + product.talle, product.color].filter(Boolean).join(' · ');
 }
+function colorOptions(product) {
+  return String(product?.color || '').split(',').map(value => value.trim()).filter(Boolean);
+}
+function requiresColorChoice(product) { return colorOptions(product).length > 1; }
+function variantLimit(product, color) {
+  // When the color list and the total stock both contain three single garments,
+  // offer one per color. Other catalogs may have several units per color.
+  return requiresColorChoice(product) && Number(product.stock_disponible) === colorOptions(product).length ? 1 : quantityLimit(product);
+}
 function announce(message) {
   clearTimeout(shop.toastTimer);
   $('shopToast').textContent = message; $('shopToast').classList.add('visible');
@@ -146,7 +155,7 @@ function configureStore() {
   if (!$('shopWhatsapp').hidden) $('shopWhatsapp').href = 'https://wa.me/' + whatsapp;
   setOptions('modelFilter', shop.productos.flatMap(p => Array.isArray(p.modelos) ? p.modelos : []), 'Todos los modelos');
   setOptions('sizeFilter', shop.productos.map(p => p.talle), 'Todos los talles');
-  setOptions('colorFilter', shop.productos.map(p => p.color), 'Todos los colores');
+  setOptions('colorFilter', shop.productos.flatMap(colorOptions), 'Todos los colores');
   $('modelField').hidden = shop.tienda.tipo === 'ropa' || $('modelFilter').options.length < 2;
   $('sizeField').hidden = shop.tienda.tipo === 'iphone' || $('sizeFilter').options.length < 2;
   $('colorField').hidden = shop.tienda.tipo === 'iphone' || $('colorFilter').options.length < 2;
@@ -178,7 +187,7 @@ function filteredProducts() {
   const size = $('sizeField').hidden ? '' : normalize($('sizeFilter').value), color = $('colorField').hidden ? '' : normalize($('colorFilter').value);
   return shop.productos.filter(product => (!category || normalize(product.categoria) === category)
     && (!model || (product.modelos || []).some(value => normalize(value) === model))
-    && (!size || normalize(product.talle) === size) && (!color || normalize(product.color) === color)
+    && (!size || normalize(product.talle) === size) && (!color || colorOptions(product).some(value => normalize(value) === color))
     && (!term || normalize([product.nombre, product.descripcion, product.categoria, ...(product.modelos || []), product.talle, product.color].filter(Boolean).join(' ')).includes(term)));
 }
 function renderProducts() {
@@ -200,7 +209,7 @@ function renderProducts() {
     const bottom = element('div', 'product-bottom'), add = element('button', 'button button-pink add-product' + (esEncargo ? ' add-product-encargo' : ''), esEncargo ? 'Pedir por encargo' : '+');
     add.type = 'button'; add.dataset.add = product.id; add.dataset.encargo = String(esEncargo); add.disabled = Boolean(shop.pending) || shop.busy;
     add.setAttribute('aria-label', esEncargo ? 'Pedir ' + product.nombre + ' por encargo' : 'Agregar ' + product.nombre + ' al carrito');
-    add.addEventListener('click', () => addToCart(product.id, 1, esEncargo));
+    add.addEventListener('click', () => requiresColorChoice(product) ? openProduct(product) : addToCart(product.id, 1, esEncargo));
     bottom.append(element('strong', 'product-price', money(product.precio_centavos)), add); card.append(open, bottom); $('productGrid').append(card);
   }
 }
@@ -242,6 +251,12 @@ function openProduct(product) {
   $('productDescription').textContent = product.descripcion || 'Consultá con el negocio por más detalles de este producto.';
   $('productAttributes').replaceChildren();
   for (const [label, value] of [['Modelo', (product.modelos || []).join(', ')], ['Talle', product.talle], ['Color', product.color]]) if (value) $('productAttributes').append(element('dt', '', label), element('dd', '', value));
+  const colors = colorOptions(product);
+  $('detailColorField').hidden = colors.length < 2;
+  $('detailColor').replaceChildren(element('option', '', 'Seleccioná un color'));
+  $('detailColor').firstChild.value = '';
+  for (const color of colors) { const option = element('option', '', color); option.value = color; $('detailColor').append(option); }
+  $('detailColor').value = '';
   const esEncargo = !available(product), blocked = Boolean(shop.pending) || shop.busy;
   $('detailQuantity').value = '1'; $('detailQuantity').max = String(quantityLimit(product, esEncargo)); $('detailQuantity').disabled = blocked;
   $('addDetailProduct').disabled = blocked; $('addDetailProduct').dataset.encargo = String(esEncargo);
@@ -266,7 +281,7 @@ function renderGallery() {
     const button = element('button', 'gallery-thumb'); button.type = 'button'; button.setAttribute('aria-label', 'Ver ' + (item.tipo === 'video' ? 'video ' : 'imagen ') + (index + 1));
     button.setAttribute('aria-pressed', String(index === shop.mediaIndex));
     if (item.tipo === 'imagen') button.append(image(safeMediaUrl(item.url), '')); else button.textContent = '▷';
-    button.addEventListener('click', () => { shop.mediaIndex = index; renderGallery(); $('galleryThumbs').children[index]?.focus(); });
+    button.addEventListener('click', () => { shop.mediaIndex = index; if (requiresColorChoice(shop.product) && media.length === colorOptions(shop.product).length) $('detailColor').value = colorOptions(shop.product)[index]; renderGallery(); $('galleryThumbs').children[index]?.focus(); });
     $('galleryThumbs').append(button);
   });
 }
@@ -279,21 +294,31 @@ function readCart() {
     return data.slice(0, maxItems).filter(item => {
       if (!item || typeof item.id !== 'string' || seen.has(item.id) || !shop.productos.some(p => p.id === item.id) || !Number.isSafeInteger(item.cantidad) || item.cantidad < 1 || item.cantidad > 99 || (item.es_encargo !== undefined && typeof item.es_encargo !== 'boolean')) return false;
       seen.add(item.id); return true;
-    }).map(({id, cantidad, es_encargo}) => ({id, cantidad, es_encargo: es_encargo === true}));
+    }).map(({id, cantidad, es_encargo, selecciones}) => {
+      const product = shop.productos.find(p => p.id === id);
+      const valid = Array.isArray(selecciones) && selecciones.length > 0 && selecciones.every(row => row && colorOptions(product).includes(row.color) && Number.isSafeInteger(row.cantidad) && row.cantidad > 0)
+        && selecciones.reduce((sum, row) => sum + row.cantidad, 0) === cantidad;
+      return {id, cantidad, es_encargo: es_encargo === true, selecciones: valid ? selecciones : []};
+    });
   } catch { return []; }
 }
-function saveCart() { try { localStorage.setItem(cartKey(), JSON.stringify(shop.cart.map(({id, cantidad, es_encargo}) => ({id, cantidad, es_encargo: es_encargo === true})))); } catch { /* An in-memory cart remains usable without local storage. */ } }
-function addToCart(id, cantidad, esEncargo = false) {
+function saveCart() { try { localStorage.setItem(cartKey(), JSON.stringify(shop.cart.map(({id, cantidad, es_encargo, selecciones}) => ({id, cantidad, es_encargo: es_encargo === true, ...(selecciones?.length ? {selecciones} : {})})))); } catch { /* An in-memory cart remains usable without local storage. */ } }
+function addToCart(id, cantidad, esEncargo = false, chosenColor = '') {
   if (shop.pending || shop.busy) return announce('Primero comprobá el pedido pendiente en tu carrito.');
   const product = shop.productos.find(p => p.id === id), current = shop.cart.find(item => item.id === id);
   if (!product) return announce('Este producto ya no está en el catálogo.');
+  if (requiresColorChoice(product) && !colorOptions(product).includes(chosenColor)) return announce('Elegí primero el color de esta prenda.');
   if (!Number.isSafeInteger(cantidad) || cantidad < 1 || cantidad > 99) return announce('Elegí una cantidad entre 1 y 99.');
   if (esEncargo && current && !current.es_encargo) return convertToEncargo(id);
   const requested = current ? current.es_encargo === true : esEncargo;
   if (!requested && !available(product)) return announce('Este producto se quedó sin stock. Revisalo en tu carrito para pedirlo por encargo.');
   if (!Number.isSafeInteger(cantidad) || cantidad < 1 || cantidad + (current?.cantidad || 0) > quantityLimit(product, requested)) return announce(requested ? 'Podés pedir hasta 99 unidades de un producto por encargo.' : 'Revisá la cantidad disponible para este producto.');
+  if (requiresColorChoice(product) && (current?.selecciones?.find(row => row.color === chosenColor)?.cantidad || 0) + cantidad > variantLimit(product, chosenColor)) return announce('Ya agregaste la cantidad disponible de ese color.');
   if (!current && shop.cart.length >= maxItems) return announce('Podés incluir hasta 50 productos distintos por pedido.');
-  if (current) current.cantidad += cantidad; else shop.cart.push({id, cantidad, es_encargo: requested});
+  if (current) {
+    current.cantidad += cantidad;
+    if (chosenColor) { const choice = current.selecciones.find(row => row.color === chosenColor); if (choice) choice.cantidad += cantidad; else current.selecciones.push({color:chosenColor,cantidad}); }
+  } else shop.cart.push({id, cantidad, es_encargo: requested, selecciones:chosenColor ? [{color:chosenColor,cantidad}] : []});
   shop.success = null; saveCart(); renderCart(); announce(requested ? 'Agregaste ' + product.nombre + ' para encargar.' : 'Agregaste ' + product.nombre + ' al carrito.');
 }
 function convertToEncargo(id) {
@@ -309,6 +334,11 @@ function changeQuantity(id, delta) {
   if (!item || !product) return;
   const next = item.cantidad + delta;
   if (next < 1 || (delta > 0 && next > quantityLimit(product, item.es_encargo))) return;
+  if (requiresColorChoice(product)) {
+    if (delta > 0) return announce('Para sumar otro color, abrí la ficha y elegilo.');
+    const last = item.selecciones.at(-1); if (!last) return;
+    last.cantidad--; if (!last.cantidad) item.selecciones.pop();
+  }
   item.cantidad = next; saveCart(); renderCart();
   [...$('cartItems').children].find(row => row.dataset.cartItem === id)?.querySelector('[data-quantity="' + delta + '"]')?.focus();
 }
@@ -320,7 +350,7 @@ function cartRows() {
   if (shop.pending) return shop.pending.resumen;
   return shop.cart.map(item => {
     const product = shop.productos.find(p => p.id === item.id);
-    return {id: item.id, cantidad: item.cantidad, es_encargo: item.es_encargo === true, nombre: product?.nombre || 'Producto no disponible', precio_centavos: product?.precio_centavos || 0, product};
+    return {id: item.id, cantidad: item.cantidad, es_encargo: item.es_encargo === true, selecciones:item.selecciones || [], nombre: product?.nombre || 'Producto no disponible', precio_centavos: product?.precio_centavos || 0, product};
   });
 }
 function renderCart() {
@@ -348,6 +378,7 @@ function renderCart() {
       copy.append(element('p', 'product-variant encargo-description', 'Disponibilidad y precio a confirmar.'));
     }
     if (product && variants(product)) copy.append(element('p', 'product-variant', variants(product)));
+    if (row.selecciones?.length) copy.append(element('p', 'product-variant', row.selecciones.map(selection => selection.cantidad + ' × ' + selection.color + ' · ' + (product?.talle || 'Talle a consultar')).join(' · ')));
     if (!shop.pending && !row.es_encargo && product && (!available(product) || row.cantidad > quantityLimit(product))) {
       copy.append(element('p', 'product-variant', available(product) ? 'La cantidad supera la disponibilidad. Ajustala o pedilo por encargo.' : 'Se quedó sin stock. Podés quitarlo o pedirlo por encargo.'));
       const convert = element('button', 'convert-to-encargo', 'Pedir por encargo'); convert.type = 'button'; convert.dataset.convertEncargo = row.id; convert.disabled = blocked;
@@ -356,7 +387,7 @@ function renderCart() {
     const controls = element('div', 'cart-item-controls');
     for (const [delta, text, label] of [[-1, '−', 'Restar una unidad de '], [1, '+', 'Sumar una unidad de ']]) {
       const button = element('button', 'quantity-step', text); button.type = 'button'; button.dataset.quantity = String(delta); button.setAttribute('aria-label', label + row.nombre);
-      button.disabled = blocked || (delta < 0 ? row.cantidad <= 1 : row.cantidad >= quantityLimit(product, row.es_encargo)); button.addEventListener('click', () => changeQuantity(row.id, delta));
+      button.disabled = blocked || (delta < 0 ? row.cantidad <= 1 : requiresColorChoice(product) || row.cantidad >= quantityLimit(product, row.es_encargo)); button.addEventListener('click', () => changeQuantity(row.id, delta));
       if (delta > 0) controls.append(element('span', 'quantity-value', String(row.cantidad)));
       controls.append(button);
     }
@@ -415,8 +446,14 @@ async function submitOrder(event) {
     const contacto = {nombre: $('orderName').value.trim(), apellido: $('orderSurname').value.trim(), telefono, email: $('orderEmail').value.trim()};
     if (!contacto.nombre || !contacto.apellido) return checkoutError('Completá tu nombre y apellido.');
     const total = cartRows().reduce((sum, row) => sum + row.cantidad * row.precio_centavos, 0);
-    const pending = {request: {solicitud_id: crypto.randomUUID(), contacto, items: shop.cart.map(item => ({producto_id: item.id, cantidad: item.cantidad, es_encargo: item.es_encargo === true})), nota: $('orderNote').value.trim(), acepta_contacto: true, total_esperado_centavos: total},
-      resumen: cartRows().map(({id, cantidad, nombre, precio_centavos, es_encargo}) => ({id, cantidad, nombre, precio_centavos, es_encargo: es_encargo === true}))};
+    const selectionsText = shop.cart.filter(item => item.selecciones?.length).map(item => {
+      const product = shop.productos.find(p => p.id === item.id);
+      return product.nombre + ': ' + item.selecciones.map(s => s.cantidad + ' × ' + s.color + ' / ' + (product.talle || 'Talle a consultar')).join(', ');
+    }).join('\n');
+    const nota = [$('orderNote').value.trim(), selectionsText && 'Variantes elegidas:\n' + selectionsText].filter(Boolean).join('\n\n');
+    if (nota.length > 1000) return checkoutError('El detalle de los colores y la nota superan el límite. Acortá la nota.');
+    const pending = {request: {solicitud_id: crypto.randomUUID(), contacto, items: shop.cart.map(item => ({producto_id: item.id, cantidad: item.cantidad, es_encargo: item.es_encargo === true, ...(item.selecciones?.length ? {selecciones:item.selecciones} : {})})), nota, acepta_contacto: true, total_esperado_centavos: total},
+      resumen: cartRows().map(({id, cantidad, nombre, precio_centavos, es_encargo, selecciones}) => ({id, cantidad, nombre, precio_centavos, selecciones, es_encargo: es_encargo === true}))};
     try { savePending(pending); shop.pending = pending; }
     catch (error) { checkoutError(error.message); return; }
   }
@@ -447,6 +484,7 @@ function renderSuccess(result) {
   for (const item of result.items) {
     const row = element('div', 'success-item'); row.dataset.encargo = String(item.es_encargo === true);
     const copy = element('div'); copy.append(element('span', '', item.cantidad + ' × ' + item.nombre));
+    if (Array.isArray(item.selecciones) && item.selecciones.length) copy.append(element('span', 'product-variant', item.selecciones.map(s => s.cantidad + ' × ' + s.color).join(' · ')));
     if (item.es_encargo === true) copy.append(element('span', 'encargo-tag', 'Para encargar'));
     row.append(copy, element('strong', '', money(item.subtotal_centavos))); $('successItems').append(row);
   }
@@ -460,7 +498,12 @@ $('clearFilters').addEventListener('click', () => {
   for (const chip of $('categoryChips').children) chip.setAttribute('aria-pressed', String(!chip.dataset.category));
   renderProducts(); $('productSearch').focus();
 });
-$('addDetailProduct').addEventListener('click', () => addToCart(shop.product.id, Number($('detailQuantity').value), $('addDetailProduct').dataset.encargo === 'true'));
+$('detailColor').addEventListener('change', () => {
+  const options = colorOptions(shop.product), index = options.indexOf($('detailColor').value);
+  if (index >= 0 && mediaFor(shop.product).length === options.length) { shop.mediaIndex = index; renderGallery(); }
+  $('detailQuantity').max = String(index >= 0 ? variantLimit(shop.product, options[index]) : quantityLimit(shop.product));
+});
+$('addDetailProduct').addEventListener('click', () => addToCart(shop.product.id, Number($('detailQuantity').value), $('addDetailProduct').dataset.encargo === 'true', requiresColorChoice(shop.product) ? $('detailColor').value : ''));
 $('closeProduct').addEventListener('click', () => closeDialog($('productDialog')));
 for (const id of ['openCart', 'openMobileCart']) $(id).addEventListener('click', showCart);
 for (const id of ['closeCart', 'continueShopping', 'successContinue']) $(id).addEventListener('click', () => closeDialog($('cartDialog')));
