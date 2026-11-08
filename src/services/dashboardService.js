@@ -81,13 +81,22 @@ export async function resumenGeneral(negocioId = null) {
              COUNT(*) AS lineas,
              COUNT(*) FILTER (WHERE d.costo_unitario_centavos IS NULL OR d.costo_unitario_centavos <= 0) AS sin_costo
       FROM venta_detalle d GROUP BY d.venta_id
+    ), ajustes_comision AS (
+      SELECT acuerdo_id, SUM(importe_centavos) AS importe_centavos
+      FROM comision_ajustes GROUP BY acuerdo_id
     ), comision_venta AS (
-      SELECT venta_id, SUM(total_centavos) AS comision_centavos
-      FROM comision_acuerdos GROUP BY venta_id
+      SELECT a.venta_id, SUM(a.total_centavos + COALESCE(j.importe_centavos,0)) AS comision_centavos
+      FROM comision_acuerdos a
+      LEFT JOIN ajustes_comision j ON j.acuerdo_id=a.id
+      GROUP BY a.venta_id
     )
-    SELECT v.id,v.fecha,v.monto_total_centavos AS precio_centavos,
+    SELECT v.id,v.fecha,
+           -- El capital pactado puede diferir del precio original de los productos.
+           v.entrega_inicial_centavos + COALESCE((
+             SELECT SUM(cu.monto_centavos) FROM creditos cr JOIN cuotas cu ON cu.credito_id=cr.id WHERE cr.venta_id=v.id
+           ),0) AS precio_centavos,
            c.costo_centavos,COALESCE(a.comision_centavos,0) AS comision_centavos,
-           (SELECT MIN(cu.fecha_vencimiento) FROM creditos cr JOIN cuotas cu ON cu.credito_id=cr.id WHERE cr.venta_id=v.id) AS vencimiento
+           (SELECT MAX(cu.fecha_vencimiento) FROM creditos cr JOIN cuotas cu ON cu.credito_id=cr.id WHERE cr.venta_id=v.id) AS vencimiento
     FROM ventas v
     JOIN costo_venta c ON c.venta_id=v.id
     LEFT JOIN comision_venta a ON a.venta_id=v.id
