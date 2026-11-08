@@ -52,6 +52,28 @@ test('Tienda pública: carga sólo recursos públicos y consulta anónima sin cr
   }finally{b.close();}
 });
 
+test('Tienda pública: STREET ofrece tres colores y conserva las elecciones dentro del pedido',async()=>{
+  const street={id:'street',nombre:'REMERA STREET',categoria:'Remera',talle:'Único (S a XL)',color:'Azul, rosa oscuro, washed',precio_centavos:4650000,disponible:true,stock_disponible:3,
+    media:[{tipo:'imagen',url:'/azul.jpg',orden:1},{tipo:'imagen',url:'/rosa.jpg',orden:2},{tipo:'imagen',url:'/washed.jpg',orden:3}]};
+  const b=await browser({catalog:sample({productos:[street]})});
+  try {
+    b.el('[aria-label="Agregar REMERA STREET al carrito"]').click();
+    assert.equal(b.el('#productDialog').open,true);
+    assert.deepEqual([...b.el('#detailColor').options].map(x=>x.value),['','Azul','rosa oscuro','washed']);
+    assert.equal(b.el('#detailColorField').hidden,false);
+    b.change('#detailColor','Azul');
+    assert.equal(b.el('#galleryStage img').getAttribute('src'),'https://zilky.test/azul.jpg');
+    b.el('#addDetailProduct').click();
+    b.change('#detailColor','rosa oscuro'); b.el('#addDetailProduct').click();
+    assert.equal(b.w.qaShop.cart[0].cantidad,2);
+    assert.deepEqual(JSON.parse(JSON.stringify(b.w.qaShop.cart[0].selecciones)),[{color:'Azul',cantidad:1},{color:'rosa oscuro',cantidad:1}]);
+    b.el('#closeProduct').click(); b.el('#openCart').click(); b.fill(); await b.submit();
+    const posted=b.calls.find(c=>c.options.method==='POST').body;
+    assert.deepEqual(posted.items[0].selecciones,[{color:'Azul',cantidad:1},{color:'rosa oscuro',cantidad:1}]);
+    assert.match(posted.nota,/Variantes elegidas:[\s\S]*1 × Azul[\s\S]*1 × rosa oscuro/);
+  }finally{b.close();}
+});
+
 test('Tienda pública: modelo exacto distingue iPhone 13 de 13 Pro y filtros de ropa combinan categoría, talle y color',async()=>{
   const b=await browser();try{
     b.change('#modelFilter','iPhone 13');assert.deepEqual(b.all('[data-product]').map(node=>node.dataset.product),['iphone-13']);
