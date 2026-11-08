@@ -39,7 +39,7 @@ function contactoValido(input) {
 function publico(pedido, items) {
   // Es el comprobante de recepción original, no una consulta de estado o datos personales.
   return { id: pedido.id, codigo: pedido.codigo, estado: 'pendiente', total_centavos: pedido.total_centavos,
-    items: items.map(i => ({ producto_id: i.producto_web_id, nombre: i.nombre, cantidad: i.cantidad, precio_unitario_centavos: i.precio_unitario_centavos, subtotal_centavos: i.subtotal_centavos, es_encargo: i.es_encargo === true })) };
+    items: items.map(i => ({ producto_id: i.producto_web_id, nombre: i.nombre, cantidad: i.cantidad, precio_unitario_centavos: i.precio_unitario_centavos, subtotal_centavos: i.subtotal_centavos, es_encargo: i.es_encargo === true, selecciones: i.opciones?.selecciones || [] })) };
 }
 function cantidadesDeItems(items) {
   const resultado = new Map();
@@ -75,10 +75,21 @@ export async function crearPedidoPublico(slug, input, { antesDeCrear } = {}) {
   if (!Array.isArray(input.items) || !input.items.length || input.items.length > 100) throw fail('Elegí entre 1 y 100 productos');
   const vistos = new Set();
   for (const item of input.items) {
-    objeto(item, ['producto_id', 'cantidad', 'es_encargo'], 'Producto del pedido');
+    objeto(item, ['producto_id', 'cantidad', 'es_encargo', 'selecciones'], 'Producto del pedido');
     if (typeof item.producto_id !== 'string' || !item.producto_id || item.producto_id.length > 100 || vistos.has(item.producto_id)) throw fail('El pedido tiene productos repetidos o inválidos');
     vistos.add(item.producto_id); integer(item.cantidad, 'Cantidad', { min: 1, max: 999 });
     if (item.es_encargo !== undefined && typeof item.es_encargo !== 'boolean') throw fail('Indicá si el producto es un encargo');
+    if (item.selecciones !== undefined) {
+      if (!Array.isArray(item.selecciones) || !item.selecciones.length || item.selecciones.length > 20) throw fail('Revisá los colores elegidos');
+      const colores = new Set(); let cantidadElegida = 0;
+      for (const seleccion of item.selecciones) {
+        objeto(seleccion, ['color', 'cantidad'], 'Selección de color');
+        if (typeof seleccion.color !== 'string' || !seleccion.color.trim() || seleccion.color.length > 80 || colores.has(seleccion.color)) throw fail('Hay colores repetidos o inválidos');
+        integer(seleccion.cantidad, 'Cantidad por color', {min:1,max:99});
+        colores.add(seleccion.color); cantidadElegida += seleccion.cantidad;
+      }
+      if (cantidadElegida !== item.cantidad) throw fail('La suma por color no coincide con el pedido');
+    }
   }
   const solicitudHash = huella(input);
   return db.transaction(async () => {
@@ -105,9 +116,13 @@ export async function crearPedidoPublico(slug, input, { antesDeCrear } = {}) {
       if (componentesDb.some(c => c.negocio_id !== tienda.negocio_id)) throw fail('Los componentes del producto no están disponibles', 409);
       const componentes = componentesDb.map(({ producto_id, cantidad, nombre }) => ({ producto_id, cantidad, nombre }));
       integer(ficha.precio_centavos, 'Precio');
+      const permitidos = String(ficha.color || '').split(',').map(color => color.trim()).filter(Boolean);
+      if (inputItem.selecciones?.some(row => !permitidos.includes(row.color))) throw fail('El color seleccionado ya no está disponible. Actualizá el carrito.',409);
+      if (permitidos.length > 1 && !inputItem.selecciones?.length) throw fail('Elegí un color antes de enviar el pedido.',409);
+      if (permitidos.length > 1 && inputItem.selecciones && ficha.nombre === 'REMERA STREET' && inputItem.selecciones.some(row => row.cantidad > 1)) throw fail('Solo hay una REMERA STREET disponible por color.',409);
       items.push({ id: id(), producto_web_id: ficha.id, producto_id: ficha.producto_id, nombre: ficha.nombre, descripcion: ficha.descripcion,
         cantidad: inputItem.cantidad, precio_unitario_centavos: ficha.precio_centavos, subtotal_centavos: total([ficha.precio_centavos * inputItem.cantidad]), componentes,
-        es_encargo: inputItem.es_encargo === true, opciones: { modelos: ficha.modelos, talle: ficha.talle, color: ficha.color } });
+        es_encargo: inputItem.es_encargo === true, opciones: { modelos: ficha.modelos, talle: ficha.talle, color: ficha.color, selecciones: inputItem.selecciones || [] } });
     }
     const cantidades = cantidadesDeItems(items), inventario = await productosInventario(tienda.negocio_id, cantidades);
     const cantidadesNormales = cantidadesDeItems(items.filter(i => !i.es_encargo));
