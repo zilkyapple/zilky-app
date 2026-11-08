@@ -348,8 +348,12 @@ async function viewInicio(view) {
         <div style="text-align:right"><div class="kpi-label">Cobrado este mes</div><div class="kpi-value accent">${esc(formatARS(r.cobradoMesCentavos))}</div></div>
       </div>
       <div class="kpi kpi-wide">
-        <div><div class="kpi-label">Ganancia estimada de ventas registradas</div><div class="kpi-value">${esc(formatARS(r.gananciaVentasRegistradasCentavos ?? 0))}</div></div>
-        <div style="text-align:right;max-width:45%;font-size:.8rem">Precio de venta menos costo al vender y comisión. ${esc(r.ventasConGananciaCalculada ?? 0)} ventas calculadas; ${esc(r.ventasSinCostoHistorico ?? 0)} sin costo histórico. No es dinero cobrado; excluye devoluciones y pedidos web.</div>
+        <div><div class="kpi-label">Ganancia realizada · cobros efectivos</div><div class="kpi-value accent">${esc(formatARS(r.gananciaRealizadaCentavos ?? 0))}</div></div>
+        <div style="text-align:right"><div class="kpi-label">Ganancia esperada · si cancelan todos</div><div class="kpi-value">${esc(formatARS(r.gananciaVentasRegistradasCentavos ?? 0))}</div></div>
+      </div>
+      <div class="kpi kpi-wide">
+        <div><div class="kpi-label">Ganancia aún pendiente de realizar</div><div class="kpi-value">${esc(formatARS(r.gananciaPendienteCentavos ?? 0))}</div></div>
+        <div style="text-align:right;max-width:50%;font-size:.8rem">La ganancia se realiza cuando los cobros recuperan costo con envío y comisión. ${esc(r.ventasConGananciaCalculada ?? 0)} ventas con costo histórico; ${esc(r.ventasSinCostoHistorico ?? 0)} sin costo. Excluye devoluciones y pedidos web.</div>
       </div>
       <div class="kpi"><div class="kpi-label">Cobrado hoy</div><div class="kpi-value">${esc(formatARS(r.cobradoHoyCentavos))}</div></div>
       <div class="kpi"><div class="kpi-label">Por cobrar hoy</div><div class="kpi-value">${esc(formatARS(r.porCobrarHoyCentavos))}</div></div>
@@ -361,6 +365,13 @@ async function viewInicio(view) {
         <div><div class="kpi-label">Ventas activas</div><div class="kpi-value">${esc(r.ventasActivas)}</div></div>
         <div style="text-align:right"><div class="kpi-label">Ventas finalizadas</div><div class="kpi-value">${esc(r.ventasFinalizadas)}</div></div>
       </div>
+    </div>
+    <div class="section-title">Ganancias por mes · fecha de cancelación y cobro</div>
+    <div class="card" style="overflow-x:auto">
+      <table style="width:100%;text-align:right;border-collapse:collapse"><thead><tr><th style="text-align:left">Mes</th><th>Esperada</th><th>Realizada</th><th>Pendiente</th></tr></thead><tbody>
+      ${(r.gananciasPorMes||[]).map(g=>`<tr><td style="text-align:left">${esc(g.mes)}</td><td>${esc(formatARS(g.esperadaCentavos))}</td><td>${esc(formatARS(g.realizadaCentavos))}</td><td>${esc(formatARS(g.pendienteCentavos))}</td></tr>`).join('')||'<tr><td colspan="4">Todavía no hay ventas con costo histórico para calcular ganancias.</td></tr>'}
+      </tbody></table>
+      <p class="field-hint">Esperada: margen de ventas que vencen ese mes si todas se cancelan. Realizada: margen recuperado con pagos hechos en ese mes, después de cubrir costo y comisión. Pendiente: margen de ventas con vencimiento en ese mes que aún falta recuperar. Pueden corresponder a distintas ventas.</p>
     </div>
     ${r.porNegocio ? `
       <div class="section-title">Por negocio (cobrado este mes)</div>
