@@ -1132,6 +1132,7 @@ async function viewVentaNueva(view, clientePreId) {
   if (!state.negocios.length) { setHTML(view, `<div class="empty-state"><p>Primero creá un negocio (arriba, "Cambiar" → "Crear negocio nuevo").</p></div>`); return; }
   const negociosVenta = state.negocios.filter(n => puede('ventas.crear', n.id));
   const negocioSel = state.negocioActual || negociosVenta[0]?.id;
+  const ventaRopa = /indumentaria/i.test(negociosVenta.find(n=>n.id===negocioSel)?.nombre||'');
   if (!negocioSel || !negociosVenta.some(n => n.id === negocioSel)) { setHTML(view, '<div class="empty-state"><p>No tenés permiso para vender en este negocio.</p></div>'); return; }
   let clientePre = null;
   if (clientePreId) { try { clientePre = await api(`/clientes/${encodeURIComponent(clientePreId)}?negocio_id=${encodeURIComponent(negocioSel)}`); } catch { /* La búsqueda permite elegir otro cliente autorizado. */ } }
@@ -1182,9 +1183,8 @@ async function viewVentaNueva(view, clientePreId) {
         <label>Modalidad de pago</label>
         <div class="segmented" id="vModalidad">
           <button type="button" class="active" data-val="contado">Contado</button>
-          <button type="button" data-val="libre">Fiado / cuenta</button>
-          <button type="button" data-val="cuotas">Cuotas</button>
-          <button type="button" data-val="unico">Pago único pendiente</button>
+          <button type="button" data-val="libre">${ventaRopa?'Dos pagos · 30 días':'Fiado / cuenta'}</button>
+          ${ventaRopa?'':`<button type="button" data-val="cuotas">Cuotas</button><button type="button" data-val="unico">Pago único pendiente</button>`}
         </div>
       </div>
       <div id="vCamposModalidad"></div>
@@ -1192,7 +1192,7 @@ async function viewVentaNueva(view, clientePreId) {
     </div>
   `);
 
-  const form=view.querySelector('#vForm');form.venta={productos,items:[],storageKey,ventaManual};
+  const form=view.querySelector('#vForm');form.venta={productos,items:[],storageKey,ventaManual,ventaRopa};
   renderCamposModalidad('contado');
   const paint=()=>pintarCarritoVenta(form);paint();
   view.querySelector('#vAgregar').onclick=()=>{
@@ -1214,7 +1214,7 @@ async function viewVentaNueva(view, clientePreId) {
     const btn = e.target.closest('button'); if (!btn) return;
     document.querySelectorAll('#vModalidad button').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
-    renderCamposModalidad(btn.dataset.val);
+    renderCamposModalidad(btn.dataset.val,ventaRopa);
     for(const x of form.venta.items){const p=productos.find(p=>p.id===x.producto_id);if(p)x.precio_unitario_centavos=btn.dataset.val==='contado'?p.precio_contado_centavos:p.precio_financiado_centavos||p.precio_contado_centavos;}
     pintarCarritoVenta(form);
   });
@@ -1249,7 +1249,7 @@ async function viewVentaNueva(view, clientePreId) {
   document.getElementById('btnCrearVenta').addEventListener('click', () => submitVenta());
 }
 
-function renderCamposModalidad(modalidad) {
+function renderCamposModalidad(modalidad,ventaRopa=false) {
   const box = document.getElementById('vCamposModalidad');
   document.getElementById('vEntregaField').hidden=modalidad==='contado';
   if(modalidad==='contado'){setHTML(box,'<p class="field-hint">Cobro completo. Podés dejar el cliente sin identificar.</p>');return;}
@@ -1262,7 +1262,7 @@ function renderCamposModalidad(modalidad) {
       <div class="field"><label for="vFechaPrimera">Fecha de la primera cuota</label><input type="date" id="vFechaPrimera" value="${esc(todayISO())}" /><div class="field-hint">Vencimiento acordado con el cliente; puede ser el mes siguiente a la compra.</div></div>
     `);
   } else {
-    setHTML(box, `<div class="field"><label>Fecha límite de pago</label><input type="date" id="vFechaLimite" /></div><div class="field-hint">Si no elegís una fecha, se usan 30 días desde la fecha de compra por defecto.</div>`);
+    setHTML(box, `<div class="field"><label>${ventaRopa?'Fecha acordada para cancelar el saldo':'Fecha límite de pago'}</label><input type="date" id="vFechaLimite" /></div><div class="field-hint">${ventaRopa?'Queda un único saldo pendiente, aunque la entrega sea $0. El cliente puede ir abonándolo durante el plazo.':' '}Si no elegís fecha, vence a los 30 días desde la venta. Podés acordar otra fecha.</div>`);
   }
 }
 
