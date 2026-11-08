@@ -347,6 +347,10 @@ async function viewInicio(view) {
         <div><div class="kpi-label">Vendido (total)</div><div class="kpi-value">${esc(formatARS(r.vendidoTotalCentavos))}</div></div>
         <div style="text-align:right"><div class="kpi-label">Cobrado este mes</div><div class="kpi-value accent">${esc(formatARS(r.cobradoMesCentavos))}</div></div>
       </div>
+      <div class="kpi kpi-wide">
+        <div><div class="kpi-label">Ganancia estimada de ventas registradas</div><div class="kpi-value">${esc(formatARS(r.gananciaVentasRegistradasCentavos ?? 0))}</div></div>
+        <div style="text-align:right;max-width:45%;font-size:.8rem">Precio de venta menos costo al vender y comisión. ${esc(r.ventasConGananciaCalculada ?? 0)} ventas calculadas; ${esc(r.ventasSinCostoHistorico ?? 0)} sin costo histórico. No es dinero cobrado; excluye devoluciones y pedidos web.</div>
+      </div>
       <div class="kpi"><div class="kpi-label">Cobrado hoy</div><div class="kpi-value">${esc(formatARS(r.cobradoHoyCentavos))}</div></div>
       <div class="kpi"><div class="kpi-label">Por cobrar hoy</div><div class="kpi-value">${esc(formatARS(r.porCobrarHoyCentavos))}</div></div>
       <div class="kpi"><div class="kpi-label">Saldo pendiente total</div><div class="kpi-value">${esc(formatARS(r.saldoPendienteTotalCentavos))}</div></div>
