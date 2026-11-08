@@ -70,6 +70,32 @@ export async function resumenGeneral(negocioId = null) {
   // Confirming a web order is its sale; collecting it does not create another
   // venta or a financing agreement. Pending/cancelled orders are not sales.
   const pedidosVendidoRow = await db.prepare(`SELECT COALESCE(SUM(total_centavos),0) t FROM tienda_pedidos WHERE estado='confirmado' ${nf.replace('cr.negocio_id', 'negocio_id')}`).get(...np);
+  // Solo ventas presenciales completas con costos congelados. Las anteriores a la
+  // migración, las devoluciones y los pedidos web no tienen costo histórico fiable.
+  // No sumar pagos a esta cifra: las cuotas son cobros de una misma venta.
+  const gananciaRow = await db.prepare(`
+    WITH costo_venta AS (
+      SELECT d.venta_id,
+             SUM(d.cantidad * d.costo_unitario_centavos) AS costo_centavos,
+             COUNT(*) AS lineas,
+             COUNT(*) FILTER (WHERE d.costo_unitario_centavos IS NULL OR d.costo_unitario_centavos <= 0) AS sin_costo
+      FROM venta_detalle d GROUP BY d.venta_id
+    ), comision_venta AS (
+      SELECT venta_id, SUM(total_centavos) AS comision_centavos
+      FROM comision_acuerdos GROUP BY venta_id
+    )
+    SELECT COALESCE(SUM(CASE WHEN c.lineas > 0 AND c.sin_costo = 0
+      AND v.estado='activa' AND v.devolucion_centavos=0
+      THEN v.monto_total_centavos-c.costo_centavos-COALESCE(a.comision_centavos,0)
+      ELSE 0 END),0) AS ganancia,
+      COUNT(*) FILTER (WHERE c.lineas > 0 AND c.sin_costo = 0
+        AND v.estado='activa' AND v.devolucion_centavos=0) AS ventas_calculadas,
+      COUNT(*) FILTER (WHERE v.estado='activa' AND (c.venta_id IS NULL OR c.sin_costo > 0)) AS ventas_sin_costo
+    FROM ventas v
+    LEFT JOIN costo_venta c ON c.venta_id=v.id
+    LEFT JOIN comision_venta a ON a.venta_id=v.id
+    WHERE 1=1 ${nf.replace('cr.negocio_id','v.negocio_id')}
+  `).get(...np);
   const clientesTotalesRow = negocioId
     ? await db.prepare(`SELECT COUNT(DISTINCT cr.cliente_id)::int t FROM creditos cr JOIN clientes cl ON cl.id=cr.cliente_id WHERE cl.consumidor_final_negocio IS NULL ${nf}`).get(...np)
     : await db.prepare(`SELECT COUNT(*)::int t FROM clientes WHERE consumidor_final_negocio IS NULL`).get();
@@ -89,6 +115,9 @@ export async function resumenGeneral(negocioId = null) {
 
   return {
     vendidoTotalCentavos: Number(ventasVendidoRow.t) + Number(pedidosVendidoRow.t),
+    gananciaVentasRegistradasCentavos: Number(gananciaRow.ganancia),
+    ventasConGananciaCalculada: Number(gananciaRow.ventas_calculadas),
+    ventasSinCostoHistorico: Number(gananciaRow.ventas_sin_costo),
     cobradoHoyCentavos: cajaHoyRow.t,
     cobradoMesCentavos: cajaMesRow.t,
     porCobrarHoyCentavos: porCobrarHoy,
