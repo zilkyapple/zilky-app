@@ -223,3 +223,69 @@ test('proveedor inválido, otro store y pedido posterior al filtro no producen b
     f.pages=[{}];await assert.rejects(f.service.preview('n1','admin'),{code:'BASELINE_RESPUESTA_REMOTA_INVALIDA'});f.noWrites();
   }finally{await f.pg.close();}
 });
+test('errores HTTP y tiempos remotos tienen categorías seguras sin perder la pausa',async()=>{
+  const f=await fixture();try{
+    const cases=[
+      [{status:400},'BASELINE_CONSULTA_REMOTA_INVALIDA'],
+      [{status:401},'BASELINE_ACCESO_REMOTO_REVOCADO'],
+      [{status:402},'BASELINE_ACCESO_REMOTO_SUSPENDIDO'],
+      [{status:403},'BASELINE_ACCESO_REMOTO_REVOCADO'],
+      [{status:404},'BASELINE_PRODUCTO_REMOTO_NO_ENCONTRADO'],
+      [{status:422},'BASELINE_CONSULTA_REMOTA_NO_PROCESABLE'],
+      [{status:429},'BASELINE_LIMITE_REMOTO'],
+      [{status:500},'BASELINE_SERVICIO_REMOTO_NO_DISPONIBLE'],
+      [{status:503},'BASELINE_SERVICIO_REMOTO_NO_DISPONIBLE'],
+      [{status:599},'BASELINE_SERVICIO_REMOTO_NO_DISPONIBLE'],
+      [{name:'TimeoutError'},'BASELINE_TIEMPO_REMOTO_AGOTADO'],
+      [{code:'ETIMEDOUT'},'BASELINE_TIEMPO_REMOTO_AGOTADO'],
+      [{cause:{code:'UND_ERR_HEADERS_TIMEOUT',message:'PRIVATE_CANARY'}},'BASELINE_TIEMPO_REMOTO_AGOTADO'],
+      [{name:'SyntaxError'},'BASELINE_RESPUESTA_REMOTA_INVALIDA'],
+      [{status:418},'BASELINE_LECTURA_REMOTA_FALLIDA'],
+      [{status:'404'},'BASELINE_LECTURA_REMOTA_FALLIDA'],
+      [{code:'42703'},'BASELINE_LECTURA_REMOTA_FALLIDA'],
+    ];
+    for(const [properties,code] of cases){
+      f.hook=()=>{throw Object.assign(Error('TOKEN_PRIVATE_CANARY'),properties,{body:{token:'PRIVATE_CANARY'}});};
+      await assert.rejects(f.service.preview('n1','admin'),error=>{
+        assert.equal(error.code,code);assert.equal(error.status,502);
+        assert.equal(error.message,code);assert.equal(error.cause,undefined);
+        assert.doesNotMatch(JSON.stringify(error),/PRIVATE_CANARY|body|cause/);return true;
+      });
+    }
+    assert.deepEqual((await f.pg.query('SELECT pausada,sync_baseline_at,sync_activada_at FROM tiendanube_conexiones')).rows[0],
+      {pausada:true,sync_baseline_at:null,sync_activada_at:null});f.noWrites();
+  }finally{await f.pg.close();}
+});
+test('404 de pedidos, incluso sin vínculos, falla cerrado y nunca se interpreta como lista vacía',async()=>{
+  const f=await fixture();try{
+    f.hook=({path})=>{if(path.startsWith('/orders?'))throw Object.assign(Error('PRIVATE_CANARY'),{status:404});};
+    await assert.rejects(f.service.preview('n1','admin'),{code:'BASELINE_PEDIDOS_REMOTOS_NO_ENCONTRADOS',status:502});
+    await f.pg.exec('DELETE FROM tiendanube_variantes');f.apiCalls.length=0;
+    await assert.rejects(f.service.preview('n1','admin'),{code:'BASELINE_PEDIDOS_REMOTOS_NO_ENCONTRADOS',status:502});
+    assert.equal(f.apiCalls.length,1);assert.ok(f.apiCalls[0].path.startsWith('/orders?'));
+    f.hook=null;
+    const view=await f.service.preview('n1','admin');assert.deepEqual(view.pedidos,[]);
+    assert.ok(view.bloqueos.includes('SIN_VARIANTES_VINCULADAS'));assert.equal(view.baseline_confirmable,false);f.noWrites();
+  }finally{await f.pg.close();}
+});
+test('fallos SQL conocidos se clasifican sin publicar SQL, tablas, parámetros ni datos privados',async()=>{
+  const f=await fixture();try{
+    const originalQuery=f.db.query;
+    const cases=[
+      ['42P01','BASELINE_ESQUEMA_LOCAL_INCOMPLETO'],['42703','BASELINE_ESQUEMA_LOCAL_INCOMPLETO'],
+      ['42601','BASELINE_CONSULTA_LOCAL_INVALIDA'],['42883','BASELINE_CONSULTA_LOCAL_INVALIDA'],
+      ['42804','BASELINE_CONSULTA_LOCAL_INVALIDA'],['42P18','BASELINE_CONSULTA_LOCAL_INVALIDA'],
+      ['22003','BASELINE_DATOS_LOCALES_INVALIDOS'],['22P02','BASELINE_DATOS_LOCALES_INVALIDOS'],
+    ];
+    for(const [sqlstate,code] of cases){
+      f.db.query=async()=>{throw Object.assign(Error('SELECT token_cifrado PRIVATE_CANARY'),
+        {code:sqlstate,detail:'PRIVATE_CANARY',table:'PRIVATE_CANARY',query:'PRIVATE_CANARY'});};
+      await assert.rejects(f.service.preview('n1','admin'),error=>{
+        assert.equal(error.code,code);assert.equal(error.status,500);assert.equal(error.message,code);
+        assert.deepEqual(Object.keys(error).sort(),['code','status']);return true;
+      });
+    }
+    f.db.query=originalQuery;
+    assert.equal(f.apiCalls.length,0);f.noWrites();
+  }finally{await f.pg.close();}
+});

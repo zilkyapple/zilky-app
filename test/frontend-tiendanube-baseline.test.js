@@ -55,6 +55,30 @@ test('huella cambiada descarta tabla vieja y no reintenta ni escribe stocks auto
     assert.equal(b.el('table'),null);assert.equal(b.calls.length,2);assert.doesNotMatch(b.view.textContent,/SECRET_CANARY/);
   }finally{b.w.close();}
 });
+test('errores remotos seguros explican la causa sin revelar detalles internos ni alterar inventarios',async()=>{
+  for(const [code,expected] of [
+    ['BASELINE_LECTURA_REMOTA_FALLIDA',/No se pudieron consultar los datos/],
+    ['BASELINE_RESPUESTA_REMOTA_INVALIDA',/datos que no cumplen la validación/],
+    ['BASELINE_ACCESO_REMOTO_REVOCADO',/rechazó el acceso/],
+    ['BASELINE_PERMISOS_REMOTOS_INSUFICIENTES',/Faltan permisos/],
+    ['BASELINE_CONSULTA_REMOTA_INVALIDA',/parámetros de consulta \(HTTP 400\)/],
+    ['BASELINE_ACCESO_REMOTO_SUSPENDIDO',/acceso está suspendido \(HTTP 402\)/],
+    ['BASELINE_PEDIDOS_REMOTOS_NO_ENCONTRADOS',/HTTP 404 al consultar pedidos/],
+    ['BASELINE_PRODUCTO_REMOTO_NO_ENCONTRADO',/producto vinculado \(HTTP 404\)/],
+    ['BASELINE_CONSULTA_REMOTA_NO_PROCESABLE',/procesar la consulta \(HTTP 422\)/],
+    ['BASELINE_LIMITE_REMOTO',/consultas \(HTTP 429\)/],
+    ['BASELINE_SERVICIO_REMOTO_NO_DISPONIBLE',/error de servicio de Tiendanube \(HTTP 5xx\)/],
+    ['BASELINE_TIEMPO_REMOTO_AGOTADO',/tiempo permitido/],
+    ['BASELINE_ESQUEMA_LOCAL_INCOMPLETO',/Falta una tabla o columna/],
+    ['BASELINE_CONSULTA_LOCAL_INVALIDA',/Falló la consulta local/],
+    ['BASELINE_DATOS_LOCALES_INVALIDOS',/dato local que la comparación no pudo interpretar/],
+  ]){
+    const b=browser({respond:()=>{throw Object.assign(Error('SECRET_CANARY'),{code});}});
+    try{await b.mount();assert.match(b.view.textContent,expected);assert.equal(b.el('table'),null);
+      assert.doesNotMatch(b.view.textContent,/SECRET_CANARY/);assert.equal(b.calls.length,1);
+    }finally{b.w.close();}
+  }
+});
 test('respuesta demorada no se muestra tras cambiar de negocio, perder rol o desmontar la vista',async()=>{
   for(const kind of ['business','role','session','unmount']){
     let release;const promise=new Promise(resolve=>release=resolve),b=browser({respond:()=>promise});

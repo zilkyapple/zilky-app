@@ -23,6 +23,30 @@ const estable=value=>typeof value==='bigint'?String(value):value instanceof Date
 const hash=value=>createHash('sha256').update(JSON.stringify(estable(value))).digest('hex');
 const unique=rows=>[...new Set(rows)].sort();
 const json=value=>{try{return typeof value==='string'?JSON.parse(value):value;}catch{return null;}};
+// Only fixed diagnostic categories cross the service boundary. Provider/SQL
+// messages can contain URLs, credentials, query parameters or customer data.
+// In particular, a 404 from /orders is NOT evidence of an empty collection.
+const falloRemoto=(error,recurso)=>{
+  let code='BASELINE_LECTURA_REMOTA_FALLIDA';
+  const status=error?.status;
+  if(status===400)code='BASELINE_CONSULTA_REMOTA_INVALIDA';
+  else if(status===401||status===403)code='BASELINE_ACCESO_REMOTO_REVOCADO';
+  else if(status===402)code='BASELINE_ACCESO_REMOTO_SUSPENDIDO';
+  else if(status===404)code=recurso==='pedidos'?'BASELINE_PEDIDOS_REMOTOS_NO_ENCONTRADOS':'BASELINE_PRODUCTO_REMOTO_NO_ENCONTRADO';
+  else if(status===422)code='BASELINE_CONSULTA_REMOTA_NO_PROCESABLE';
+  else if(status===429)code='BASELINE_LIMITE_REMOTO';
+  else if(Number.isInteger(status)&&status>=500&&status<=599)code='BASELINE_SERVICIO_REMOTO_NO_DISPONIBLE';
+  else if(error?.name==='TimeoutError'||['ETIMEDOUT','UND_ERR_CONNECT_TIMEOUT','UND_ERR_HEADERS_TIMEOUT','UND_ERR_BODY_TIMEOUT'].includes(error?.code)
+    ||['ETIMEDOUT','UND_ERR_CONNECT_TIMEOUT','UND_ERR_HEADERS_TIMEOUT','UND_ERR_BODY_TIMEOUT'].includes(error?.cause?.code))code='BASELINE_TIEMPO_REMOTO_AGOTADO';
+  else if(error?.name==='SyntaxError')code='BASELINE_RESPUESTA_REMOTA_INVALIDA';
+  return fail(code,502);
+};
+const falloLocal=error=>{
+  if(['42P01','42703'].includes(error?.code))return fail('BASELINE_ESQUEMA_LOCAL_INCOMPLETO',500);
+  if(['42601','42883','42804','42P18'].includes(error?.code))return fail('BASELINE_CONSULTA_LOCAL_INVALIDA',500);
+  if(['22003','22P02'].includes(error?.code))return fail('BASELINE_DATOS_LOCALES_INVALIDOS',500);
+  return error;
+};
 
 /**
  * Initial reconciliation PREVIEW, deliberately without an activation or commit
@@ -150,7 +174,7 @@ export function crearServicioBaselineTiendanube({database,
 
   async function recolectar(n,actor,corte){
     flagsApagadas();const db=await obtenerDb();
-    return db.transaction(async()=>{
+    try{return await db.transaction(async()=>{
       await autorizar(db,n,actor);
       const first=await db.prepare('SELECT store_id FROM tiendanube_conexiones WHERE negocio_id=?').get(n);
       if(!first)throw fail('BASELINE_CONEXION_NO_DISPONIBLE');
@@ -169,11 +193,11 @@ export function crearServicioBaselineTiendanube({database,
       const local=await leerLocal(db,n,store),web=new Map(local.web.map(w=>[w.producto_id,w]));
       const blockers=[...local.blockers,'CORTE_REMOTO_NO_VERIFICABLE','PAGINACION_SIN_METADATOS'];
       const api=apiFactory(con),started=clock();let calls=0;
-      const get=async path=>{
+      const get=async(path,recurso)=>{
         if(++calls>60||clock()-started>25000)throw fail('BASELINE_LIMITE_LECTURA',503);
         try{return await api('GET',path);}catch(e){
           if(e?.code==='BASELINE_LIMITE_LECTURA')throw e;
-          throw fail(e?.status===401||e?.status===403?'BASELINE_ACCESO_REMOTO_REVOCADO':'BASELINE_LECTURA_REMOTA_FALLIDA',502);
+          throw falloRemoto(e,recurso);
         }
       };
       const products=new Map(),remoteProducts=[];
@@ -181,7 +205,7 @@ export function crearServicioBaselineTiendanube({database,
         if(String(link.store_id)!==store)continue;
         const product=external(link.product_id);external(link.variant_id);
         if(products.has(product))continue;
-        const raw=await get(`/products/${product}?fields=id%2Cattributes%2Cvariants`);
+        const raw=await get(`/products/${product}?fields=id%2Cattributes%2Cvariants`,'producto');
         if(!raw||external(raw.id)!==product||!Array.isArray(raw.variants)||raw.variants.length>1000)throw fail('BASELINE_RESPUESTA_REMOTA_INVALIDA',502);
         const ids=new Set();
         for(const v of raw.variants){const id=external(v?.id);if(ids.has(id))throw fail('BASELINE_RESPUESTA_REMOTA_INVALIDA',502);ids.add(id);}
@@ -199,7 +223,7 @@ export function crearServicioBaselineTiendanube({database,
         // The shared client allows percent escapes but not literal dots in a
         // resource path. Encode ISO milliseconds too (URLSearchParams leaves
         // them literal) without changing the exact cutoff used for the digest.
-        const rows=await get('/orders?'+query.toString().replace(/\./g,'%2E'));
+        const rows=await get('/orders?'+query.toString().replace(/\./g,'%2E'),'pedidos');
         if(!Array.isArray(rows)||rows.length>POR_PAGINA)throw fail('BASELINE_RESPUESTA_REMOTA_INVALIDA',502);
         pages=page;
         for(const raw of rows){
@@ -258,7 +282,7 @@ export function crearServicioBaselineTiendanube({database,
         pendientes:{salidas:local.outbox.filter(o=>o.estado!=='sincronizado'||o.envio_token||o.envio_put_iniciado).length,
           eventos:local.inbox.filter(e=>e.sync_estado!=='ignorado').length,intentos_reserva:local.intentos.length,reservas:local.reservas.length},
         advertencia:'Esta lectura no confirma un corte exclusivo ni habilita sincronización. No se ajustó ningún stock y el descuento contado del checkout no fue verificado.'};
-    });
+    });}catch(e){throw falloLocal(e);}
   }
 
   async function preview(n,actor){return recolectar(n,actor,iso(now()));}

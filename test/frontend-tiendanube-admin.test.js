@@ -67,8 +67,20 @@ test('Tiendanube verificar un registro incompleto permite registrar después, si
   const b=browser({respond:(path,opts,fallback)=>path.startsWith('/tiendanube/webhooks/estado?')?{registrados:false,recepcion_firmada_confirmada:false,error:'REGISTRO_WEBHOOKS_INCOMPLETO'}:fallback(path,opts)});
   try{
     await b.mount();assert.equal(b.el('[data-tn-webhooks-register]').disabled,false);
+    assert.match(b.el('[data-tn-webhooks]').textContent,/faltan notificaciones por registrar/);
+    assert.doesNotMatch(b.el('[data-tn-webhooks]').textContent,/Verificá el registro antes de volver a crear/);
     b.el('[data-tn-webhooks-register]').click();await tick();assert.deepEqual(b.calls.filter(write).map(c=>c.path),['/tiendanube/webhooks/configurar']);
   }finally{b.w.close();}
+});
+
+test('notificaciones con otro destino o duplicadas se distinguen y bloquean nuevas creaciones',async()=>{
+  for(const [code,expected] of [['REGISTRO_WEBHOOKS_OTRA_URL',/otro destino/],['REGISTRO_WEBHOOKS_DUPLICADO',/duplicadas/]]){
+    const b=browser({respond:(path,opts,fallback)=>path.startsWith('/tiendanube/webhooks/estado?')?{registrados:false,recepcion_firmada_confirmada:false,error:code}:fallback(path,opts)});
+    try{await b.mount();assert.match(b.el('[data-tn-webhooks]').textContent,expected);
+      assert.equal(b.el('[data-tn-webhooks-register]').disabled,true);assert.equal(b.el('[data-tn-webhooks-verify]').disabled,false);
+      assert.equal(b.calls.filter(write).length,0);
+    }finally{b.w.close();}
+  }
 });
 
 test('Tiendanube notificaciones no permite configurar sin pausa confirmada ni después de cambiar negocio',async()=>{

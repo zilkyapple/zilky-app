@@ -123,7 +123,8 @@ export function crearServicioSetupTiendanube({db,
         const evidencia=registradoAt?await db.prepare(`SELECT MAX(hmac_validada_at) AS recibida_at FROM tiendanube_eventos
           WHERE store_id=? AND topic=ANY(?::text[]) AND hmac_validada_at>=?`).get(con.store_id,TIENDANUBE_WEBHOOKS_OPERATIVOS.filter(t=>t!=='app/uninstalled'),registradoAt):null;
         const recibidoAt=evidencia?.recibida_at?fecha(evidencia.recibida_at):null;
-        const codigo=revision.completos?null:con.setup_webhooks_error==='REGISTRO_WEBHOOK_AMBIGUO'?'REGISTRO_WEBHOOK_AMBIGUO':'REGISTRO_WEBHOOKS_INCOMPLETO';
+        const codigo=revision.completos?null:con.setup_webhooks_error==='REGISTRO_WEBHOOK_AMBIGUO'?'REGISTRO_WEBHOOK_AMBIGUO':
+          revision.otras_urls.length?'REGISTRO_WEBHOOKS_OTRA_URL':revision.duplicados.length?'REGISTRO_WEBHOOKS_DUPLICADO':'REGISTRO_WEBHOOKS_INCOMPLETO';
         await db.prepare(`UPDATE tiendanube_conexiones SET setup_webhooks_url=?,setup_webhooks_registrados_at=?,
           setup_webhooks_error=?,sync_webhooks_at=?,sync_lease_token=NULL,sync_lease_hasta=NULL WHERE negocio_id=? AND sync_lease_token=?`)
           .run(url,registradoAt,codigo,recibidoAt,n,token);
