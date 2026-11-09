@@ -5,10 +5,11 @@ import { badRequest } from '../lib/validation.js';
 export async function crearNegocio(data) {
   const negId = id();
   await db.prepare(`
-    INSERT INTO negocios (id, nombre, color, logo_url, dias_gracia, mora_tipo, mora_valor, mora_periodo, mora_base, mora_acumulativa, orden_aplicacion_pago, recordatorio_dias)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+    INSERT INTO negocios (id, organizacion_id, nombre, color, logo_url, dias_gracia, mora_tipo, mora_valor, mora_periodo, mora_base, mora_acumulativa, orden_aplicacion_pago, recordatorio_dias)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
   `).run(
     negId,
+    data.organizacion_id ?? null,
     data.nombre,
     data.color || '#10B981',
     data.logo_url || null,

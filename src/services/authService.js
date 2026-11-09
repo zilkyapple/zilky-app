@@ -9,6 +9,7 @@ import {
   getUsuarioById
 } from '../repositories/usuarios.js';
 import { firmarToken } from '../lib/auth.js';
+import { resolverOrganizacionAdministrada } from '../lib/organizaciones.js';
 
 function badRequest(msg) {
   const e = new Error(msg);
@@ -16,7 +17,7 @@ function badRequest(msg) {
   return e;
 }
 
-export async function registrarUsuario({ email, password, nombre }) {
+export async function registrarUsuario({ email, password, nombre, organizacion_id }, usuarioId) {
   if (!email || !password) {
     throw badRequest('email y password son obligatorios');
   }
@@ -25,23 +26,17 @@ export async function registrarUsuario({ email, password, nombre }) {
     throw badRequest('la contraseña debe tener al menos 6 caracteres');
   }
 
-  if (await getUsuarioPorEmail(email)) {
-    throw Object.assign(
-      new Error('Ya existe una cuenta con ese email'),
-      { status: 409 }
-    );
-  }
-
-  const usuario = await crearUsuario({
-    email,
-    password_hash: await bcrypt.hash(password, 10),
-    nombre
+  const password_hash = await bcrypt.hash(password, 10);
+  return db.transaction(async () => {
+    const organizacionId = await resolverOrganizacionAdministrada(usuarioId, organizacion_id);
+    if (await getUsuarioPorEmail(email)) {
+      throw Object.assign(new Error('Ya existe una cuenta con ese email'), { status: 409 });
+    }
+    const usuario = await crearUsuario({ email, password_hash, nombre });
+    await db.prepare(`INSERT INTO usuario_organizacion(usuario_id,organizacion_id,rol,activo)
+      VALUES(?,?,'administrador',1)`).run(usuario.id, organizacionId);
+    return { usuario, token: firmarToken(usuario) };
   });
-
-  return {
-    usuario,
-    token: firmarToken(usuario)
-  };
 }
 
 export async function crearEmpleado({ email, password, nombre }) {

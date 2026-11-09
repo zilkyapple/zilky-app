@@ -73,6 +73,15 @@ export function crearRepositorioTiendanubeSync(db){
     variantesDeProducto(n,store,product){return db.prepare('SELECT * FROM tiendanube_variantes WHERE negocio_id=? AND store_id=? AND product_id=? ORDER BY producto_id FOR UPDATE').all(n,store,product);},
     pedido(store,order){return db.prepare('SELECT * FROM tiendanube_pedidos WHERE store_id=? AND order_id=? FOR UPDATE').get(store,order);},
     aplicados(store,order){return db.prepare('SELECT variant_id,producto_id,cantidad_aplicada FROM tiendanube_pedido_stock WHERE store_id=? AND order_hash=? ORDER BY variant_id FOR UPDATE').all(store,hashPedidoPrivacidad(store,order));},
+    async bloquearProductosPedido(n,store,variants){
+      // Ordinary sales lock SKUs by local product ID, which need not have the
+      // same order as remote variant IDs. The connection lock already freezes
+      // links; acquire every product first, in the same order as sales, before
+      // variante() takes product/variant row locks and reads current stock.
+      const links=await db.prepare('SELECT producto_id FROM tiendanube_variantes WHERE negocio_id=? AND store_id=? AND variant_id=ANY(?::text[])').all(n,store,variants);
+      const products=[...new Set(links.map(v=>v.producto_id))].sort((a,b)=>a.localeCompare(b));
+      for(const product of products)await db.prepare('SELECT id FROM productos WHERE id=? AND negocio_id=? FOR UPDATE').get(product,n);
+    },
     variante(n,store,variant){return db.prepare(`SELECT v.*,p.stock FROM tiendanube_variantes v JOIN productos p ON p.id=v.producto_id AND p.negocio_id=v.negocio_id
       WHERE v.negocio_id=? AND v.store_id=? AND v.variant_id=? FOR UPDATE OF p,v`).get(n,store,variant);},
     async guardarPedido(con,p,revision){await db.prepare(`INSERT INTO tiendanube_pedidos(negocio_id,store_id,order_id,estado,cantidades,pagado,cancelado,pendiente_revision)
@@ -222,7 +231,9 @@ export function crearServicioTiendanubeSync({db,repo=db?crearRepositorioTiendanu
         await repo.guardarPedido(con,p,false);await repo.marcarEvento(e,'procesado');return {estado:'cancelado_sin_reserva'};
       }
       const changes=[];
-      for(const variant of [...new Set([...Object.keys(p.cantidades),...applied.keys()])].sort()){
+      const variants=[...new Set([...Object.keys(p.cantidades),...applied.keys()])].sort();
+      await repo.bloquearProductosPedido?.(n,con.store_id,variants);
+      for(const variant of variants){
         const qty=p.cantidades[variant]||0,old=applied.get(variant)?.cantidad_aplicada||0,delta=qty-old;
         if(delta<0)return revisar(con,e,p,'EDICION_CON_REPOSICION_POR_VERIFICAR');
         const link=await repo.variante(n,con.store_id,variant);
