@@ -32,6 +32,14 @@ async function negocioValido(n) {
   if (typeof n !== 'string' || !n || n.length>100) throw error('negocio_id inválido');
   if (!await db.prepare('SELECT id FROM negocios WHERE id=?').get(n)) throw error('Negocio no encontrado',404);
 }
+async function administradorOAuthVigente(usuarioId,bloquear=false) {
+  const usuario=await db.prepare(`SELECT activo,rol FROM usuarios WHERE id=?${bloquear?' FOR NO KEY UPDATE':''}`).get(usuarioId);
+  if(!usuario || usuario.activo!==1 || usuario.rol!=='administrador') throw error('La cuenta que inició la autorización ya no puede administrar esta conexión',403);
+}
+async function bloquearConexionVigente(negocioId,storeId) {
+  const actual=await db.prepare('SELECT store_id FROM tiendanube_conexiones WHERE negocio_id=? FOR UPDATE').get(negocioId);
+  if(!actual || actual.store_id!==storeId) throw error('La conexión cambió mientras se consultaba Tiendanube. Reintentá la operación',409);
+}
 
 tiendanubeAdminRouter.use(requireAdmin);
 
@@ -61,6 +69,7 @@ tiendanubePublicaRouter.get('/oauth/callback',wrap(async(req,res)=>{
   // ni un callback repetido ni dos solicitudes simultáneas puedan reutilizarlo.
   const row=await db.prepare('DELETE FROM tiendanube_oauth_estados WHERE state_hash=? AND vence_at>NOW() RETURNING negocio_id,usuario_id').get(checksum(state));
   if (!row) throw error('La autorización venció o ya se utilizó',409);
+  await administradorOAuthVigente(row.usuario_id);
   const response=await fetch('https://www.tiendanube.com/apps/authorize/token',{
     method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},
     body:JSON.stringify({...cred,grant_type:'authorization_code',code}),signal:AbortSignal.timeout(15000),
@@ -73,10 +82,17 @@ tiendanubePublicaRouter.get('/oauth/callback',wrap(async(req,res)=>{
   if (typeof body.access_token!=='string'||!body.access_token) throw error('Tiendanube no devolvió un token válido',502);
   const tokenCifrado=cifrarToken(body.access_token);
   await db.transaction(async()=>{
+    // Una revocación durante la llamada externa también invalida el estado.
+    await administradorOAuthVigente(row.usuario_id,true);
+    // La fila del negocio existe incluso en la primera instalación: serializa
+    // dos callbacks iniciales cuando todavía no hay conexión que bloquear.
+    await db.prepare('SELECT id FROM negocios WHERE id=? FOR NO KEY UPDATE').get(row.negocio_id);
     const actual=await db.prepare('SELECT store_id FROM tiendanube_conexiones WHERE negocio_id=? FOR UPDATE').get(row.negocio_id);
     if (actual && actual.store_id!==storeId) {
       const links=await db.prepare('SELECT producto_id FROM tiendanube_variantes WHERE negocio_id=? LIMIT 1').get(row.negocio_id);
       if(links) throw error('Este negocio tiene variantes vinculadas a otra tienda; conciliá los vínculos antes de cambiarla',409);
+      const pedidos=await db.prepare('SELECT order_id FROM tiendanube_pedidos WHERE negocio_id=? LIMIT 1').get(row.negocio_id);
+      if(pedidos) throw error('Este negocio conserva pedidos de Tiendanube; resolvé su historial antes de cambiar de tienda',409);
     }
     const otro=await db.prepare('SELECT negocio_id FROM tiendanube_conexiones WHERE store_id=? AND negocio_id<>?').get(storeId,row.negocio_id);
     if (otro) throw error('Esta tienda de Tiendanube ya está vinculada con otro negocio',409);
@@ -92,7 +108,7 @@ tiendanubeAdminRouter.post('/vinculos',wrap(async(req,res)=>{
   await negocioValido(negocio_id);
   if (typeof producto_id!=='string'||!producto_id) throw error('Producto inválido');
   const remoteProduct=validarIdExterno(product_id), remoteVariant=validarIdExterno(variant_id);
-  const producto=await db.prepare('SELECT id,stock FROM productos WHERE id=? AND negocio_id=?').get(producto_id,negocio_id);
+  const producto=await db.prepare('SELECT id FROM productos WHERE id=? AND negocio_id=?').get(producto_id,negocio_id);
   if(!producto) throw error('Producto no encontrado en este negocio',404);
   const con=await db.prepare('SELECT store_id,token_cifrado FROM tiendanube_conexiones WHERE negocio_id=?').get(negocio_id);
   if(!con) throw error('Primero vinculá tu tienda de Tiendanube',409);
@@ -100,13 +116,16 @@ tiendanubeAdminRouter.post('/vinculos',wrap(async(req,res)=>{
   const variante=await api('GET',`/products/${remoteProduct}/variants/${remoteVariant}`);
   if(String(variante?.id)!==remoteVariant || String(variante?.product_id)!==remoteProduct) throw error('La variante no pertenece al producto de Tiendanube',409);
   await db.transaction(async()=>{
+    await bloquearConexionVigente(negocio_id,con.store_id);
+    const vigente=await db.prepare('SELECT stock FROM productos WHERE id=? AND negocio_id=? FOR UPDATE').get(producto_id,negocio_id);
+    if(!vigente)throw error('Producto no encontrado en este negocio',404);
     // No vincular silenciosamente una variante externa a un producto distinto.
     const conflict=await db.prepare('SELECT producto_id FROM tiendanube_variantes WHERE store_id=? AND variant_id=? AND producto_id<>?').get(con.store_id,remoteVariant,producto_id);
     if(conflict)throw error('Esta variante ya está vinculada a otro producto de Zilky',409);
     const prior=await db.prepare('SELECT producto_id FROM tiendanube_variantes WHERE producto_id=?').get(producto_id);
     if(prior)throw error('Este producto ya está vinculado; revisá su relación antes de modificarla',409);
     await db.prepare('INSERT INTO tiendanube_variantes(producto_id,negocio_id,store_id,product_id,variant_id) VALUES(?,?,?,?,?)').run(producto_id,negocio_id,con.store_id,remoteProduct,remoteVariant);
-    await db.prepare('INSERT INTO tiendanube_stock_outbox(producto_id,negocio_id,stock_deseado) VALUES(?,?,?)').run(producto_id,negocio_id,stockPublicable(producto.stock));
+    await db.prepare('INSERT INTO tiendanube_stock_outbox(producto_id,negocio_id,stock_deseado) VALUES(?,?,?)').run(producto_id,negocio_id,stockPublicable(vigente.stock));
   });
   res.status(201).json({producto_id,product_id:remoteProduct,variant_id:remoteVariant,sincronizacion:'pausada'});
 }));
@@ -122,18 +141,23 @@ tiendanubeAdminRouter.post('/pedidos/conciliar',wrap(async(req,res)=>{
   const api=clienteTiendanube({tiendaId:con.store_id,accessToken:descifrarToken(con.token_cifrado),contactEmail});
   const pedido=resumenPedidoTiendanube(await api('GET',`/orders/${remoteOrder}`));
   if(pedido.order_id!==remoteOrder) throw error('Tiendanube devolvió un pedido distinto',502);
-  const vinculos=await db.prepare('SELECT variant_id,producto_id FROM tiendanube_variantes WHERE store_id=? AND negocio_id=?').all(con.store_id,negocio_id);
-  const porVariante=new Map(vinculos.map(v=>[v.variant_id,v.producto_id]));
-  const sinVincular=Object.keys(pedido.cantidades).filter(k=>!porVariante.has(k));
-  let comparacion;
+  let comparacion,sinVincular;
   await db.transaction(async()=>{
-    const anterior=await db.prepare('SELECT cantidades,pagado,cancelado FROM tiendanube_pedidos WHERE store_id=? AND order_id=? FOR UPDATE').get(con.store_id,remoteOrder);
+    await bloquearConexionVigente(negocio_id,con.store_id);
+    const ajeno=await db.prepare('SELECT negocio_id FROM tiendanube_pedidos WHERE store_id=? AND order_id=? AND negocio_id<>? FOR UPDATE').get(con.store_id,remoteOrder,negocio_id);
+    if(ajeno)throw error('Este pedido tiene un vínculo de negocio inconsistente; requiere revisión',409);
+    const vinculos=await db.prepare('SELECT variant_id,producto_id FROM tiendanube_variantes WHERE store_id=? AND negocio_id=?').all(con.store_id,negocio_id);
+    const porVariante=new Map(vinculos.map(v=>[v.variant_id,v.producto_id]));
+    sinVincular=Object.keys(pedido.cantidades).filter(k=>!porVariante.has(k));
+    const anterior=await db.prepare('SELECT cantidades,pagado,cancelado FROM tiendanube_pedidos WHERE negocio_id=? AND store_id=? AND order_id=? FOR UPDATE').get(negocio_id,con.store_id,remoteOrder);
     comparacion=cambiosPedidoTiendanube(anterior?{...anterior,order_id:remoteOrder}:null,pedido);
-    await db.prepare(`INSERT INTO tiendanube_pedidos(negocio_id,store_id,order_id,estado,cantidades,pagado,cancelado,pendiente_revision)
+    const guardado=await db.prepare(`INSERT INTO tiendanube_pedidos(negocio_id,store_id,order_id,estado,cantidades,pagado,cancelado,pendiente_revision)
       VALUES(?,?,?,?,?::jsonb,?,?,TRUE)
       ON CONFLICT(store_id,order_id) DO UPDATE SET estado=EXCLUDED.estado,cantidades=EXCLUDED.cantidades,
-      pagado=EXCLUDED.pagado,cancelado=EXCLUDED.cancelado,pendiente_revision=TRUE,actualizado_at=NOW()`)
-      .run(negocio_id,con.store_id,remoteOrder,pedido.estado,JSON.stringify(pedido.cantidades),pedido.pagado,pedido.cancelado);
+      pagado=EXCLUDED.pagado,cancelado=EXCLUDED.cancelado,pendiente_revision=TRUE,actualizado_at=NOW()
+      WHERE tiendanube_pedidos.negocio_id=EXCLUDED.negocio_id RETURNING negocio_id`)
+      .get(negocio_id,con.store_id,remoteOrder,pedido.estado,JSON.stringify(pedido.cantidades),pedido.pagado,pedido.cancelado);
+    if(!guardado)throw error('Este pedido tiene un vínculo de negocio inconsistente; requiere revisión',409);
   });
   res.json({pedido,comparacion,sin_vincular:sinVincular,stock_actualizado:false,
     mensaje:'Solo conciliación para revisión; no se descontó stock ni se registraron cobros'});
@@ -151,6 +175,8 @@ tiendanubePublicaRouter.post('/webhook',wrap(async(req,res)=>{
     // Revocar credenciales de esta tienda y borrar solo los datos internos de
     // la integración. Nunca borrar productos, clientes ni ventas de Zilky.
     await db.transaction(async()=>{
+      // Mismo orden que vínculos y conciliación: conexión antes de sus datos.
+      await db.prepare('SELECT negocio_id FROM tiendanube_conexiones WHERE store_id=? FOR UPDATE').get(storeId);
       await db.prepare('DELETE FROM tiendanube_stock_outbox WHERE negocio_id IN (SELECT negocio_id FROM tiendanube_conexiones WHERE store_id=?)').run(storeId);
       await db.prepare('DELETE FROM tiendanube_variantes WHERE store_id=?').run(storeId);
       await db.prepare('DELETE FROM tiendanube_pedidos WHERE store_id=?').run(storeId);
@@ -179,6 +205,7 @@ tiendanubePublicaRouter.post('/privacy/:accion',wrap(async(req,res)=>{
   const storeId=validarIdExterno(payload.store_id);
   if(accion==='store-redact'){
     await db.transaction(async()=>{
+      await db.prepare('SELECT negocio_id FROM tiendanube_conexiones WHERE store_id=? FOR UPDATE').get(storeId);
       await db.prepare('DELETE FROM tiendanube_stock_outbox WHERE negocio_id IN (SELECT negocio_id FROM tiendanube_conexiones WHERE store_id=?)').run(storeId);
       await db.prepare('DELETE FROM tiendanube_variantes WHERE store_id=?').run(storeId);
       await db.prepare('DELETE FROM tiendanube_pedidos WHERE store_id=?').run(storeId);
