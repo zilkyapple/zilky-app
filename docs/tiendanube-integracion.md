@@ -34,11 +34,22 @@ transaccional para todos los cambios locales de stock. Los cambios permanecen
 **pausados**: no se envían automáticamente. Este primer avance **no equivale**
 a sincronizar las ventas entre los sistemas.
 
-Verificado en el Portal de Socios: los datos básicos y permisos están todavía
-sin guardar; el callback que figura en el formulario es el predeterminado del
-portal, no el callback de este repositorio. No se debe instalar la app ni
-guardar URLs de privacidad mientras los endpoints correspondientes no estén
-operativos en el servidor de producción.
+Verificado en el Portal de Socios el 09/11/2026: los **datos básicos están
+finalizados** para la app 51162; se guardaron los permisos `Edit Products` y
+`View Orders`, la URL de página de la app y el callback de este repositorio.
+Se guardaron los tres webhooks obligatorios en URLs independientes:
+
+- `POST /api/tiendanube/privacy/store-redact` — borrar exclusivamente la
+  conexión, tokens y estados de la integración Tiendanube; preservar todo el
+  resto de Zilky.
+- `POST /api/tiendanube/privacy/customer-redact` — no replicamos PII de
+  clientes de Tiendanube en nuestras tablas de integración.
+- `POST /api/tiendanube/privacy/customer-data-request` — no almacenamos
+  información personal de compradores de Tiendanube en estas tablas.
+
+Las tres rutas comprueban la firma HMAC. La app **todavía no está instalada**,
+los endpoints **todavía no están desplegados** y no debe asumirse que reciben
+solicitudes hasta que Render tenga el código y los secretos. No instalar antes.
 
 Antes de activar la conexión se debe:
 

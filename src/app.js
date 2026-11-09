@@ -40,6 +40,7 @@ app.use((req,res,next)=>{
 // Tiendanube exige HMAC sobre los bytes originales: esta ruta debe ir antes
 // del parser JSON global. Ninguna ruta antigua cambia su comportamiento.
 app.use('/api/tiendanube/webhook', express.raw({type:'application/json',limit:'100kb',inflate:false}));
+app.use('/api/tiendanube/privacy', express.raw({type:'application/json',limit:'100kb',inflate:false}));
 app.use(express.json({inflate:false}));
 app.use('/api/tiendanube',tiendanubePublicaRouter);
 

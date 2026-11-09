@@ -20,6 +20,11 @@ test('la integración no expone acciones sin login y la web original sigue respo
       body:JSON.stringify({store_id:123,event:'order/created',id:5}),
     });
     assert.equal(unsigned.status,401);
+    const privateUnsigned=await fetch(base+'/api/tiendanube/privacy/store-redact',{
+      method:'POST',headers:{'Content-Type':'application/json','x-linkedstore-hmac-sha256':'00'.repeat(32)},
+      body:JSON.stringify({store_id:123}),
+    });
+    assert.equal(privateUnsigned.status,401);
     const original=await fetch(base+'/tienda/zilky-indumentaria');
     assert.equal(original.status,200);
     assert.match(await original.text(),/html/i);

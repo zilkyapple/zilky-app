@@ -16,6 +16,13 @@ const callbackUrl = 'https://zilky-app.onrender.com/api/tiendanube/oauth/callbac
 const contactEmail = 'zilkyindumentaria@gmail.com';
 const wrap = f => async(req,res,next) => {try {await f(req,res);} catch(e){next(e);}};
 
+function payloadFirmado(req){
+  const secret=process.env.TIENDANUBE_APP_SECRET;
+  if(!secret)throw error('Receptor todavía no configurado',503);
+  if(!firmaWebhookValida(req.body,req.headers['x-linkedstore-hmac-sha256'],secret))throw error('Firma inválida',401);
+  try {return JSON.parse(req.body.toString('utf8'));}catch {throw error('Evento inválido');}
+}
+
 function credenciales() {
   const secret=process.env.TIENDANUBE_APP_SECRET;
   if (!secret) throw error('Falta configurar la conexión privada en el servidor',503);
@@ -134,19 +141,53 @@ tiendanubeAdminRouter.post('/pedidos/conciliar',wrap(async(req,res)=>{
 
 tiendanubePublicaRouter.post('/webhook',wrap(async(req,res)=>{
   const raw=req.body;
-  const secret=process.env.TIENDANUBE_APP_SECRET;
-  if (!secret) throw error('Receptor todavía no configurado',503);
-  if (!firmaWebhookValida(raw,req.headers['x-linkedstore-hmac-sha256'],secret)) throw error('Firma inválida',401);
-  let payload;
-  try { payload=JSON.parse(raw.toString('utf8')); } catch {throw error('Evento inválido');}
+  const payload=payloadFirmado(req);
   if(!payload||typeof payload!=='object'||Array.isArray(payload))throw error('Evento inválido');
   const storeId=validarIdExterno(payload.store_id ?? payload.store);
   const topic=typeof payload.event==='string'?payload.event:typeof payload.topic==='string'?payload.topic:null;
   if(!topic||topic.length>100)throw error('Tipo de evento inválido');
   const rid=validarIdExterno(payload.id ?? payload.data?.id ?? storeId);
+  if(topic==='app/store_redact'||topic==='app/uninstalled') {
+    // Revocar credenciales de esta tienda y borrar solo los datos internos de
+    // la integración. Nunca borrar productos, clientes ni ventas de Zilky.
+    await db.transaction(async()=>{
+      await db.prepare('DELETE FROM tiendanube_stock_outbox WHERE negocio_id IN (SELECT negocio_id FROM tiendanube_conexiones WHERE store_id=?)').run(storeId);
+      await db.prepare('DELETE FROM tiendanube_variantes WHERE store_id=?').run(storeId);
+      await db.prepare('DELETE FROM tiendanube_pedidos WHERE store_id=?').run(storeId);
+      await db.prepare('DELETE FROM tiendanube_eventos WHERE store_id=?').run(storeId);
+      await db.prepare('DELETE FROM tiendanube_conexiones WHERE store_id=?').run(storeId);
+    });
+    return res.status(200).json({recibido:true});
+  }
+  // No persistimos datos personales de compradores en esta integración: para
+  // customers/redact y customers/data_request basta el registro firmado del
+  // evento, sin replicar información privada.
   // Conservar el evento auténtico para reconciliar luego; no alterar inventario
   // ni cobros en el proceso HTTP que responde a Tiendanube.
   await db.prepare(`INSERT INTO tiendanube_eventos(store_id,topic,recurso_id,body_hash,payload)
     VALUES(?,?,?,?,?::jsonb) ON CONFLICT(store_id,topic,recurso_id,body_hash) DO NOTHING`).run(storeId,topic,rid,hashEvento(raw),JSON.stringify(payload));
   res.status(202).json({recibido:true});
+}));
+
+// Las notificaciones obligatorias de privacidad NO incluyen campo `event`.
+// Se identifican por URL distinta y se verifica la misma firma del cuerpo.
+tiendanubePublicaRouter.post('/privacy/:accion',wrap(async(req,res)=>{
+  const accion=req.params.accion;
+  if(!['store-redact','customer-redact','customer-data-request'].includes(accion))throw error('Notificación desconocida',404);
+  const payload=payloadFirmado(req);
+  if(!payload||typeof payload!=='object'||Array.isArray(payload))throw error('Solicitud inválida');
+  const storeId=validarIdExterno(payload.store_id);
+  if(accion==='store-redact'){
+    await db.transaction(async()=>{
+      await db.prepare('DELETE FROM tiendanube_stock_outbox WHERE negocio_id IN (SELECT negocio_id FROM tiendanube_conexiones WHERE store_id=?)').run(storeId);
+      await db.prepare('DELETE FROM tiendanube_variantes WHERE store_id=?').run(storeId);
+      await db.prepare('DELETE FROM tiendanube_pedidos WHERE store_id=?').run(storeId);
+      await db.prepare('DELETE FROM tiendanube_eventos WHERE store_id=?').run(storeId);
+      await db.prepare('DELETE FROM tiendanube_conexiones WHERE store_id=?').run(storeId);
+    });
+  }
+  // No guardamos identificadores de consumidores, email, teléfono ni pedidos
+  // con datos personales en las tablas de Tiendanube. No guardar el payload
+  // de customer-redact o customer-data-request, que sí contiene PII.
+  res.status(200).json({recibido:true});
 }));
