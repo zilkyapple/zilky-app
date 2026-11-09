@@ -8,6 +8,8 @@ import { tiendaCobrosRouter } from './routes/tiendaCobros.js';
 import { tiendaMediaRouter, tiendaMediaPublicaRouter } from './routes/tiendaMedia.js';
 import { tiendanubeAdminRouter, tiendanubePublicaRouter } from './routes/tiendanube.js';
 import { tiendanubePedidosRouter } from './routes/tiendanubePedidos.js';
+import { tiendanubeBaselineRouter } from './routes/tiendanubeBaseline.js';
+import { tiendanubePrivacidadRouter } from './routes/tiendanubePrivacidad.js';
 import express from 'express';
 import cors from 'cors';
 import path from 'node:path';
@@ -35,7 +37,7 @@ app.use((req,res,next)=>{
   res.setHeader('X-Content-Type-Options','nosniff');
   res.setHeader('Referrer-Policy','no-referrer');
   if(req.path.startsWith('/api'))res.setHeader('Cache-Control','no-store');
-  else if(['/', '/index.html', '/app.js', '/styles.css', '/tienda.html', '/tienda.js', '/tienda.css', '/tiendaAdmin.js', '/tiendaAdmin.css', '/tiendanubeAdmin.js', '/tiendanubePedidos.js'].includes(req.path)||req.path.startsWith('/tienda/'))res.setHeader('Cache-Control','no-cache');
+  else if(['/', '/index.html', '/app.js', '/styles.css', '/tienda.html', '/tienda.js', '/tienda.css', '/tiendaAdmin.js', '/tiendaAdmin.css', '/tiendanubeAdmin.js', '/tiendanubePedidos.js', '/tiendanubeBaseline.js', '/tiendanubePrivacidad.js'].includes(req.path)||req.path.startsWith('/tienda/'))res.setHeader('Cache-Control','no-cache');
   next();
 });
 // Tiendanube exige HMAC sobre los bytes originales: esta ruta debe ir antes
@@ -69,6 +71,8 @@ app.use('/api/negocios', negociosRouter);
 app.use('/api/clientes', clientesRouter);
 app.use('/api/productos', productosRouter);
 app.use('/api/tiendanube', tiendanubePedidosRouter);
+app.use('/api/tiendanube', tiendanubeBaselineRouter);
+app.use('/api/tiendanube/privacidad-gestion', tiendanubePrivacidadRouter);
 app.use('/api/tiendanube', tiendanubeAdminRouter);
 app.use('/api/ventas', ventasRouter);
 app.use('/api/pagos', pagosRouter);

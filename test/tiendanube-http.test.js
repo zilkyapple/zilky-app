@@ -55,6 +55,9 @@ db.prepare=sql=>{
       if(text.startsWith('DELETE FROM tiendanube_oauth_estados')){
         const row=state.oauth;state.oauth=null;return row;
       }
+      if(text==='SELECT epoca FROM tiendanube_privacidad_epocas WHERE negocio_id=?'){
+        assert.equal(params[0],'negocio-a');return {epoca:state.privacyEpoch};
+      }
       if(text.startsWith('UPDATE tiendanube_conexiones SET pausada=TRUE')){
         assert.match(text,/WHERE negocio_id=\? RETURNING negocio_id,sync_lease_token,sync_reserva_token$/);
         if(params[0]!=='negocio-a'||!state.connection)return undefined;
@@ -107,7 +110,8 @@ db.prepare=sql=>{
         assert.equal(params[0],'negocio-a');state.oauth=null;return {changes:1};
       }
       if(text.startsWith('INSERT INTO tiendanube_oauth_estados')){
-        state.oauth={state_hash:params[0],negocio_id:params[1],usuario_id:params[2]};return {changes:1};
+        assert.match(text,/privacidad_epoca/);
+        state.oauth={state_hash:params[0],negocio_id:params[1],usuario_id:params[2],privacidad_epoca:params[3]};return {changes:1};
       }
       if(text.startsWith('INSERT INTO tiendanube_conexiones')){
         const [negocio_id,store_id,app_id,token_cifrado,scopes]=params;
@@ -137,7 +141,7 @@ const {descifrarToken}=await import('../src/lib/tiendanube.js');
 function reset(){
   calls.length=0;externalCalls=0;externalResponse=null;
   process.env.TIENDANUBE_SYNC_ENABLED='true';
-  state={membershipActive:true,variants:1,withoutBaseline:1,outboxReview:0,inboxReview:0,links:[],events:new Map(),deletedOrders:new Set(),oauth:null,
+  state={membershipActive:true,variants:1,withoutBaseline:1,outboxReview:0,inboxReview:0,links:[],events:new Map(),deletedOrders:new Set(),oauth:null,privacyEpoch:'0',
     connection:{negocio_id:'negocio-a',store_id:'321',app_id:'123456789',scopes:'write_products,read_orders',pausada:false,sync_lease_token:null,
       sync_activada_at:'2026-11-09T00:00:00.000Z',sync_baseline_at:null,sync_webhooks_at:null,sync_motivo_pausa:null,
       creada_at:'2026-11-09T00:00:00.000Z',actualizada_at:'2026-11-09T00:00:00.000Z',token_cifrado:'NO-EXPONER-TOKEN-FAKE'}};
@@ -262,6 +266,7 @@ test('Tiendanube HTTP aislado: permisos, readiness y recepción de webhooks',asy
     }
     assert.equal(calls.filter(c=>c.method==='run').length,0);
     state.connection.pausada=true;state.connection.sync_lease_token=null;state.connection.sync_reserva_token=null;
+    state.privacyEpoch='3';
     state.oauth={state_hash:'ESTADO-ANTERIOR',negocio_id:'negocio-a',usuario_id:'admin-a'};
     const response=await initiate();assert.equal(response.status,200);
     const result=await response.json();const authorization=new URL(result.url);
@@ -270,7 +275,7 @@ test('Tiendanube HTTP aislado: permisos, readiness y recepción de webhooks',asy
     assert.match(authorization.searchParams.get('state'),/^[a-f0-9]{64}$/);
     assert.deepEqual([...authorization.searchParams.keys()],['state']);
     assert.equal(result.vence_en_segundos,600);
-    assert.deepEqual(state.oauth,{state_hash:createHash('sha256').update(authorization.searchParams.get('state')).digest('hex'),negocio_id:'negocio-a',usuario_id:'admin-a'});
+    assert.deepEqual(state.oauth,{state_hash:createHash('sha256').update(authorization.searchParams.get('state')).digest('hex'),negocio_id:'negocio-a',usuario_id:'admin-a',privacidad_epoca:'3'});
     const writes=calls.filter(c=>c.method==='run');assert.equal(writes.length,2);
     assert.match(writes[0].sql,/^DELETE FROM tiendanube_oauth_estados WHERE negocio_id=\?$/);
     assert.match(writes[1].sql,/^INSERT INTO tiendanube_oauth_estados/);
@@ -321,6 +326,25 @@ test('Tiendanube HTTP aislado: permisos, readiness y recepción de webhooks',asy
       assert.equal(state.connection.token_cifrado,'NO-EXPONER-TOKEN-FAKE');
     }
     assert.equal(calls.filter(c=>c.method==='run').length,0);
+  }));
+
+  await t.test('un borrado de privacidad durante el canje invalida el OAuth ya consumido',async()=>fixture(async({request})=>{
+    state.connection.pausada=true;
+    state.privacyEpoch='9007199254740992';
+    state.oauth={negocio_id:'negocio-a',usuario_id:'admin-a',privacidad_epoca:state.privacyEpoch};
+    externalResponse=async()=>{
+      // Simula otra transacción: borró la instalación e incrementó la época
+      // mientras el callback esperaba la respuesta del proveedor.
+      state.connection=null;state.privacyEpoch='9007199254740993';
+      return {ok:true,json:async()=>({user_id:321,scope:'write_products,read_orders',access_token:'NO-REINSTALAR'})};
+    };
+    const response=await request('/api/tiendanube/oauth/callback?state='+'b'.repeat(64)+'&code=fake');
+    assert.equal(response.status,409);assert.match((await response.json()).error,/privacidad/);
+    assert.equal(state.connection,null);assert.equal(state.oauth,null);
+    assert.equal(calls.filter(c=>c.method==='run').length,0);
+    const epochRead=calls.findIndex(c=>c.sql==='SELECT epoca FROM tiendanube_privacidad_epocas WHERE negocio_id=?');
+    assert.ok(epochRead>calls.findIndex(c=>c.params?.[0]==='tiendanube:privacidad:321'));
+    assert.ok(epochRead>calls.findIndex(c=>c.params?.[0]==='tiendanube-sync:negocio-a'));
   }));
 
   await t.test('revocar membresía durante el canje impide guardar la nueva autorización',async()=>fixture(async({request})=>{

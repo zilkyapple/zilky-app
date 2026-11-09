@@ -252,7 +252,8 @@ async function render() {
     ventas: 'ventas.crear', productos: 'productos.ver',
     comprobantes: 'comprobantes.ver', empleados: 'empleados.gestionar',
   };
-  if (['configuracion','caja','contratos','exportaciones','tiendanube'].includes(root) && state.usuario?.rol !== 'administrador') {
+  const pedidosTiendanube = root === 'tiendanube' && parts.length === 2 && parts[1] === 'pedidos';
+  if ((['configuracion','caja','contratos','exportaciones'].includes(root) || (root === 'tiendanube' && !pedidosTiendanube)) && state.usuario?.rol !== 'administrador') {
     setHTML(view, '<div class="empty-state"><p>Requiere administrador</p></div>');
     return;
   }
@@ -272,7 +273,9 @@ async function render() {
     else if (root === 'ventas') await viewVentaNueva(view, parts[1] === 'nueva' ? parts[2] || null : parts[1] || null);
     else if (root === 'productos') await viewProductos(view);
     else if (root === 'tienda') await viewTienda(view);
-    else if (root === 'tiendanube' && parts[1] === 'pedidos') await viewTiendanubePedidos(view);
+    else if (pedidosTiendanube) await viewTiendanubePedidos(view);
+    else if (root === 'tiendanube' && parts.length === 2 && parts[1] === 'baseline') await viewTiendanube(view,'baseline');
+    else if (root === 'tiendanube' && parts.length === 2 && parts[1] === 'privacidad') await viewTiendanube(view,'privacidad');
     else if (root === 'tiendanube') await viewTiendanube(view);
     else if (root === 'comprobantes') await viewComprobantes(view, parts[1] === 'cliente' ? parts[2] || null : null);
     else if (root === 'configuracion') await viewConfiguracion(view);
@@ -289,7 +292,7 @@ async function render() {
 }
 const notFound = () => '<div class="empty-state"><p>No encontrado.</p></div>';
 
-async function viewTiendanube(view) {
+async function viewTiendanube(view,tipo='conexion') {
   const negocio=state.negocioActual,usuarioId=state.usuario?.id,token=getToken();
   const valid=()=>view.isConnected&&state.negocioActual===negocio&&getToken()===token&&state.usuario?.id===usuarioId&&state.usuario?.rol==='administrador';
   const scopedApi=async(path,options)=>{
@@ -298,8 +301,10 @@ async function viewTiendanube(view) {
     if(!valid())throw Error('La sesión o el negocio cambió.');
     return result;
   };
-  const {tiendanubeAdminView}=await import('./tiendanubeAdmin.js');
-  if(valid())await tiendanubeAdminView(view,{api:scopedApi,setHTML,negocio,toast,admin:true,valid});
+  const component=tipo==='baseline'?(await import('./tiendanubeBaseline.js')).tiendanubeBaselineView:
+    tipo==='privacidad'?(await import('./tiendanubePrivacidad.js')).tiendanubePrivacidadView:
+      (await import('./tiendanubeAdmin.js')).tiendanubeAdminView;
+  if(valid())await component(view,{api:scopedApi,setHTML,negocio,toast,admin:true,valid});
 }
 
 async function viewTiendanubePedidos(view) {

@@ -90,6 +90,7 @@ export async function tiendanubeAdminView(view,ctx){
     const connectionLabel=!connected?'No conectada':!diagnostico||diagnosticError?'Conectada · estado del motor sin comprobar':paused()?'Conectada · sincronización pausada':blocks.has('FEATURE_FLAG_APAGADA')?'Conectada · motor deshabilitado':prerequisitesComplete?'Conectada · requisitos del motor completos':'Conectada · preparación incompleta';
     const localLinked=linkedLocal(),remoteLinked=linkedRemote();
     setHTML(root,`<header class="ta-heading"><div><h1>Conexión con Tiendanube</h1><p>Vinculá las variantes existentes sin duplicar el inventario.</p></div><button type="button" class="btn btn-secondary" data-tn-refresh ${busy||loading?'disabled':''}>Actualizar estado</button></header>
+      <nav class="ta-actions" aria-label="Revisión de Tiendanube"><a class="btn btn-secondary" href="#/tiendanube/baseline">Revisar inventarios</a><a class="btn btn-secondary" href="#/tiendanube/privacidad">Gestionar privacidad</a></nav>
       <p data-tn-status role="status" aria-live="polite">${esc(loading?'Cargando conexión…':notice)}</p>
       <section class="card ta-form"><h2>Estado de la conexión</h2><p><strong>${esc(connectionLabel)}</strong></p>
       ${!configured?'<p class="ta-notice">Falta completar la configuración privada del servidor. No ingreses claves o contraseñas en esta pantalla.</p>':''}

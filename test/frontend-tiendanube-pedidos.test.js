@@ -151,7 +151,8 @@ test('nombres remotos/locales se escapan y no crean markup ejecutable',async()=>
 });
 test('entrypoint operativo tiene guards y no convierte integración admin en pantalla de empleado',()=>{
   const app=read('app.js'),server=fs.readFileSync(new URL('../src/app.js',import.meta.url),'utf8');
-  assert.match(app,/root === 'tiendanube' && parts\[1\] === 'pedidos'/);
+  assert.match(app,/const pedidosTiendanube = root === 'tiendanube' && parts\.length === 2 && parts\[1\] === 'pedidos'/);
+  assert.match(app,/root === 'tiendanube' && !pedidosTiendanube/);
   assert.match(app,/puede\('tienda\.pedidos',negocio\)&&puede\('ventas\.crear',negocio\)/);
   assert.ok(server.indexOf("app.use('/api/tiendanube', tiendanubePedidosRouter)")<server.indexOf("app.use('/api/tiendanube', tiendanubeAdminRouter)"));
   assert.match(server,/'\/tiendanubePedidos\.js'/);

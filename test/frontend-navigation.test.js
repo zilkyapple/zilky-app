@@ -27,6 +27,24 @@ function employee(b, permissions) {
   b.w.qaState.usuario = { rol: 'empleado', negocios: negocios.map(n => ({ negocio_id: n.id, activo: 1, permisos: permissions[n.id] || {} })) };
 }
 
+test('La ruta operativa Tiendanube llega al control de permisos sin abrir administración al empleado', async () => {
+  const b = browser();
+  try {
+    employee(b, { a: { 'tienda.pedidos': true, 'ventas.crear': true } });
+    let opened = 0;
+    b.w.viewTiendanubePedidos = async view => { opened++; view.textContent = 'Control operativo de permisos'; };
+    await b.route('tiendanube/pedidos');
+    assert.equal(opened, 1);
+    assert.match(b.view.textContent, /Control operativo/);
+    for (const route of ['tiendanube', 'tiendanube/privacidad', 'tiendanube/conciliacion', 'tiendanube/pedidos/administracion']) {
+      await b.route(route);
+      assert.match(b.view.textContent, /Requiere administrador/);
+    }
+    assert.equal(opened, 1);
+    assert.equal(b.calls.length, 0);
+  } finally { b.w.close(); }
+});
+
 test('Venta desde una ficha conserva el cliente y consulta el negocio seleccionado', async () => {
   const b = browser(url => url.startsWith('/api/clientes/') ? cliente : []);
   try {

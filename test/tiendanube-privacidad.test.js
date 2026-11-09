@@ -5,8 +5,8 @@ import { crearServicioPrivacidadTiendanube, hashPedidoPrivacidad } from '../src/
 const copy=value=>value===undefined?undefined:structuredClone(value);
 const fixed='2026-11-09T12:00:00.000Z';
 function base(){
-  return {conexiones:[{store_id:'10',negocio_id:'negocio-a',app_id:'51162',actualizada_at:fixed},
-    {store_id:'20',negocio_id:'negocio-b',app_id:'51162',actualizada_at:fixed}],
+  return {conexiones:[{store_id:'10',negocio_id:'negocio-a',app_id:'51162',creada_at:fixed,actualizada_at:fixed,token_cifrado:'fixture-a'},
+    {store_id:'20',negocio_id:'negocio-b',app_id:'51162',creada_at:fixed,actualizada_at:fixed,token_cifrado:'fixture-b'}],
     pedidos:[{store_id:'10',order_id:'100',estado:'open',cantidades:{'500':1},pagado:false,cancelado:false,actualizado_at:fixed},
       {store_id:'10',order_id:'101',estado:'closed',cantidades:{'501':2},pagado:true,cancelado:false,actualizado_at:fixed},
       {store_id:'20',order_id:'100',estado:'open',cantidades:{'600':3},pagado:false,cancelado:false,actualizado_at:fixed}],
@@ -21,15 +21,15 @@ function fakeDb(initial=base()){
     const compact=sql.replace(/\s+/g,' ').trim();
     calls.push({sql:compact,params:copy(params)});
     if(compact==='SELECT pg_advisory_xact_lock(hashtextextended(?,0))')return {};
-    if(compact.startsWith('SELECT negocio_id,app_id,actualizada_at FROM tiendanube_conexiones')){
+    if(compact.startsWith('SELECT negocio_id,store_id,app_id,creada_at,actualizada_at,token_cifrado FROM tiendanube_conexiones')){
       const row=state.conexiones.find(r=>r.store_id===params[0]);
-      return row?{negocio_id:row.negocio_id,app_id:row.app_id,actualizada_at:row.actualizada_at}:undefined;
+      return copy(row);
     }
     if(compact.startsWith('INSERT INTO tiendanube_privacidad_solicitudes')){
       if(state.solicitudes.some(r=>r.clave===params[1]))return undefined;
       const keys=['id','clave','contenido_hash','store_id','negocio_id','tipo','solicitud_ref','instalacion_actualizada_at','evento_fecha','estado'];
       const row=Object.fromEntries(keys.map((k,i)=>[k,params[i]]));
-      Object.assign(row,{reporte:JSON.parse(params[10]),creada_at:fixed,actualizada_at:fixed});
+      Object.assign(row,{reporte:JSON.parse(params[10]),instalacion_huella:params[11],instalacion_creada_at:params[12],creada_at:fixed,actualizada_at:fixed});
       state.solicitudes.push(row);return copy(row);
     }
     if(compact.startsWith('INSERT INTO tiendanube_privacidad_borrados')){

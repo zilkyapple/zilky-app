@@ -26,6 +26,14 @@ function fecha(value){
   const parsed=new Date(value);
   return Number.isFinite(parsed.valueOf())?parsed.toISOString():null;
 }
+// Creación + credencial cifrada identifican una autorización concreta; ni una
+// pausa ni la recepción de un webhook cambian esta identidad. No se devuelve
+// al navegador ni se registra la credencial que se utiliza para calcularla.
+export function huellaInstalacionPrivacidad(conexion){
+  const creada=fecha(conexion?.creada_at);
+  if(!creada||!conexion?.store_id||!conexion?.app_id||!conexion?.token_cifrado)return null;
+  return hash(['tiendanube-installation-v1',String(conexion.store_id),String(conexion.app_id),creada,conexion.token_cifrado]);
+}
 function fechaEvento(value){
   if(value===undefined||value===null)return null;
   const number=Number(value);
@@ -45,7 +53,7 @@ function solicitudSegura(row){
   if(!row)return null;
   return {id:row.id,store_id:row.store_id,negocio_id:row.negocio_id??null,tipo:row.tipo,
     estado:row.estado,solicitud_ref:row.solicitud_ref??null,
-    instalacion_actualizada_at:fecha(row.instalacion_actualizada_at),evento_fecha:fecha(row.evento_fecha),
+    instalacion_actualizada_at:fecha(row.instalacion_actualizada_at),instalacion_creada_at:fecha(row.instalacion_creada_at),evento_fecha:fecha(row.evento_fecha),
     reporte:row.reporte,creada_at:fecha(row.creada_at),actualizada_at:fecha(row.actualizada_at)};
 }
 
@@ -77,17 +85,18 @@ export function crearServicioPrivacidadTiendanube({database}={}){
       // También serializa redact/report cuando la conexión ya fue retirada;
       // no depender de la existencia de una fila para bloquear la tienda.
       await database.prepare('SELECT pg_advisory_xact_lock(hashtextextended(?,0))').get('tiendanube:privacidad:'+storeId);
-      const conexion=await database.prepare('SELECT negocio_id,app_id,actualizada_at FROM tiendanube_conexiones WHERE store_id=? FOR UPDATE').get(storeId);
-      const instalacion=fecha(conexion?.actualizada_at);
+      const conexion=await database.prepare('SELECT negocio_id,store_id,app_id,creada_at,actualizada_at,token_cifrado FROM tiendanube_conexiones WHERE store_id=? FOR UPDATE').get(storeId);
+      const instalacion=fecha(conexion?.actualizada_at),creadaAt=fecha(conexion?.creada_at);
+      const huella=huellaInstalacionPrivacidad(conexion);
       const revision=accion==='store-redact'||accion==='uninstalled';
-      const clave=hash(revision?{accion,storeId,instalacion,eventDate,eventoApp}:
+      const clave=hash(revision?{accion,storeId,instalacion:huella,eventDate,eventoApp}:
         solicitudRef?{accion,storeId,solicitudRef}:{accion,storeId,orderIds});
       const solicitudId=randomUUID();
       const estado=revision?'pendiente_revision':accion==='customer-data-request'?'pendiente_entrega':'completada';
       const creada=await database.prepare(`INSERT INTO tiendanube_privacidad_solicitudes
-        (id,clave,contenido_hash,store_id,negocio_id,tipo,solicitud_ref,instalacion_actualizada_at,evento_fecha,estado,reporte)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?::jsonb) ON CONFLICT(clave) DO NOTHING RETURNING *`)
-        .get(solicitudId,clave,contenidoHash,storeId,conexion?.negocio_id??null,accion,solicitudRef,instalacion,eventDate,estado,'{}');
+        (id,clave,contenido_hash,store_id,negocio_id,tipo,solicitud_ref,instalacion_actualizada_at,evento_fecha,estado,reporte,instalacion_huella,instalacion_creada_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?::jsonb,?,?) ON CONFLICT(clave) DO NOTHING RETURNING *`)
+        .get(solicitudId,clave,contenidoHash,storeId,conexion?.negocio_id??null,accion,solicitudRef,instalacion,eventDate,estado,'{}',huella,creadaAt);
       if(!creada){
         const existente=await database.prepare('SELECT * FROM tiendanube_privacidad_solicitudes WHERE clave=?').get(clave);
         if(!existente||existente.contenido_hash!==contenidoHash)throw fallo('La solicitud de privacidad cambió de contenido',409);
@@ -98,7 +107,7 @@ export function crearServicioPrivacidadTiendanube({database}={}){
         reporte={version:1,accion_requerida:'verificar_instalacion_vigente',credenciales_modificadas:false,
           conexion_presente:!!conexion,revocacion_verificada:false,fecha_evento_disponible:!!eventDate,
           app_id_evento:eventoApp,app_id_instalacion:conexion?.app_id?String(conexion.app_id):null,
-          evento_anterior_a_instalacion:!!(eventDate&&instalacion&&eventDate<instalacion),
+          evento_anterior_a_instalacion:!!(eventDate&&creadaAt&&eventDate<creadaAt),
           nota:'Revisar vigencia de la instalación antes de revocar o eliminar datos de integración.'};
       }else if(accion==='customer-data-request'){
         const rows=orderIds.length?await database.prepare(`SELECT order_id,estado,cantidades,pagado,cancelado,actualizado_at

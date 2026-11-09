@@ -121,8 +121,9 @@ tiendanubeAdminRouter.post('/iniciar',wrap(async(req,res)=>{
     await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`tiendanube-sync:${req.body.negocio_id}`]);
     const con=await db.prepare('SELECT pausada,sync_lease_token,sync_reserva_token FROM tiendanube_conexiones WHERE negocio_id=? FOR UPDATE').get(req.body.negocio_id);
     if(con&&(!con.pausada||con.sync_lease_token||con.sync_reserva_token))throw error('Pausá y conciliá las operaciones en curso antes de volver a autorizar',409);
+    const privacidad=await db.prepare('SELECT epoca FROM tiendanube_privacidad_epocas WHERE negocio_id=?').get(req.body.negocio_id);
     await db.prepare('DELETE FROM tiendanube_oauth_estados WHERE negocio_id=?').run(req.body.negocio_id);
-    await db.prepare('INSERT INTO tiendanube_oauth_estados(state_hash,negocio_id,usuario_id,vence_at) VALUES(?,?,?,NOW()+INTERVAL \'10 minutes\')').run(checksum(state),req.body.negocio_id,req.usuarioId);
+    await db.prepare('INSERT INTO tiendanube_oauth_estados(state_hash,negocio_id,usuario_id,privacidad_epoca,vence_at) VALUES(?,?,?,?,NOW()+INTERVAL \'10 minutes\')').run(checksum(state),req.body.negocio_id,req.usuarioId,privacidad?.epoca??0);
   });
   res.json({url:`https://www.tiendanube.com/apps/${portalId}/authorize?state=${state}`,vence_en_segundos:600});
 }));
@@ -137,7 +138,7 @@ tiendanubePublicaRouter.get('/oauth/callback',wrap(async(req,res)=>{
   const cred=credenciales();
   // Se retira el estado antes de consumir el código de autorización, para que
   // ni un callback repetido ni dos solicitudes simultáneas puedan reutilizarlo.
-  const row=await db.prepare('DELETE FROM tiendanube_oauth_estados WHERE state_hash=? AND vence_at>NOW() RETURNING negocio_id,usuario_id').get(checksum(state));
+  const row=await db.prepare('DELETE FROM tiendanube_oauth_estados WHERE state_hash=? AND vence_at>NOW() RETURNING negocio_id,usuario_id,privacidad_epoca').get(checksum(state));
   if (!row) throw error('La autorización venció o ya se utilizó',409);
   await negocioValido(row.negocio_id,row.usuario_id);
   const response=await fetch('https://www.tiendanube.com/apps/authorize/token',{
@@ -157,6 +158,10 @@ tiendanubePublicaRouter.get('/oauth/callback',wrap(async(req,res)=>{
     // La autorización puede tardar: comprobar de nuevo tanto la membresía
     // como la pausa/lease antes de reemplazar credenciales de una conexión.
     await negocioValido(row.negocio_id,row.usuario_id);
+    // El estado se consumió antes del canje remoto. Si se atendió un borrado
+    // mientras Tiendanube respondía, ese OAuth no puede reinstalar credenciales.
+    const privacidad=await db.prepare('SELECT epoca FROM tiendanube_privacidad_epocas WHERE negocio_id=?').get(row.negocio_id);
+    if(String(row.privacidad_epoca??0)!==String(privacidad?.epoca??0))throw error('La conexión fue eliminada por privacidad durante la autorización; iniciá una autorización nueva',409);
     const actual=await db.prepare('SELECT store_id,pausada,sync_lease_token,sync_reserva_token FROM tiendanube_conexiones WHERE negocio_id=? FOR UPDATE').get(row.negocio_id);
     if(actual&&(!actual.pausada||actual.sync_lease_token||actual.sync_reserva_token))throw error('La conexión comenzó una operación durante la autorización; pausá y conciliá antes de reintentar',409);
     if (actual && actual.store_id!==storeId) {
@@ -173,7 +178,7 @@ tiendanubePublicaRouter.get('/oauth/callback',wrap(async(req,res)=>{
     await db.prepare('UPDATE tiendanube_variantes SET sync_baseline_at=NULL,sync_stock_remoto=NULL,sync_verificar_despues=NULL WHERE negocio_id=?').run(row.negocio_id);
   });
   res.setHeader('Cache-Control','no-store');
-  res.type('html').send('<!doctype html><html lang="es"><meta charset="utf-8"><title>Conexión preparada</title><body><h1>Conexión autorizada</h1><p>La sincronización quedó pausada. Volvé al panel de Zilky para revisar los productos.</p></body></html>');
+  res.type('html').send('<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Conexión preparada</title><body><h1>Conexión autorizada</h1><p>La sincronización quedó pausada. Volvé al panel de Zilky para revisar los productos.</p><p><a href="/#/tiendanube">Volver a Zilky App</a></p></body></html>');
 }));
 
 tiendanubeAdminRouter.post('/vinculos',wrap(async(req,res)=>{
@@ -260,8 +265,6 @@ tiendanubePublicaRouter.post('/webhook',wrap(async(req,res)=>{
   }
   const permitidos=new Set(['order/created','order/updated','order/paid','order/cancelled','order/edited','order/fulfilled','order/pending','order/voided','product/updated']);
   if(!permitidos.has(topic))return res.status(200).json({recibido:true,ignorado:true});
-  const conexion=await db.prepare('SELECT negocio_id FROM tiendanube_conexiones WHERE store_id=?').get(storeId);
-  if(!conexion)return res.status(202).json({recibido:true,ignorado:true});
   // Lista cerrada: jamás almacenar el body arbitrario (que podría incluir PII).
   const minimo={store_id:storeId,event:topic,id:rid};
   if(Number.isSafeInteger(payload.event_launch_ts))minimo.event_launch_ts=payload.event_launch_ts;
