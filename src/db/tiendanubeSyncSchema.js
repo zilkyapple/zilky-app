@@ -6,6 +6,9 @@ ALTER TABLE tiendanube_conexiones ADD COLUMN IF NOT EXISTS sync_webhooks_at TIME
 ALTER TABLE tiendanube_conexiones ADD COLUMN IF NOT EXISTS sync_motivo_pausa TEXT;
 ALTER TABLE tiendanube_conexiones ADD COLUMN IF NOT EXISTS sync_lease_token TEXT;
 ALTER TABLE tiendanube_conexiones ADD COLUMN IF NOT EXISTS sync_lease_hasta TIMESTAMPTZ;
+ALTER TABLE tiendanube_conexiones ADD COLUMN IF NOT EXISTS setup_webhooks_url TEXT;
+ALTER TABLE tiendanube_conexiones ADD COLUMN IF NOT EXISTS setup_webhooks_registrados_at TIMESTAMPTZ;
+ALTER TABLE tiendanube_conexiones ADD COLUMN IF NOT EXISTS setup_webhooks_error TEXT;
 ALTER TABLE tiendanube_variantes ADD COLUMN IF NOT EXISTS sync_baseline_at TIMESTAMPTZ;
 ALTER TABLE tiendanube_variantes ADD COLUMN IF NOT EXISTS sync_stock_remoto INTEGER;
 ALTER TABLE tiendanube_variantes ADD COLUMN IF NOT EXISTS sync_verificar_despues TIMESTAMPTZ;
@@ -20,6 +23,9 @@ ALTER TABLE tiendanube_stock_outbox ADD COLUMN IF NOT EXISTS envio_iniciado_at T
 ALTER TABLE tiendanube_eventos ADD COLUMN IF NOT EXISTS sync_estado TEXT NOT NULL DEFAULT 'pendiente';
 ALTER TABLE tiendanube_eventos ADD COLUMN IF NOT EXISTS sync_version BIGINT NOT NULL DEFAULT 1;
 ALTER TABLE tiendanube_eventos ADD COLUMN IF NOT EXISTS sync_ultimo_evento_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+-- Procedencia explícita: solo el receptor que validó el HMAC escribe esta
+-- marca. Filas previas o internas no son evidencia de recepción firmada.
+ALTER TABLE tiendanube_eventos ADD COLUMN IF NOT EXISTS hmac_validada_at TIMESTAMPTZ;
 ALTER TABLE tiendanube_eventos ADD COLUMN IF NOT EXISTS sync_intentos INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE tiendanube_eventos ADD COLUMN IF NOT EXISTS sync_proximo_intento TIMESTAMPTZ NOT NULL DEFAULT NOW();
 CREATE TABLE IF NOT EXISTS tiendanube_pedido_stock (

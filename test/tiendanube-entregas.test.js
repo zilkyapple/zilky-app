@@ -202,6 +202,17 @@ test('PostgreSQL real: privacidad y eventos pendientes bloquean antes del GET, s
   }finally{await f.pg.close();}
 });
 
+test('PostgreSQL real: reserva central pendiente impide entrega sin stock, venta, cobro ni comisión nuevos',async()=>{
+  const f=await fixture();
+  try{
+    await f.db.exec("UPDATE tiendanube_conexiones SET sync_reserva_token='fixture-in-flight'");
+    await assert.rejects(f.service.confirmarEntregaTiendanube('n1','40',defaultBody(),'emp'),{code:'SINCRONIZACION_NO_LISTA_PARA_ENTREGA'});
+    assert.equal(f.requests,0);assert.equal(await f.count('ventas'),0);assert.equal(await f.count('creditos'),0);
+    assert.equal(await f.count('pagos'),0);assert.equal(await f.count('comision_eventos'),0);assert.equal(await f.count('producto_historial'),0);
+    assert.equal((await f.db.prepare('SELECT stock FROM productos WHERE id=?').get('p1')).stock,5);
+  }finally{await f.pg.close();}
+});
+
 test('PostgreSQL real: campos skip_stock de HTTP no desvían la venta legacy',async()=>{
   const f=await fixture();
   try{

@@ -56,11 +56,12 @@ db.prepare=sql=>{
         const row=state.oauth;state.oauth=null;return row;
       }
       if(text.startsWith('UPDATE tiendanube_conexiones SET pausada=TRUE')){
-        assert.match(text,/WHERE negocio_id=\? RETURNING negocio_id,sync_lease_token$/);
+        assert.match(text,/WHERE negocio_id=\? RETURNING negocio_id,sync_lease_token,sync_reserva_token$/);
         if(params[0]!=='negocio-a'||!state.connection)return undefined;
         state.connection.pausada=true;state.connection.sync_motivo_pausa='PAUSA_ADMINISTRADOR';
-        return {negocio_id:state.connection.negocio_id,sync_lease_token:state.connection.sync_lease_token};
+        return {negocio_id:state.connection.negocio_id,sync_lease_token:state.connection.sync_lease_token,sync_reserva_token:state.connection.sync_reserva_token};
       }
+      if(text.includes('FROM tiendanube_conexiones WHERE store_id=? AND negocio_id<>?'))return state.otherStoreConnection;
       if(text.includes('FROM tiendanube_conexiones WHERE negocio_id=?'))return params[0]==='negocio-a'?projection(text,state.connection):undefined;
       if(text.includes('FROM tiendanube_conexiones WHERE store_id=?'))return params[0]===state.connection?.store_id?projection(text,state.connection):undefined;
       if(text.includes('FROM tiendanube_variantes')&&text.includes('COUNT(*)'))return {total:state.variants,sin_baseline:state.withoutBaseline};
@@ -81,6 +82,8 @@ db.prepare=sql=>{
     async run(...params){
       record('run',params);
       if(text.startsWith('INSERT INTO tiendanube_eventos')){
+        assert.match(text,/payload,hmac_validada_at\) VALUES\(\?,\?,\?,\?,\?::jsonb,NOW\(\)\)/);
+        assert.match(text,/hmac_validada_at=NOW\(\)/);
         const [store,topic,id,hash,payload]=params;
         const key=JSON.stringify([store,topic,id,hash]);
         const previous=state.events.get(key);
@@ -106,6 +109,18 @@ db.prepare=sql=>{
       if(text.startsWith('INSERT INTO tiendanube_oauth_estados')){
         state.oauth={state_hash:params[0],negocio_id:params[1],usuario_id:params[2]};return {changes:1};
       }
+      if(text.startsWith('INSERT INTO tiendanube_conexiones')){
+        const [negocio_id,store_id,app_id,token_cifrado,scopes]=params;
+        assert.match(text,/pausada=TRUE/);assert.match(text,/sync_activada_at=NULL/);
+        assert.match(text,/sync_baseline_at=NULL/);assert.match(text,/sync_webhooks_at=NULL/);
+        assert.match(text,/setup_webhooks_registrados_at=NULL/);
+        state.connection={negocio_id,store_id,app_id,token_cifrado,scopes,pausada:true,
+          sync_activada_at:null,sync_baseline_at:null,sync_webhooks_at:null,setup_webhooks_registrados_at:null};
+        return {changes:1};
+      }
+      if(text.startsWith('UPDATE tiendanube_variantes SET sync_baseline_at=NULL')){
+        assert.equal(params[0],'negocio-a');state.withoutBaseline=state.variants;return {changes:state.variants};
+      }
       throw Error('Escritura SQL no simulada');
     },
   };
@@ -113,12 +128,14 @@ db.prepare=sql=>{
 
 const httpFetch=globalThis.fetch;
 let externalCalls=0;
-globalThis.fetch=async()=>{externalCalls++;throw Error('La prueba bloqueó una llamada externa');};
+let externalResponse=null;
+globalThis.fetch=async(...args)=>{externalCalls++;if(externalResponse)return externalResponse(...args);throw Error('La prueba bloqueó una llamada externa');};
 const {tiendanubeAdminRouter,tiendanubePublicaRouter}=await import('../src/routes/tiendanube.js');
 const {hashPedidoPrivacidad}=await import('../src/services/tiendanubePrivacidadService.js');
+const {descifrarToken}=await import('../src/lib/tiendanube.js');
 
 function reset(){
-  calls.length=0;externalCalls=0;
+  calls.length=0;externalCalls=0;externalResponse=null;
   process.env.TIENDANUBE_SYNC_ENABLED='true';
   state={membershipActive:true,variants:1,withoutBaseline:1,outboxReview:0,inboxReview:0,links:[],events:new Map(),deletedOrders:new Set(),oauth:null,
     connection:{negocio_id:'negocio-a',store_id:'321',app_id:'123456789',scopes:'write_products,read_orders',pausada:false,sync_lease_token:null,
@@ -160,12 +177,15 @@ async function fixture(run){
 const adminActions=[
   {path:'/api/tiendanube/estado?negocio_id=negocio-a'},
   {path:'/api/tiendanube/diagnostico?negocio_id=negocio-a'},
+  {path:'/api/tiendanube/webhooks/estado?negocio_id=negocio-a'},
   {path:'/api/tiendanube/catalogo?negocio_id=negocio-a'},
   {path:'/api/tiendanube/privacidad?negocio_id=negocio-a'},
   {path:'/api/tiendanube/pausar',method:'POST'},
   {path:'/api/tiendanube/iniciar',method:'POST'},
   {path:'/api/tiendanube/vinculos',method:'POST'},
   {path:'/api/tiendanube/pedidos/conciliar',method:'POST'},
+  {path:'/api/tiendanube/webhooks/configurar',method:'POST'},
+  {path:'/api/tiendanube/webhooks/verificar',method:'POST'},
 ];
 
 test('Tiendanube HTTP aislado: permisos, readiness y recepción de webhooks',async t=>{
@@ -235,12 +255,13 @@ test('Tiendanube HTTP aislado: permisos, readiness y recepción de webhooks',asy
 
   await t.test('volver a autorizar exige pausa y ausencia de lease antes de renovar el estado',async()=>fixture(async({request})=>{
     const initiate=()=>request('/api/tiendanube/iniciar',{identity:'admin-a',method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({negocio_id:'negocio-a'})});
-    for(const config of [{pausada:false,sync_lease_token:null},{pausada:true,sync_lease_token:'LEASE-OCUPADO'}]){
+    for(const config of [{pausada:false,sync_lease_token:null},{pausada:true,sync_lease_token:'LEASE-OCUPADO'},
+      {pausada:true,sync_lease_token:null,sync_reserva_token:'RESERVA-PENDIENTE'}]){
       Object.assign(state.connection,config);
       const blocked=await initiate();assert.equal(blocked.status,409);await blocked.text();
     }
     assert.equal(calls.filter(c=>c.method==='run').length,0);
-    state.connection.pausada=true;state.connection.sync_lease_token=null;
+    state.connection.pausada=true;state.connection.sync_lease_token=null;state.connection.sync_reserva_token=null;
     state.oauth={state_hash:'ESTADO-ANTERIOR',negocio_id:'negocio-a',usuario_id:'admin-a'};
     const response=await initiate();assert.equal(response.status,200);
     const result=await response.json();const authorization=new URL(result.url);
@@ -263,6 +284,55 @@ test('Tiendanube HTTP aislado: permisos, readiness y recepción de webhooks',asy
     assert.equal(response.status,404);await response.text();assert.equal(externalCalls,0);
     assert.equal(calls.filter(c=>c.method==='run').length,0);
     assert.ok(calls.some(c=>c.sql.startsWith('SELECT n.id')&&c.params[1]==='admin-b'));
+  }));
+
+  await t.test('callback exitoso cifra el token y deja conexión y baseline pausados',async()=>fixture(async({request})=>{
+    state.connection.pausada=true;
+    state.oauth={negocio_id:'negocio-a',usuario_id:'admin-a'};
+    externalResponse=async(url,options)=>{
+      assert.equal(url,'https://www.tiendanube.com/apps/authorize/token');
+      assert.equal(options.method,'POST');assert.equal(options.redirect,'error');
+      assert.deepEqual(JSON.parse(options.body),{client_id:'123456789',client_secret:process.env.TIENDANUBE_APP_SECRET,grant_type:'authorization_code',code:'codigo-ficticio'});
+      return {ok:true,json:async()=>({user_id:321,scope:'write_products,read_orders',access_token:'TOKEN-OAUTH-FICTICIO-NO-PUBLICAR'})};
+    };
+    const response=await request('/api/tiendanube/oauth/callback?state='+'b'.repeat(64)+'&code=codigo-ficticio');
+    assert.equal(response.status,200);assert.equal(response.headers.get('cache-control'),'no-store');
+    assert.equal(response.headers.get('referrer-policy'),'no-referrer');
+    const html=await response.text();assert.match(html,/sincronización quedó pausada/);
+    assert.doesNotMatch(html,/TOKEN-OAUTH|secret-solo|token_cifrado/);
+    assert.equal(state.connection.pausada,true);assert.equal(state.connection.store_id,'321');
+    assert.equal(descifrarToken(state.connection.token_cifrado),'TOKEN-OAUTH-FICTICIO-NO-PUBLICAR');
+    assert.equal(state.connection.sync_activada_at,null);assert.equal(state.connection.sync_baseline_at,null);
+    assert.equal(state.connection.sync_webhooks_at,null);assert.equal(state.withoutBaseline,state.variants);
+    assert.equal(externalCalls,1);assert.equal(state.oauth,null);
+    assert.ok(calls.filter(c=>c.method==='run').every(c=>c.sql.startsWith('INSERT INTO tiendanube_conexiones')||c.sql.startsWith('UPDATE tiendanube_variantes')));
+  }));
+
+  await t.test('callback no reemplaza credenciales si una operación comenzó durante OAuth',async()=>fixture(async({request})=>{
+    for(const change of [{pausada:false,sync_lease_token:null},{pausada:true,sync_lease_token:'lease-otro-proceso'},
+      {pausada:true,sync_lease_token:null,sync_reserva_token:'reserva-incierta'}]){
+      state.oauth={negocio_id:'negocio-a',usuario_id:'admin-a'};
+      externalResponse=async()=>{
+        Object.assign(state.connection,change);
+        return {ok:true,json:async()=>({user_id:321,scope:'write_products,read_orders',access_token:'NO-GUARDAR'})};
+      };
+      const response=await request('/api/tiendanube/oauth/callback?state='+'b'.repeat(64)+'&code=fake');
+      assert.equal(response.status,409);await response.text();
+      assert.equal(state.connection.token_cifrado,'NO-EXPONER-TOKEN-FAKE');
+    }
+    assert.equal(calls.filter(c=>c.method==='run').length,0);
+  }));
+
+  await t.test('revocar membresía durante el canje impide guardar la nueva autorización',async()=>fixture(async({request})=>{
+    state.connection.pausada=true;state.oauth={negocio_id:'negocio-a',usuario_id:'admin-a'};
+    externalResponse=async()=>{
+      state.membershipActive=false;
+      return {ok:true,json:async()=>({user_id:321,scope:'write_products,read_orders',access_token:'NO-GUARDAR'})};
+    };
+    const response=await request('/api/tiendanube/oauth/callback?state='+'b'.repeat(64)+'&code=fake');
+    assert.equal(response.status,404);await response.text();
+    assert.equal(state.connection.token_cifrado,'NO-EXPONER-TOKEN-FAKE');
+    assert.equal(calls.filter(c=>c.method==='run').length,0);
   }));
 
   await t.test('webhook firmado guarda solo lista mínima, sin PII ni stock/pagos',async()=>fixture(async({signed})=>{

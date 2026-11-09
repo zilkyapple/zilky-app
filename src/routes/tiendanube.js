@@ -6,6 +6,7 @@ import { TIENDANUBE_APP_ID, nuevoEstadoOAuth, cifrarToken, descifrarToken, firma
 import { resumenPedidoTiendanube, cambiosPedidoTiendanube } from '../lib/tiendanubeConciliacion.js';
 import { tiendanubePrivacidadService,hashPedidoPrivacidad } from '../services/tiendanubePrivacidadService.js';
 import { crearServicioTiendanubeSync } from '../services/tiendanubeSyncService.js';
+import { crearServicioSetupTiendanube } from '../services/tiendanubeSetupService.js';
 
 export const tiendanubeAdminRouter = Router();
 export const tiendanubePublicaRouter = Router();
@@ -17,6 +18,7 @@ const portalId = process.env.TIENDANUBE_APP_ID || TIENDANUBE_APP_ID;
 const contactEmail = 'zilkyindumentaria@gmail.com';
 const wrap = f => async(req,res,next) => {try {await f(req,res);} catch(e){next(e);}};
 const syncService=crearServicioTiendanubeSync({db});
+const setupService=crearServicioSetupTiendanube({db});
 
 function payloadFirmado(req){
   const secret=process.env.TIENDANUBE_APP_SECRET;
@@ -49,11 +51,20 @@ tiendanubeAdminRouter.get('/diagnostico',wrap(async(req,res)=>{
   await negocioValido(req.query.negocio_id,req.usuarioId);
   res.json(await syncService.readiness(req.query.negocio_id));
 }));
+tiendanubeAdminRouter.get('/webhooks/estado',wrap(async(req,res)=>{
+  await negocioValido(req.query.negocio_id,req.usuarioId);
+  res.json(await setupService.estado(req.query.negocio_id));
+}));
+for(const accion of ['configurar','verificar'])tiendanubeAdminRouter.post(`/webhooks/${accion}`,wrap(async(req,res)=>{
+  const negocio_id=req.body.negocio_id;
+  await negocioValido(negocio_id,req.usuarioId);
+  res.json(await setupService[accion](negocio_id,{autorizar:()=>negocioValido(negocio_id,req.usuarioId)}));
+}));
 tiendanubeAdminRouter.post('/pausar',wrap(async(req,res)=>{
   await negocioValido(req.body.negocio_id,req.usuarioId);
-  const conexion=await db.prepare("UPDATE tiendanube_conexiones SET pausada=TRUE,sync_motivo_pausa='PAUSA_ADMINISTRADOR',actualizada_at=NOW() WHERE negocio_id=? RETURNING negocio_id,sync_lease_token").get(req.body.negocio_id);
+  const conexion=await db.prepare("UPDATE tiendanube_conexiones SET pausada=TRUE,sync_motivo_pausa='PAUSA_ADMINISTRADOR',actualizada_at=NOW() WHERE negocio_id=? RETURNING negocio_id,sync_lease_token,sync_reserva_token").get(req.body.negocio_id);
   if(!conexion)throw error('La tienda todavía no está conectada',409);
-  res.json({pausada:true,operacion_en_curso:!!conexion.sync_lease_token});
+  res.json({pausada:true,operacion_en_curso:!!(conexion.sync_lease_token||conexion.sync_reserva_token)});
 }));
 
 tiendanubeAdminRouter.get('/estado',wrap(async(req,res)=>{
@@ -108,8 +119,8 @@ tiendanubeAdminRouter.post('/iniciar',wrap(async(req,res)=>{
   const state=nuevoEstadoOAuth();
   await db.transaction(async()=>{
     await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`tiendanube-sync:${req.body.negocio_id}`]);
-    const con=await db.prepare('SELECT pausada,sync_lease_token FROM tiendanube_conexiones WHERE negocio_id=? FOR UPDATE').get(req.body.negocio_id);
-    if(con&&(!con.pausada||con.sync_lease_token))throw error('Pausá y conciliá las operaciones en curso antes de volver a autorizar',409);
+    const con=await db.prepare('SELECT pausada,sync_lease_token,sync_reserva_token FROM tiendanube_conexiones WHERE negocio_id=? FOR UPDATE').get(req.body.negocio_id);
+    if(con&&(!con.pausada||con.sync_lease_token||con.sync_reserva_token))throw error('Pausá y conciliá las operaciones en curso antes de volver a autorizar',409);
     await db.prepare('DELETE FROM tiendanube_oauth_estados WHERE negocio_id=?').run(req.body.negocio_id);
     await db.prepare('INSERT INTO tiendanube_oauth_estados(state_hash,negocio_id,usuario_id,vence_at) VALUES(?,?,?,NOW()+INTERVAL \'10 minutes\')').run(checksum(state),req.body.negocio_id,req.usuarioId);
   });
@@ -119,6 +130,8 @@ tiendanubeAdminRouter.post('/iniciar',wrap(async(req,res)=>{
 // Este callback solo consume un estado aleatorio de un uso, previamente emitido
 // para un administrador. Nunca confía en un negocio_id enviado por la redirección.
 tiendanubePublicaRouter.get('/oauth/callback',wrap(async(req,res)=>{
+  res.setHeader('Cache-Control','no-store');
+  res.setHeader('Referrer-Policy','no-referrer');
   const {state,code}=req.query;
   if (typeof state!=='string'|| !/^[0-9a-f]{64}$/i.test(state) || typeof code!=='string'||code.length>1024||!code) throw error('Autorización inválida');
   const cred=credenciales();
@@ -141,7 +154,11 @@ tiendanubePublicaRouter.get('/oauth/callback',wrap(async(req,res)=>{
   await db.transaction(async()=>{
     await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`tiendanube:privacidad:${storeId}`]);
     await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`tiendanube-sync:${row.negocio_id}`]);
-    const actual=await db.prepare('SELECT store_id FROM tiendanube_conexiones WHERE negocio_id=? FOR UPDATE').get(row.negocio_id);
+    // La autorización puede tardar: comprobar de nuevo tanto la membresía
+    // como la pausa/lease antes de reemplazar credenciales de una conexión.
+    await negocioValido(row.negocio_id,row.usuario_id);
+    const actual=await db.prepare('SELECT store_id,pausada,sync_lease_token,sync_reserva_token FROM tiendanube_conexiones WHERE negocio_id=? FOR UPDATE').get(row.negocio_id);
+    if(actual&&(!actual.pausada||actual.sync_lease_token||actual.sync_reserva_token))throw error('La conexión comenzó una operación durante la autorización; pausá y conciliá antes de reintentar',409);
     if (actual && actual.store_id!==storeId) {
       const links=await db.prepare('SELECT producto_id FROM tiendanube_variantes WHERE negocio_id=? LIMIT 1').get(row.negocio_id);
       if(links) throw error('Este negocio tiene variantes vinculadas a otra tienda; conciliá los vínculos antes de cambiarla',409);
@@ -150,7 +167,9 @@ tiendanubePublicaRouter.get('/oauth/callback',wrap(async(req,res)=>{
     if (otro) throw error('Esta tienda de Tiendanube ya está vinculada con otro negocio',409);
     await db.prepare(`INSERT INTO tiendanube_conexiones(negocio_id,store_id,app_id,token_cifrado,scopes,pausada)
       VALUES(?,?,?,?,?,TRUE) ON CONFLICT(negocio_id) DO UPDATE SET store_id=EXCLUDED.store_id,app_id=EXCLUDED.app_id,token_cifrado=EXCLUDED.token_cifrado,scopes=EXCLUDED.scopes,
-      pausada=TRUE,creada_at=NOW(),actualizada_at=NOW(),sync_activada_at=NULL,sync_baseline_at=NULL,sync_webhooks_at=NULL,sync_motivo_pausa='AUTORIZACION_PENDIENTE_CONCILIACION'`).run(row.negocio_id,storeId,portalId,tokenCifrado,scopes.join(','));
+      pausada=TRUE,creada_at=NOW(),actualizada_at=NOW(),sync_activada_at=NULL,sync_baseline_at=NULL,sync_webhooks_at=NULL,
+      setup_webhooks_url=NULL,setup_webhooks_registrados_at=NULL,setup_webhooks_error=NULL,
+      sync_motivo_pausa='AUTORIZACION_PENDIENTE_CONCILIACION'`).run(row.negocio_id,storeId,portalId,tokenCifrado,scopes.join(','));
     await db.prepare('UPDATE tiendanube_variantes SET sync_baseline_at=NULL,sync_stock_remoto=NULL,sync_verificar_despues=NULL WHERE negocio_id=?').run(row.negocio_id);
   });
   res.setHeader('Cache-Control','no-store');
@@ -172,9 +191,10 @@ tiendanubeAdminRouter.post('/vinculos',wrap(async(req,res)=>{
   await db.transaction(async()=>{
     // La lectura inicial y la consulta remota pueden coincidir con una venta
     // o una reconexión. Revalidar y bloquear antes de crear el vínculo.
-    const conexionActual=await db.prepare('SELECT store_id,token_cifrado,pausada FROM tiendanube_conexiones WHERE negocio_id=? FOR UPDATE').get(negocio_id);
+    const conexionActual=await db.prepare('SELECT store_id,token_cifrado,pausada,sync_lease_token,sync_reserva_token FROM tiendanube_conexiones WHERE negocio_id=? FOR UPDATE').get(negocio_id);
     if(!conexionActual||conexionActual.store_id!==con.store_id||conexionActual.token_cifrado!==con.token_cifrado)throw error('La conexión cambió durante la vinculación. Reintentá.',409);
     if(!conexionActual.pausada)throw error('Pausá la sincronización antes de vincular variantes',409);
+    if(conexionActual.sync_lease_token||conexionActual.sync_reserva_token)throw error('Hay una operación pendiente de conciliación antes de vincular variantes',409);
     const productoActual=await db.prepare('SELECT id,stock FROM productos WHERE id=? AND negocio_id=? FOR UPDATE').get(producto_id,negocio_id);
     if(!productoActual)throw error('Producto no encontrado en este negocio',404);
     // No vincular silenciosamente una variante externa a un producto distinto.
@@ -208,9 +228,10 @@ tiendanubeAdminRouter.post('/pedidos/conciliar',wrap(async(req,res)=>{
   await db.transaction(async()=>{
     await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['tiendanube:privacidad:'+con.store_id]);
     await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`tiendanube-sync:${negocio_id}`]);
-    const actual=await db.prepare('SELECT store_id,token_cifrado,pausada FROM tiendanube_conexiones WHERE negocio_id=? FOR UPDATE').get(negocio_id);
+    const actual=await db.prepare('SELECT store_id,token_cifrado,pausada,sync_lease_token,sync_reserva_token FROM tiendanube_conexiones WHERE negocio_id=? FOR UPDATE').get(negocio_id);
     if(!actual||actual.store_id!==con.store_id||actual.token_cifrado!==con.token_cifrado)throw error('La conexión cambió durante la conciliación',409);
     if(!actual.pausada)throw error('Pausá la sincronización antes de una conciliación manual',409);
+    if(actual.sync_lease_token||actual.sync_reserva_token)throw error('Hay una operación pendiente de conciliación antes de revisar manualmente el pedido',409);
     const borrado=await db.prepare('SELECT order_hash FROM tiendanube_privacidad_borrados WHERE store_id=? AND order_hash=?').get(con.store_id,hashPedidoPrivacidad(con.store_id,remoteOrder));
     if(borrado)throw error('Este pedido fue eliminado por una solicitud de privacidad',410);
     const anterior=await db.prepare('SELECT cantidades,pagado,cancelado FROM tiendanube_pedidos WHERE store_id=? AND order_id=? FOR UPDATE').get(con.store_id,remoteOrder);
@@ -257,9 +278,10 @@ tiendanubePublicaRouter.post('/webhook',wrap(async(req,res)=>{
       const borrado=await db.prepare('SELECT order_hash FROM tiendanube_privacidad_borrados WHERE store_id=? AND order_hash=?').get(storeId,hashPedidoPrivacidad(storeId,rid));
       if(borrado){ignorado=true;return;}
     }
-    await db.prepare(`INSERT INTO tiendanube_eventos(store_id,topic,recurso_id,body_hash,payload)
-      VALUES(?,?,?,?,?::jsonb) ON CONFLICT(store_id,topic,recurso_id,body_hash) DO UPDATE SET
+    await db.prepare(`INSERT INTO tiendanube_eventos(store_id,topic,recurso_id,body_hash,payload,hmac_validada_at)
+      VALUES(?,?,?,?,?::jsonb,NOW()) ON CONFLICT(store_id,topic,recurso_id,body_hash) DO UPDATE SET
       sync_version=tiendanube_eventos.sync_version+1,sync_ultimo_evento_at=NOW(),procesado_at=NULL,
+      hmac_validada_at=NOW(),
       sync_estado=CASE WHEN tiendanube_eventos.sync_estado='revision_manual' THEN 'revision_manual' ELSE 'pendiente' END,
       sync_proximo_intento=NOW(),error=CASE WHEN tiendanube_eventos.sync_estado='revision_manual' THEN tiendanube_eventos.error ELSE NULL END`).run(storeId,topic,rid,hashEvento(raw),JSON.stringify(minimo));
   });

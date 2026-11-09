@@ -21,6 +21,9 @@ function browser({admin=true,negocio='n',respond}={}){
     if(path.startsWith('/tiendanube/estado?'))return estado();
     if(path.startsWith('/tiendanube/diagnostico?'))return diagnostico();
     if(path.startsWith('/tiendanube/catalogo?'))return catalogo();
+    if(path.startsWith('/tiendanube/webhooks/estado?'))return {conectada:true,pausada:true,registrados:false,recepcion_firmada_confirmada:false,error:null};
+    if(path.startsWith('/tiendanube/privacidad?'))return [];
+    if(path==='/tiendanube/webhooks/configurar'||path==='/tiendanube/webhooks/verificar')return {registrados:true,recepcion_firmada_confirmada:false,pausada:true,stock_actualizado:false,sincronizacion_activada:false};
     if(path==='/tiendanube/iniciar')return {url:goodUrl};
     if(path==='/tiendanube/vinculos')return {sincronizacion:'pausada'};
     if(path==='/tiendanube/pausar')return {pausada:true};
@@ -36,6 +39,76 @@ function browser({admin=true,negocio='n',respond}={}){
 }
 function change(b,name,value){const el=b.el(`[name="${name}"]`);if(el.type==='checkbox')el.checked=value;else el.value=value;el.dispatchEvent(new b.w.Event('change',{bubbles:true}));}
 const submit=b=>b.el('[data-tn-form]').dispatchEvent(new b.w.Event('submit',{bubbles:true,cancelable:true}));
+
+test('Tiendanube notificaciones separa registro API de recepción firmada y no crea nada al cargar',async()=>{
+  const b=browser({respond:(path,opts,fallback)=>path.startsWith('/tiendanube/webhooks/estado?')?{registrados:true,recepcion_firmada_confirmada:false,error:null}:fallback(path,opts)});
+  try{
+    await b.mount();const text=b.el('[data-tn-webhooks]').textContent;
+    assert.match(text,/Verificado en la API/);assert.match(text,/Todavía no comprobada/);
+    assert.equal(b.calls.filter(write).length,0);assert.equal(b.el('[data-tn-webhooks-register]').disabled,false);
+    b.el('[data-tn-webhooks-register]').click();b.el('[data-tn-webhooks-register]').click();await tick();
+    const writes=b.calls.filter(write);assert.equal(writes.length,1);assert.equal(writes[0].path,'/tiendanube/webhooks/configurar');
+    assert.deepEqual(JSON.parse(writes[0].opts.body),{negocio_id:'n'});
+    assert.match(b.toasts.flat().join(' '),/Falta comprobar la recepción firmada/);
+  }finally{b.w.close();}
+});
+
+test('Tiendanube notificaciones bloquea registrar con error incierto pero deja verificar sin repetir POST de creación',async()=>{
+  const b=browser({respond:(path,opts,fallback)=>path.startsWith('/tiendanube/webhooks/estado?')?{registrados:false,recepcion_firmada_confirmada:false,error:'DETALLE-SECRETO'}:fallback(path,opts)});
+  try{
+    await b.mount();assert.equal(b.el('[data-tn-webhooks-register]').disabled,true);
+    assert.equal(b.el('[data-tn-webhooks-verify]').disabled,false);assert.doesNotMatch(b.view.textContent,/DETALLE-SECRETO/);
+    b.el('[data-tn-webhooks-register]').click();b.el('[data-tn-webhooks-verify]').click();await tick();
+    assert.deepEqual(b.calls.filter(write).map(c=>c.path),['/tiendanube/webhooks/verificar']);
+  }finally{b.w.close();}
+});
+
+test('Tiendanube verificar un registro incompleto permite registrar después, sin bloquear al administrador',async()=>{
+  const b=browser({respond:(path,opts,fallback)=>path.startsWith('/tiendanube/webhooks/estado?')?{registrados:false,recepcion_firmada_confirmada:false,error:'REGISTRO_WEBHOOKS_INCOMPLETO'}:fallback(path,opts)});
+  try{
+    await b.mount();assert.equal(b.el('[data-tn-webhooks-register]').disabled,false);
+    b.el('[data-tn-webhooks-register]').click();await tick();assert.deepEqual(b.calls.filter(write).map(c=>c.path),['/tiendanube/webhooks/configurar']);
+  }finally{b.w.close();}
+});
+
+test('Tiendanube notificaciones no permite configurar sin pausa confirmada ni después de cambiar negocio',async()=>{
+  const b=browser({respond:(path,opts,fallback)=>path.startsWith('/tiendanube/diagnostico?')?{...diagnostico(),conexion:{store_id:'123',pausada:false}}:fallback(path,opts)});
+  try{
+    await b.mount();assert.equal(b.el('[data-tn-webhooks-register]').disabled,true);assert.equal(b.el('[data-tn-webhooks-verify]').disabled,true);
+    b.ctx.negocio='otro';b.el('[data-tn-webhooks-register]').click();await tick();assert.equal(b.calls.filter(write).length,0);
+  }finally{b.w.close();}
+});
+
+test('Tiendanube privacidad consulta solicitudes aun desconectada y no afirma completar nada por leer',async()=>{
+  const b=browser({respond:(path,opts,fallback)=>{
+    if(path.startsWith('/tiendanube/estado?'))return {conexion:null,links:[],configuracion_servidor:false};
+    if(path.startsWith('/tiendanube/privacidad?'))return [{id:'req1',tipo:'customer-data-request',estado:'pendiente_entrega',creada_at:'2026-11-09T12:00:00Z'}];
+    if(path.startsWith('/tiendanube/privacidad/req1?'))return {id:'req1',negocio_id:'n',tipo:'customer-data-request',estado:'pendiente_entrega',reporte:{pedidos_solicitados:1,pedidos:[{order_id:'24',estado:'open'}],secret:'NO-EXHIBIR',email:'privado@example.test'}};
+    return fallback(path,opts);
+  }});
+  try{
+    await b.mount();b.el('[data-tn-privacy-open]').click();await tick();
+    assert.match(b.el('[data-tn-privacy-detail]').textContent,/Pedido 24/);
+    assert.match(b.el('[data-tn-privacy-detail]').textContent,/no marca la solicitud como resuelta/);
+    assert.doesNotMatch(b.view.textContent,/NO-EXHIBIR|privado@example/);assert.equal(b.calls.filter(write).length,0);
+  }finally{b.w.close();}
+});
+
+test('Tiendanube privacidad rechaza detalle de otro negocio y una respuesta tardía no revive pantalla',async()=>{
+  for(const stale of [false,true]){
+    let finish;
+    const b=browser({respond:(path,opts,fallback)=>{
+      if(path.startsWith('/tiendanube/privacidad?'))return [{id:'req1',tipo:'store-redact',estado:'pendiente_revision'}];
+      if(path.startsWith('/tiendanube/privacidad/req1?'))return stale?new Promise(resolve=>finish=resolve):{id:'req1',negocio_id:'otro',reporte:{pedidos_eliminados:999}};
+      return fallback(path,opts);
+    }});
+    try{
+      await b.mount();b.el('[data-tn-privacy-open]').click();
+      if(stale){b.ctx.negocio='otro';finish({id:'req1',negocio_id:'n',reporte:{pedidos_eliminados:999}});}
+      await tick();assert.equal(b.el('[data-tn-privacy-detail]'),null);assert.doesNotMatch(b.view.textContent,/999/);assert.equal(b.calls.filter(write).length,0);
+    }finally{b.w.close();}
+  }
+});
 
 test('Tiendanube admin exige administrador, negocio y pantalla vigente antes de consultar datos',async()=>{
   for(const options of [{admin:false},{negocio:null},{admin:true}]){
@@ -63,7 +136,7 @@ test('Tiendanube admin muestra estado pausado y no habilita/publica ni toca stoc
 test('Tiendanube admin no pide catálogo ni permite autorizar si falta configuración del servidor',async()=>{
   const b=browser({respond:(path,opts,fallback)=>path.startsWith('/tiendanube/estado?')?{conexion:null,links:[],configuracion_servidor:false}:fallback(path,opts)});
   try{
-    await b.mount();assert.equal(b.calls.length,2);assert.equal(b.el('[data-tn-connect]').disabled,true);
+    await b.mount();assert.equal(b.calls.length,3);assert.equal(b.el('[data-tn-connect]').disabled,true);
     b.el('[data-tn-connect]').click();await tick();assert.equal(b.calls.filter(write).length,0);
     assert.match(b.view.textContent,/No ingreses claves o contraseñas/);
   }finally{b.w.close();}

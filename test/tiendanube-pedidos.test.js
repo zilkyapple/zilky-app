@@ -30,3 +30,25 @@ test('rechaza cantidad inválida y pedidos sin detalle',()=>{
   assert.throws(()=>resumenPedidoTiendanube(pedido({products:[{variant_id:100,quantity:-1}]})));
   assert.throws(()=>resumenPedidoTiendanube(pedido({products:null})));
 });
+
+test('stock remoto reservado admite issues ausente y cero explícito sin alterar cantidades',()=>{
+  for(const issues of [undefined,null,{}, {unclaimed_stock:0}, {unclaimed_stock:'0'}]){
+    const p=resumenPedidoTiendanube(pedido({products:[{variant_id:100,quantity:2,issues}]}));
+    assert.deepEqual(p.cantidades,{'100':2});
+  }
+});
+
+test('unclaimed_stock positivo se rechaza incluso si el pedido está pagado o repite variante',()=>{
+  for(const value of [1,'1',2,'2']){
+    assert.throws(()=>resumenPedidoTiendanube(pedido({payment_status:'paid',products:[
+      {variant_id:100,quantity:1},
+      {variant_id:100,quantity:2,issues:{unclaimed_stock:value}},
+    ]})),err=>err.code==='STOCK_REMOTO_NO_RESERVADO'&&err.status===409);
+  }
+});
+
+test('issues o unclaimed_stock ambiguos no se interpretan como una reserva válida',()=>{
+  for(const issues of [[],false,true,0,'0',
+    ...[undefined,null,false,true,-1,'-1',0.5,'0.0','',NaN,Infinity,[],{},'9007199254740993'].map(unclaimed_stock=>({unclaimed_stock})),
+  ])assert.throws(()=>resumenPedidoTiendanube(pedido({products:[{variant_id:100,quantity:1,issues}]})));
+});

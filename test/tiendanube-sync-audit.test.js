@@ -223,3 +223,56 @@ test('respuesta POST de más de una variante se considera insegura y nunca se re
     assert.equal((await f.db.prepare('SELECT sync_stock_remoto FROM tiendanube_variantes').get()).sync_stock_remoto,5);
   }finally{await f.pg.close();}
 });
+
+test('pedido pagado con una línea sin reserva pausa antes de tocar stock, baseline o ledger',async()=>{
+  const f=await setup();try{
+    const event=await f.add('order/paid'),calls=[];
+    const sync=crearServicioTiendanubeSync({db:f.db,enabled:true,now:f.now,apiFactory:()=>async(method,path)=>{
+      calls.push({method,path});return {...pedido(),payment_status:'paid',products:[
+        {variant_id:111,quantity:1},
+        {variant_id:111,quantity:2,issues:{unclaimed_stock:'1'}},
+      ]};
+    }});
+    assert.deepEqual(await sync.procesarEntrada('n1'),{estado:'revision_manual',codigo:'STOCK_REMOTO_NO_RESERVADO'});
+    assert.deepEqual(calls,[{method:'GET',path:'/orders/40'}]);
+    assert.equal((await f.db.prepare('SELECT stock FROM productos').get()).stock,5);
+    assert.equal((await f.db.prepare('SELECT sync_stock_remoto FROM tiendanube_variantes').get()).sync_stock_remoto,5);
+    for(const table of ['tiendanube_pedidos','tiendanube_pedido_stock','tiendanube_stock_outbox','producto_historial']){
+      assert.equal((await f.db.prepare(`SELECT COUNT(*)::int n FROM ${table}`).get()).n,0);
+    }
+    const con=await f.db.prepare('SELECT pausada,sync_motivo_pausa FROM tiendanube_conexiones').get();
+    assert.equal(con.pausada,true);assert.equal(con.sync_motivo_pausa,'STOCK_REMOTO_NO_RESERVADO');
+    const e=await f.db.prepare('SELECT sync_estado,error,procesado_at FROM tiendanube_eventos WHERE id=?').get(event.id);
+    assert.equal(e.sync_estado,'revision_manual');assert.equal(e.error,'STOCK_REMOTO_NO_RESERVADO');assert.equal(e.procesado_at,null);
+    assert.equal((await sync.procesarSalida('n1')).estado,'pausado');assert.equal(calls.length,1);
+  }finally{await f.pg.close();}
+});
+
+test('revisión de unclaimed_stock posterior preserva la reserva previa sin descontar ni reponer',async()=>{
+  const f=await setup();try{
+    let raw=pedido();await f.add();
+    const sync=crearServicioTiendanubeSync({db:f.db,enabled:true,now:f.now,apiFactory:()=>async()=>raw});
+    assert.equal((await sync.procesarEntrada('n1')).unidades_reservadas,1);
+    raw={...pedido(2),payment_status:'paid',products:[{variant_id:111,quantity:2,issues:{unclaimed_stock:1}}]};
+    await f.add('order/updated');
+    assert.equal((await sync.procesarEntrada('n1')).codigo,'STOCK_REMOTO_NO_RESERVADO');
+    assert.equal((await f.db.prepare('SELECT stock FROM productos').get()).stock,4);
+    assert.equal((await f.db.prepare('SELECT sync_stock_remoto FROM tiendanube_variantes').get()).sync_stock_remoto,4);
+    assert.equal((await f.db.prepare('SELECT cantidad_aplicada FROM tiendanube_pedido_stock').get()).cantidad_aplicada,1);
+    assert.equal((await f.db.prepare('SELECT COUNT(*)::int n FROM producto_historial').get()).n,1);
+  }finally{await f.pg.close();}
+});
+
+test('unclaimed_stock de tipo ambiguo falla cerrado con evento revisable y cero movimientos',async()=>{
+  const f=await setup();try{
+    await f.add();
+    const sync=crearServicioTiendanubeSync({db:f.db,enabled:true,now:f.now,apiFactory:()=>async()=>({
+      ...pedido(),products:[{variant_id:111,quantity:1,issues:{unclaimed_stock:false}}],
+    })});
+    assert.equal((await sync.procesarEntrada('n1')).codigo,'PEDIDO_REMOTO_MALFORMADO');
+    assert.equal((await f.db.prepare('SELECT stock FROM productos').get()).stock,5);
+    assert.equal((await f.db.prepare('SELECT COUNT(*)::int n FROM tiendanube_pedido_stock').get()).n,0);
+    assert.equal((await f.db.prepare('SELECT COUNT(*)::int n FROM producto_historial').get()).n,0);
+    assert.equal((await f.db.prepare('SELECT pausada FROM tiendanube_conexiones').get()).pausada,true);
+  }finally{await f.pg.close();}
+});

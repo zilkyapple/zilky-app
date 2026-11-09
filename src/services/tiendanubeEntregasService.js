@@ -201,7 +201,7 @@ export function crearServicioEntregasTiendanube({database,crearVentaReservada,
       if(used&&(used.store_id!==store||used.order_hash!==orderHash))throw fallo('SOLICITUD_ENTREGA_REUTILIZADA');
       const old=await db.prepare('SELECT * FROM tiendanube_entregas WHERE store_id=? AND order_hash=? FOR UPDATE').get(store,orderHash);
       if(old){if(old.negocio_id!==n||old.solicitud_hash!==requestHash)throw fallo('PEDIDO_YA_ENTREGADO_CON_OTROS_DATOS');return resultado(old,true);}
-      if(con.pausada||!con.sync_baseline_at||!con.sync_activada_at||!con.sync_webhooks_at||con.sync_lease_token)throw fallo('SINCRONIZACION_NO_LISTA_PARA_ENTREGA');
+      if(con.pausada||!con.sync_baseline_at||!con.sync_activada_at||!con.sync_webhooks_at||con.sync_lease_token||con.sync_reserva_token)throw fallo('SINCRONIZACION_NO_LISTA_PARA_ENTREGA');
       const cargarResumen=async()=>{
         const p=await db.prepare('SELECT * FROM tiendanube_pedidos WHERE store_id=? AND order_id=? FOR UPDATE').get(store,order);
         if(!p||p.negocio_id!==n||p.cancelado||p.pendiente_revision||!['open','closed'].includes(p.estado))throw fallo('PEDIDO_NO_CONCILIADO_PARA_ENTREGA');

@@ -1,5 +1,21 @@
 import { validarIdExterno } from './tiendanube.js';
 
+function validarReservaRemota(item) {
+  const issues=item?.issues;
+  if(issues==null)return;
+  if(typeof issues!=='object'||Array.isArray(issues))throw new Error('Información de reserva remota inválida');
+  if(!Object.hasOwn(issues,'unclaimed_stock'))return;
+  const value=issues.unclaimed_stock;
+  // A missing issues object is normal. An explicit unclaimed_stock must be a
+  // non-negative integer, never a truthy/falsy coercion such as null or false.
+  if(!['number','string'].includes(typeof value)
+    ||typeof value==='string'&&!/^(?:0|[1-9]\d*)$/.test(value)
+    ||!Number.isSafeInteger(Number(value))||Number(value)<0)throw new Error('Cantidad de stock no reservado inválida');
+  if(Number(value)>0)throw Object.assign(new Error('Tiendanube informa unidades sin reserva de stock'),{
+    code:'STOCK_REMOTO_NO_RESERVADO',status:409,
+  });
+}
+
 // Un pedido no equivale a dinero cobrado ni a mercadería entregada. Este
 // resumen se obtiene de la API actual y jamás del orden de los webhooks.
 export function resumenPedidoTiendanube(pedido) {
@@ -7,6 +23,10 @@ export function resumenPedidoTiendanube(pedido) {
   if (!Array.isArray(pedido.products)) throw new Error('Pedido sin detalle de productos');
   const cantidades=new Map();
   for (const item of pedido.products) {
+    // Do not import quantities that the remote checkout failed to claim. This
+    // check precedes every stock/ledger write in the caller, including paid or
+    // repeated order notifications; payment is not evidence of a reservation.
+    validarReservaRemota(item);
     const variantId=validarIdExterno(item.variant_id);
     const qty=Number(item.quantity);
     if (!Number.isSafeInteger(qty)||qty<1) throw new Error('Cantidad inválida en pedido');

@@ -32,15 +32,29 @@ export async function tiendanubeAdminView(view,ctx){
   const root=document.createElement('section');root.className='tienda-admin';view.replaceChildren(root);
   const query='?negocio_id='+encodeURIComponent(negocio);
   const valid=()=>root.isConnected&&view.contains(root)&&ctx.admin===true&&ctx.negocio===negocio&&(!ctx.valid||ctx.valid());
-  let estado=null,diagnostico=null,locales=[],remotos=[],loading=false,busy=false,loadId=0,needsRefresh=false,catalogError=false,diagnosticError=false,pauseConfirm=false,notice='';
+  let estado=null,diagnostico=null,webhooks=null,webhooksError=false,privacidad=[],privacidadError=false,privacyLoaded=false,privacyDetail=null,locales=[],remotos=[],loading=false,busy=false,loadId=0,needsRefresh=false,catalogError=false,diagnosticError=false,pauseConfirm=false,notice='';
   const linkedLocal=()=>new Set((estado?.links||[]).map(item=>String(item.producto_id)));
   const linkedRemote=()=>new Set((estado?.links||[]).map(remoteKey));
   const paused=()=>estado?.conexion?.pausada===true&&diagnostico?.conexion?.pausada===true;
   const canLink=()=>Boolean(estado?.conexion&&paused()&&estado.configuracion_servidor&&!loading&&!busy&&!needsRefresh&&!catalogError&&!diagnosticError);
   const canPause=()=>Boolean(estado?.conexion&&!paused()&&!loading&&!busy);
+  const canSetup=()=>Boolean(estado?.conexion&&estado.configuracion_servidor&&paused()&&!loading&&!busy&&!needsRefresh&&!diagnosticError&&!webhooksError);
+  const setupBlocked=()=>Boolean(webhooks?.error&&!['CONSULTA_WEBHOOKS_FALLIDA','REGISTRO_WEBHOOK_RECHAZADO','REGISTRO_WEBHOOKS_INCOMPLETO'].includes(webhooks.error));
   const call=(path,options)=>{if(!valid())throw Error('Pantalla vencida');return api(path,options);};
   const localText=item=>[item.nombre,item.variante,item.sku?`SKU ${item.sku}`:'',stockLabel(item.stock)].filter(Boolean).join(' · ');
   const remoteText=item=>[item.nombre,variantLabel(item.valores),item.sku?`SKU ${item.sku}`:'',stockLabel(item.stock)].filter(Boolean).join(' · ');
+  const dateLabel=value=>{const d=new Date(value);return value&&Number.isFinite(d.valueOf())?d.toLocaleString('es-AR',{timeZone:'America/Argentina/Cordoba'}):'Sin fecha';};
+  const privacyType={'customer-redact':'Redacción de datos de cliente','customer-data-request':'Solicitud de informe','store-redact':'Borrado de datos de integración','uninstalled':'Desinstalación'};
+  const privacyState={pendiente_revision:'Pendiente de revisión',pendiente_entrega:'Informe pendiente de entrega',completada:'Completada'};
+
+  function privacyReport(){
+    if(!privacyDetail)return '';
+    const report=privacyDetail.reporte||{};
+    const fields={pedidos_solicitados:'Pedidos solicitados',pedidos_no_almacenados:'Pedidos no almacenados',pedidos_eliminados:'Resúmenes eliminados',eventos_eliminados:'Notificaciones eliminadas',informes_redactados:'Informes redactados',marcas_no_reimportar:'Marcas para no reimportar',pedidos_redactados:'Pedidos redactados en este informe'};
+    const counts=Object.entries(fields).filter(([key])=>Number.isSafeInteger(report[key])&&report[key]>=0);
+    const orders=Array.isArray(report.pedidos)?report.pedidos.filter(p=>p&&remoteId(p.order_id)):[];
+    return `<div class="ta-notice" data-tn-privacy-detail><h3>${esc(privacyType[privacyDetail.tipo]||'Solicitud de privacidad')}</h3><p>${esc(privacyState[privacyDetail.estado]||'Estado sin comprobar')}</p>${counts.length?`<dl>${counts.map(([key,label])=>`<dt>${esc(label)}</dt><dd>${report[key]}</dd>`).join('')}</dl>`:''}${orders.length?`<p>Resúmenes guardados en la integración (sin datos de contacto):</p><ul>${orders.map(p=>`<li>Pedido ${esc(p.order_id)} · ${esc(['pendiente','open','closed','cancelled','archived'].includes(p.estado)?p.estado:'Sin clasificar')}</li>`).join('')}</ul>`:''}<p>Consultar este resumen no marca la solicitud como resuelta ni envía un informe. Las solicitudes pendientes necesitan completar su procedimiento de revisión o entrega.</p><p>No se eliminan clientes, ventas ni la web original de Zilky desde esta pantalla.</p></div>`;
+  }
 
   function message(text,isError=false){
     if(!valid())return;
@@ -84,6 +98,9 @@ export async function tiendanubeAdminView(view,ctx){
       <div class="ta-actions"><button type="button" class="btn btn-primary" data-tn-connect ${!configured||loading||busy?'disabled':''}>${connected?'Volver a autorizar Tiendanube':'Conectar Tiendanube'}</button>${connected?`<button type="button" class="btn btn-secondary" data-tn-pause ${!canPause()?'disabled':''}>${paused()?'Sincronización pausada':'Pausar sincronización'}</button>`:''}</div>
       ${pauseConfirm?'<div class="ta-notice" data-tn-pause-confirm><h3>Confirmar pausa</h3><p>Se detendrán las nuevas sincronizaciones de este negocio. Una operación ya en curso puede terminar. No se borrarán prendas, ventas ni la web original.</p><p>Mientras esté pausada, las ventas de ambos sitios deberán revisarse por separado.</p><div class="ta-actions"><button type="button" class="btn btn-primary" data-tn-pause-confirm-action>Confirmar pausa</button><button type="button" class="btn btn-secondary" data-tn-pause-cancel>Cancelar</button></div></div>':''}</section>
       <section class="card ta-form" data-tn-diagnostic><h2>Comprobaciones del motor</h2>${diagnosticError?'<p class="ta-notice">No se pudo obtener el diagnóstico. El estado de sincronización es desconocido; no se habilitan nuevos vínculos hasta actualizarlo.</p>':!diagnostico?'<p>Pendiente de comprobar.</p>':`<dl><dt>Cuenta de Tiendanube</dt><dd>${connected?'Autorización registrada':'Pendiente de autorizar'}</dd><dt>Configuración privada del servidor</dt><dd>${configured?'Completa':'Incompleta'}</dd><dt>Motor automático</dt><dd>${blocks.has('FEATURE_FLAG_APAGADA')?'Apagado en el servidor':'Habilitado por configuración; sujeto a las demás comprobaciones'}</dd><dt>Stock inicial</dt><dd>${!connected||blocks.has('BASELINE_PENDIENTE')?'Pendiente de conciliación':'Conciliado'}${diagnostico.sin_baseline?` · ${esc(diagnostico.sin_baseline)} variante(s) pendiente(s)`:''}</dd><dt>Notificaciones de Tiendanube</dt><dd>${!connected||blocks.has('WEBHOOKS_NO_VERIFICADOS')?'Sin verificar':'Verificadas'}</dd><dt>Fecha inicial de pedidos</dt><dd>${!connected||blocks.has('SIN_FECHA_DE_CORTE')?'Sin definir':'Definida'}</dd><dt>Ejecución de este negocio</dt><dd>${paused()?'Pausada':'No confirmada como pausada; depende de todas las verificaciones'}</dd><dt>Variantes vinculadas</dt><dd>${esc(diagnostico.variantes)}</dd><dt>Revisiones pendientes</dt><dd>${esc(diagnostico.revision)}</dd></dl>${diagnostico.bloqueos.length?`<ul>${diagnostico.bloqueos.map(code=>`<li>${esc(blockingLabels[code]||'Hay una comprobación adicional pendiente en el servidor.')}</li>`).join('')}</ul>`:prerequisitesComplete?'<p>Las comprobaciones previas están completas. Esto no reemplaza la prueba de una venta y su actualización de stock en ambos sistemas.</p>':'<p>La preparación todavía no está completa. Actualizá el diagnóstico antes de continuar.</p>'}`}</section>
+      ${connected?`<section class="card ta-form" data-tn-webhooks><h2>Notificaciones de Tiendanube</h2><p>El registro en la API y la recepción de una notificación firmada son comprobaciones distintas.</p>${webhooksError||!webhooks?'<p>No se pudo comprobar la configuración de notificaciones.</p>':`<dl><dt>Registro en Tiendanube</dt><dd>${webhooks.registrados?'Verificado en la API':'Pendiente o requiere revisión'}</dd><dt>Registro confirmado desde</dt><dd>${esc(dateLabel(webhooks.registrados_at))}</dd><dt>Recepción firmada</dt><dd>${webhooks.recepcion_firmada_confirmada?'Comprobada':'Todavía no comprobada'}</dd><dt>Última recepción comprobada</dt><dd>${esc(dateLabel(webhooks.recepcion_at))}</dd></dl>${webhooks.error?'<p class="ta-notice">Hay una configuración que requiere revisión. Verificá el registro antes de volver a crear notificaciones.</p>':''}`}
+      <div class="ta-actions"><button type="button" class="btn btn-secondary" data-tn-webhooks-register ${!canSetup()||setupBlocked()?'disabled':''}>Registrar notificaciones faltantes</button><button type="button" class="btn btn-secondary" data-tn-webhooks-verify ${!canSetup()?'disabled':''}>Verificar registro y recepción</button></div><p class="field-hint">Estas acciones requieren la conexión pausada. No activan el motor, no modifican stock ni crean compras de prueba.</p></section>`:''}
+      <section class="card ta-form" data-tn-privacy><h2>Solicitudes de privacidad</h2>${privacidadError?'<p>No se pudieron consultar las solicitudes. No se puede dar por terminada la preparación de privacidad.</p>':!privacyLoaded?'<p>Pendiente de consultar.</p>':!privacidad.length?'<p>No hay solicitudes registradas para este negocio.</p>':`<ul>${privacidad.map(p=>`<li>${esc(privacyType[p.tipo]||'Solicitud de privacidad')} · ${esc(privacyState[p.estado]||'Estado sin comprobar')} · ${esc(dateLabel(p.creada_at))} <button type="button" class="btn btn-secondary" data-tn-privacy-open="${esc(p.id)}" ${busy||loading?'disabled':''}>Consultar resumen</button></li>`).join('')}</ul>`}${privacyReport()}</section>
       <section class="card ta-form"><h2>Variantes vinculadas</h2>${(estado?.links||[]).length?`<div class="table-responsive"><table><thead><tr><th>Prenda de Zilky</th><th>Stock local</th><th>Producto / variante Tiendanube</th><th>Estado</th></tr></thead><tbody>${estado.links.map(item=>`<tr><td>${esc(item.nombre||item.producto_id)}</td><td>${esc(stockLabel(item.stock))}</td><td>${esc(item.product_id)} / ${esc(item.variant_id)}</td><td>${esc(item.sincronizacion||'Pendiente de revisión')}</td></tr>`).join('')}</tbody></table></div>`:'<p>Todavía no hay variantes vinculadas para este negocio.</p>'}</section>
       ${connected?`<form class="card ta-form" data-tn-form><h2>Vincular una variante existente</h2><p class="field-hint">Este paso asocia dos fichas existentes. No publica nuevas prendas ni habilita la sincronización.</p>
       ${catalogError?'<p class="ta-notice">No se pudo leer el catálogo de Tiendanube. Actualizá el estado para volver a intentar.</p>':''}
@@ -97,7 +114,7 @@ export async function tiendanubeAdminView(view,ctx){
 
   async function load(){
     if(!valid()||busy)return;
-    const sequence=++loadId;loading=true;notice='';catalogError=false;diagnosticError=false;diagnostico=null;pauseConfirm=false;render();
+    const sequence=++loadId;loading=true;notice='';catalogError=false;diagnosticError=false;diagnostico=null;webhooks=null;webhooksError=false;privacidad=[];privacidadError=false;privacyLoaded=false;privacyDetail=null;pauseConfirm=false;render();
     try{
       const response=await call('/tiendanube/estado'+query);
       if(!valid()||sequence!==loadId)return;
@@ -112,11 +129,26 @@ export async function tiendanubeAdminView(view,ctx){
       locales=[];remotos=[];
       if(estado.conexion&&estado.configuracion_servidor){
         try{
+          const response=await call('/tiendanube/webhooks/estado'+query);
+          if(!valid()||sequence!==loadId)return;
+          if(typeof response?.registrados!=='boolean'||typeof response?.recepcion_firmada_confirmada!=='boolean')throw Error('Estado de notificaciones inválido');
+          webhooks={registrados:response.registrados,registrados_at:response.registrados_at,recepcion_firmada_confirmada:response.recepcion_firmada_confirmada,recepcion_at:response.recepcion_at,error:typeof response.error==='string'?response.error:response.error?'ERROR_DESCONOCIDO':null};
+        }catch{if(!valid()||sequence!==loadId)return;webhooksError=true;}
+        try{
           const catalogo=await call('/tiendanube/catalogo'+query);
           if(!valid()||sequence!==loadId)return;
           locales=(Array.isArray(catalogo?.locales)?catalogo.locales:[]).filter(item=>item&&typeof item.id==='string'&&item.id);
           remotos=(Array.isArray(catalogo?.remotos)?catalogo.remotos:[]).filter(item=>item&&remoteId(item.product_id)&&remoteId(item.variant_id));
         }catch{if(!valid()||sequence!==loadId)return;catalogError=true;}
+      }
+      {
+        try{
+          const response=await call('/tiendanube/privacidad'+query);
+          if(!valid()||sequence!==loadId)return;
+          if(!Array.isArray(response))throw Error('Solicitudes inválidas');
+          privacidad=response.filter(p=>p&&typeof p.id==='string'&&p.id.length<=100).map(p=>({id:p.id,tipo:p.tipo,estado:p.estado,creada_at:p.creada_at}));
+          privacyLoaded=true;
+        }catch{if(!valid()||sequence!==loadId)return;privacidadError=true;}
       }
       needsRefresh=false;
     }catch{
@@ -168,6 +200,31 @@ export async function tiendanubeAdminView(view,ctx){
     finally{if(valid()){busy=false;render();}}
   }
 
+  async function setupWebhooks(action){
+    if(!valid()||!canSetup()||!['configurar','verificar'].includes(action)||(action==='configurar'&&setupBlocked()))return;
+    busy=true;render();
+    try{
+      const response=await call('/tiendanube/webhooks/'+action,{method:'POST',body:JSON.stringify({negocio_id:negocio})});
+      if(!valid())return;
+      if(response?.stock_actualizado!==false||response?.sincronizacion_activada!==false||response?.pausada!==true)throw Error('Configuración sin confirmar');
+      toast(response?.registrados===true&&response?.recepcion_firmada_confirmada===true?'Registro y recepción comprobados. La sincronización continúa pausada.':response?.registrados===true?'Registro comprobado. Falta comprobar la recepción firmada; la sincronización sigue pausada.':'Todavía faltan notificaciones por comprobar. La sincronización sigue pausada.');
+      busy=false;await load();
+    }catch{if(valid()){needsRefresh=true;message('No se pudo confirmar la configuración. Actualizá el estado y verificá el registro antes de volver a intentarlo.',true);}}
+    finally{if(valid()){busy=false;render();}}
+  }
+
+  async function openPrivacy(id){
+    if(!valid()||busy||loading||!privacidad.some(p=>p.id===id))return;
+    busy=true;privacyDetail=null;render();
+    try{
+      const response=await call('/tiendanube/privacidad/'+encodeURIComponent(id)+query);
+      if(!valid())return;
+      if(response?.id!==id||response?.negocio_id!==negocio)throw Error('Solicitud sin confirmar');
+      privacyDetail=response;
+    }catch{if(valid())message('No se pudo consultar el resumen de privacidad.',true);}
+    finally{if(valid()){busy=false;render();}}
+  }
+
   root.addEventListener('click',event=>{
     const button=event.target.closest?.('button');if(!button||!root.contains(button)||button.disabled||!valid())return;
     if(button.hasAttribute('data-tn-refresh'))void load();
@@ -175,6 +232,9 @@ export async function tiendanubeAdminView(view,ctx){
     if(button.hasAttribute('data-tn-pause')&&canPause()){pauseConfirm=true;render();}
     if(button.hasAttribute('data-tn-pause-cancel')){pauseConfirm=false;render();}
     if(button.hasAttribute('data-tn-pause-confirm-action'))void pause();
+    if(button.hasAttribute('data-tn-webhooks-register'))void setupWebhooks('configurar');
+    if(button.hasAttribute('data-tn-webhooks-verify'))void setupWebhooks('verificar');
+    if(button.hasAttribute('data-tn-privacy-open'))void openPrivacy(button.getAttribute('data-tn-privacy-open'));
   });
   root.addEventListener('change',event=>{
     if(!valid())return;

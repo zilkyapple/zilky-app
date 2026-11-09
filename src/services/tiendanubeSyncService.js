@@ -54,7 +54,7 @@ export function crearRepositorioTiendanubeSync(db){
       return fn(con);
     });},
     async resumen(n){
-      const con=await db.prepare('SELECT negocio_id,store_id,pausada,sync_activada_at,sync_baseline_at,sync_webhooks_at,sync_motivo_pausa FROM tiendanube_conexiones WHERE negocio_id=?').get(n);
+      const con=await db.prepare('SELECT negocio_id,store_id,pausada,sync_activada_at,sync_baseline_at,sync_webhooks_at,sync_motivo_pausa,(sync_reserva_token IS NOT NULL) AS reserva_central_pendiente FROM tiendanube_conexiones WHERE negocio_id=?').get(n);
       const v=await db.prepare('SELECT COUNT(*)::int AS total,COUNT(*) FILTER(WHERE sync_baseline_at IS NULL OR sync_stock_remoto IS NULL)::int AS sin_baseline FROM tiendanube_variantes WHERE negocio_id=?').get(n);
       const o=await db.prepare("SELECT COUNT(*)::int AS revision FROM tiendanube_stock_outbox WHERE negocio_id=? AND (estado='revision_manual' OR envio_token IS NOT NULL)").get(n);
       const e=await db.prepare("SELECT COUNT(*)::int AS revision FROM tiendanube_eventos WHERE store_id=? AND sync_estado='revision_manual'").get(con?.store_id||'');
@@ -151,6 +151,7 @@ export function crearServicioTiendanubeSync({db,repo=db?crearRepositorioTiendanu
       if(!c.sync_activada_at)bloqueos.push('SIN_FECHA_DE_CORTE');
       if(!c.sync_baseline_at||info.sin_baseline)bloqueos.push('BASELINE_PENDIENTE');
       if(!c.sync_webhooks_at)bloqueos.push('WEBHOOKS_NO_VERIFICADOS');
+      if(c.reserva_central_pendiente)bloqueos.push('RESERVA_CENTRAL_PENDIENTE');
     }
     if(!info.variantes)bloqueos.push('SIN_VARIANTES_VINCULADAS');
     if(info.revision)bloqueos.push('REVISIONES_PENDIENTES');
@@ -191,6 +192,7 @@ export function crearServicioTiendanubeSync({db,repo=db?crearRepositorioTiendanu
     if(!habilitado())return {estado:'deshabilitado'};
     return repo.transaccion(n,async con=>{
       if(!active(con))return {estado:'pausado'};
+      if(con.sync_reserva_token)return {estado:'esperando_reserva_central'};
       if(ocupado(con))return {estado:'ocupado'};
       if(con.sync_lease_token)return {estado:'requiere_recuperacion_salida'};
       const e=await repo.evento(con.store_id,iso());if(!e)return {estado:'vacio'};
@@ -204,7 +206,9 @@ export function crearServicioTiendanubeSync({db,repo=db?crearRepositorioTiendanu
         await repo.marcarEvento(e,f.estado,f.codigo,f.delay?new Date(timestamp(now())+f.delay).toISOString():null);
         if(f.pausar)await repo.pausar(n,f.codigo);return f;
       }
-      try {p=resumenPedidoTiendanube(raw);}catch{return revisar(con,e,null,'PEDIDO_REMOTO_MALFORMADO');}
+      try {p=resumenPedidoTiendanube(raw);}catch(err){
+        return revisar(con,e,null,err?.code==='STOCK_REMOTO_NO_RESERVADO'?'STOCK_REMOTO_NO_RESERVADO':'PEDIDO_REMOTO_MALFORMADO');
+      }
       if(p.order_id!==String(e.recurso_id)||(raw.store_id!=null&&String(raw.store_id)!==con.store_id))return revisar(con,e,null,'PEDIDO_REMOTO_DISTINTO');
       const fecha=timestamp(raw.created_at);
       if(!Number.isFinite(fecha))return revisar(con,e,p,'PEDIDO_SIN_FECHA_VERIFICABLE');
@@ -238,6 +242,7 @@ export function crearServicioTiendanubeSync({db,repo=db?crearRepositorioTiendanu
     if(!habilitado())return {estado:'deshabilitado'};
     const prepared=await repo.transaccion(n,async con=>{
       if(!active(con))return {estado:'pausado'};
+      if(con.sync_reserva_token)return {estado:'esperando_reserva_central'};
       if(ocupado(con))return {estado:'ocupado'};
       if(con.sync_lease_token){
         const abandoned=await repo.abandonados(n);
