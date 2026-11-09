@@ -379,6 +379,14 @@ async function viewInicio(view) {
         <div><div class="kpi-label">Vendido (total)</div><div class="kpi-value">${esc(formatARS(r.vendidoTotalCentavos))}</div></div>
         <div style="text-align:right"><div class="kpi-label">Cobrado este mes</div><div class="kpi-value accent">${esc(formatARS(r.cobradoMesCentavos))}</div></div>
       </div>
+      <div class="kpi kpi-wide">
+        <div><div class="kpi-label">Ganancia realizada · cobros efectivos</div><div class="kpi-value accent">${esc(formatARS(r.gananciaRealizadaCentavos ?? 0))}</div></div>
+        <div style="text-align:right"><div class="kpi-label">Ganancia esperada · si cancelan todos</div><div class="kpi-value">${esc(formatARS(r.gananciaVentasRegistradasCentavos ?? 0))}</div></div>
+      </div>
+      <div class="kpi kpi-wide">
+        <div><div class="kpi-label">Ganancia aún pendiente de realizar</div><div class="kpi-value">${esc(formatARS(r.gananciaPendienteCentavos ?? 0))}</div></div>
+        <div style="text-align:right;max-width:50%;font-size:.8rem">La ganancia se realiza cuando los cobros recuperan costo con envío y comisión. ${esc(r.ventasConGananciaCalculada ?? 0)} ventas con costo histórico; ${esc(r.ventasSinCostoHistorico ?? 0)} sin costo. Excluye devoluciones y pedidos web.</div>
+      </div>
       <div class="kpi"><div class="kpi-label">Cobrado hoy</div><div class="kpi-value">${esc(formatARS(r.cobradoHoyCentavos))}</div></div>
       <div class="kpi"><div class="kpi-label">Por cobrar hoy</div><div class="kpi-value">${esc(formatARS(r.porCobrarHoyCentavos))}</div></div>
       <div class="kpi"><div class="kpi-label">Saldo pendiente total</div><div class="kpi-value">${esc(formatARS(r.saldoPendienteTotalCentavos))}</div></div>
@@ -389,6 +397,13 @@ async function viewInicio(view) {
         <div><div class="kpi-label">Ventas activas</div><div class="kpi-value">${esc(r.ventasActivas)}</div></div>
         <div style="text-align:right"><div class="kpi-label">Ventas finalizadas</div><div class="kpi-value">${esc(r.ventasFinalizadas)}</div></div>
       </div>
+    </div>
+    <div class="section-title">Ganancias por mes · fecha de cancelación y cobro</div>
+    <div class="card" style="overflow-x:auto">
+      <table style="width:100%;text-align:right;border-collapse:collapse"><thead><tr><th style="text-align:left">Mes</th><th>Esperada</th><th>Realizada</th><th>Pendiente</th></tr></thead><tbody>
+      ${(r.gananciasPorMes||[]).map(g=>`<tr><td style="text-align:left">${esc(g.mes)}</td><td>${esc(formatARS(g.esperadaCentavos))}</td><td>${esc(formatARS(g.realizadaCentavos))}</td><td>${esc(formatARS(g.pendienteCentavos))}</td></tr>`).join('')||'<tr><td colspan="4">Todavía no hay ventas con costo histórico para calcular ganancias.</td></tr>'}
+      </tbody></table>
+      <p class="field-hint">Esperada: margen de ventas que vencen ese mes si todas se cancelan. Realizada: margen recuperado con pagos hechos en ese mes, después de cubrir costo y comisión. Pendiente: margen de ventas con vencimiento en ese mes que aún falta recuperar. Pueden corresponder a distintas ventas.</p>
     </div>
     ${r.porNegocio ? `
       <div class="section-title">Por negocio (cobrado este mes)</div>
@@ -1160,6 +1175,7 @@ async function viewVentaNueva(view, clientePreId) {
   if (!state.negocios.length) { setHTML(view, `<div class="empty-state"><p>Primero creá un negocio (arriba, "Cambiar" → "Crear negocio nuevo").</p></div>`); return; }
   const negociosVenta = state.negocios.filter(n => puede('ventas.crear', n.id));
   const negocioSel = state.negocioActual || negociosVenta[0]?.id;
+  const ventaRopa = /indumentaria/i.test(negociosVenta.find(n=>n.id===negocioSel)?.nombre||'');
   if (!negocioSel || !negociosVenta.some(n => n.id === negocioSel)) { setHTML(view, '<div class="empty-state"><p>No tenés permiso para vender en este negocio.</p></div>'); return; }
   let clientePre = null;
   if (clientePreId) { try { clientePre = await api(`/clientes/${encodeURIComponent(clientePreId)}?negocio_id=${encodeURIComponent(negocioSel)}`); } catch { /* La búsqueda permite elegir otro cliente autorizado. */ } }
@@ -1210,9 +1226,8 @@ async function viewVentaNueva(view, clientePreId) {
         <label>Modalidad de pago</label>
         <div class="segmented" id="vModalidad">
           <button type="button" class="active" data-val="contado">Contado</button>
-          <button type="button" data-val="libre">Fiado / cuenta</button>
-          <button type="button" data-val="cuotas">Cuotas</button>
-          <button type="button" data-val="unico">Pago único pendiente</button>
+          <button type="button" data-val="libre">${ventaRopa?'Dos pagos · 30 días':'Fiado / cuenta'}</button>
+          ${ventaRopa?'':`<button type="button" data-val="cuotas">Cuotas</button><button type="button" data-val="unico">Pago único pendiente</button>`}
         </div>
       </div>
       <div id="vCamposModalidad"></div>
@@ -1220,7 +1235,7 @@ async function viewVentaNueva(view, clientePreId) {
     </div>
   `);
 
-  const form=view.querySelector('#vForm');form.venta={productos,items:[],storageKey,ventaManual};
+  const form=view.querySelector('#vForm');form.venta={productos,items:[],storageKey,ventaManual,ventaRopa};
   renderCamposModalidad('contado');
   const paint=()=>pintarCarritoVenta(form);paint();
   view.querySelector('#vAgregar').onclick=()=>{
@@ -1242,7 +1257,7 @@ async function viewVentaNueva(view, clientePreId) {
     const btn = e.target.closest('button'); if (!btn) return;
     document.querySelectorAll('#vModalidad button').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
-    renderCamposModalidad(btn.dataset.val);
+    renderCamposModalidad(btn.dataset.val,ventaRopa);
     for(const x of form.venta.items){const p=productos.find(p=>p.id===x.producto_id);if(p)x.precio_unitario_centavos=btn.dataset.val==='contado'?p.precio_contado_centavos:p.precio_financiado_centavos||p.precio_contado_centavos;}
     pintarCarritoVenta(form);
   });
@@ -1277,7 +1292,7 @@ async function viewVentaNueva(view, clientePreId) {
   document.getElementById('btnCrearVenta').addEventListener('click', () => submitVenta());
 }
 
-function renderCamposModalidad(modalidad) {
+function renderCamposModalidad(modalidad,ventaRopa=false) {
   const box = document.getElementById('vCamposModalidad');
   document.getElementById('vEntregaField').hidden=modalidad==='contado';
   if(modalidad==='contado'){setHTML(box,'<p class="field-hint">Cobro completo. Podés dejar el cliente sin identificar.</p>');return;}
@@ -1290,7 +1305,7 @@ function renderCamposModalidad(modalidad) {
       <div class="field"><label for="vFechaPrimera">Fecha de la primera cuota</label><input type="date" id="vFechaPrimera" value="${esc(todayISO())}" /><div class="field-hint">Vencimiento acordado con el cliente; puede ser el mes siguiente a la compra.</div></div>
     `);
   } else {
-    setHTML(box, `<div class="field"><label>Fecha límite de pago</label><input type="date" id="vFechaLimite" /></div><div class="field-hint">Si no elegís una fecha, se usan 30 días desde la fecha de compra por defecto.</div>`);
+    setHTML(box, `<div class="field"><label>${ventaRopa?'Fecha acordada para cancelar el saldo':'Fecha límite de pago'}</label><input type="date" id="vFechaLimite" /></div><div class="field-hint">${ventaRopa?'Queda un único saldo pendiente, aunque la entrega sea $0. El cliente puede ir abonándolo durante el plazo.':' '}Si no elegís fecha, vence a los 30 días desde la venta. Podés acordar otra fecha.</div>`);
   }
 }
 

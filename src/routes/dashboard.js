@@ -18,6 +18,8 @@ dashboardRouter.get('/resumen', requireAdmin, async (req, res, next) => {
       } else if (scope.length === 0) {
         res.json({
           vendidoTotalCentavos: 0, cobradoHoyCentavos: 0, cobradoMesCentavos: 0,
+          gananciaVentasRegistradasCentavos: 0, ventasConGananciaCalculada: 0, ventasSinCostoHistorico: 0,
+          gananciaRealizadaCentavos: 0, gananciaPendienteCentavos: 0, gananciasPorMes: [],
           porCobrarHoyCentavos: 0, porIngresarMesCentavos: 0, saldoPendienteTotalCentavos: 0,
           saldoVencidoCentavos: 0, montoEnRiesgoCentavos: 0,
           clientesEnMora: 0, clientesVencidos: 0, clientesConDeuda: 0,

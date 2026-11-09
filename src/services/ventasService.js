@@ -97,7 +97,7 @@ async function crearVentaInterna(input, reservaInterna) {
       componentes=await db.prepare(`SELECT c.producto_id,c.cantidad,p.nombre FROM producto_combo_componentes c JOIN productos p ON p.id=c.producto_id WHERE c.combo_id=? AND p.negocio_id=? ORDER BY c.producto_id`).all(producto.id,negocio_id);
       for(const c of (componentes.length?componentes:[{producto_id:producto.id,cantidad:1}]))stock.set(c.producto_id,(stock.get(c.producto_id)||0)+c.cantidad*(it.cantidad??1));
     } else if(it.descripcion!==undefined&&(typeof it.descripcion!=='string'||it.descripcion.length>500))throw badRequest('Descripción inválida');
-    lineas.push({...it,id:id(),descripcion:producto?.nombre||it.descripcion||'Venta manual',categoria:producto?.categoria||null,componentes});
+    lineas.push({...it,id:id(),descripcion:producto?.nombre||it.descripcion||'Venta manual',categoria:producto?.categoria||null,componentes,costo_unitario_centavos:producto?.costo_centavos??null});
   }
   if(reservaInterna){
     // Does not add stock back or generate a second deduction. The adopter
@@ -109,7 +109,7 @@ async function crearVentaInterna(input, reservaInterna) {
     }
   }
   await db.prepare(`INSERT INTO ventas(id,negocio_id,cliente_id,fecha,modalidad,monto_total_centavos,entrega_inicial_centavos,notas,empleado,usuario_id,vendedor_id,canal) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).run(ventaId,negocio_id,cliente_id,fecha,modalidad,monto_total_centavos,entrega_inicial_centavos,notas,empleado,input.usuario_id||null,input.comision_usuario_id||input.usuario_id||null,input.canal||'minorista');
-  for(const it of lineas)await db.prepare(`INSERT INTO venta_detalle(id,venta_id,producto_id,descripcion,cantidad,precio_unitario_centavos,categoria,componentes) VALUES(?,?,?,?,?,?,?,?::jsonb)`).run(it.id,ventaId,it.producto_id||null,it.descripcion,it.cantidad??1,it.precio_unitario_centavos,it.categoria,JSON.stringify(it.componentes));
+  for(const it of lineas)await db.prepare(`INSERT INTO venta_detalle(id,venta_id,producto_id,descripcion,cantidad,precio_unitario_centavos,categoria,componentes,costo_unitario_centavos) VALUES(?,?,?,?,?,?,?,?::jsonb,?)`).run(it.id,ventaId,it.producto_id||null,it.descripcion,it.cantidad??1,it.precio_unitario_centavos,it.categoria,JSON.stringify(it.componentes),it.costo_unitario_centavos);
 
   // 3) Vincular explícitamente cliente con el negocio (relación cliente_negocio)
   await vincularClienteNegocio(cliente_id, negocio_id);

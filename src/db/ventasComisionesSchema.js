@@ -9,6 +9,8 @@ ALTER TABLE clientes ADD COLUMN IF NOT EXISTS consumidor_final_negocio TEXT REFE
 CREATE UNIQUE INDEX IF NOT EXISTS cliente_consumidor_final ON clientes(consumidor_final_negocio) WHERE consumidor_final_negocio IS NOT NULL;
 ALTER TABLE venta_detalle ADD COLUMN IF NOT EXISTS categoria TEXT;
 ALTER TABLE venta_detalle ADD COLUMN IF NOT EXISTS componentes JSONB NOT NULL DEFAULT '[]';
+-- NULL identifica ventas anteriores: su costo histórico no se puede reconstruir con seguridad.
+ALTER TABLE venta_detalle ADD COLUMN IF NOT EXISTS costo_unitario_centavos BIGINT;
 CREATE TABLE IF NOT EXISTS venta_solicitudes (
  negocio_id TEXT NOT NULL REFERENCES negocios(id), usuario_id TEXT NOT NULL REFERENCES usuarios(id),
  solicitud_id TEXT NOT NULL, huella TEXT NOT NULL, respuesta JSONB NOT NULL,
