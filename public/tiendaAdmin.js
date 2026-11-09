@@ -67,7 +67,7 @@ export async function tiendaAdminView(view,ctx){
   const saveStored=(k,value)=>{try{sessionStorage.setItem(k,JSON.stringify(value));}catch{throw Error('No se pudo conservar el reintento en este navegador. Volvé a intentarlo antes de guardar.');}};
   const fail=error=>{if(valid()){toast(error.message||'No se pudo completar la operación',true);const status=root.querySelector('#ta-status');if(status)status.textContent=error.message||'No se pudo completar la operación';}};
   const stamp=value=>{if(!value)return '—';const date=new Date(value);return Number.isNaN(date.getTime())?'—':date.toLocaleString('es-AR',{timeZone:'America/Argentina/Buenos_Aires'});};
-  const stockLabel=value=>value===null||value===undefined?'Sin control de stock':`${value} disponible${Number(value)===1?'':'s'}`;
+  const stockLabel=value=>value===null||value===undefined?'Sin control de stock':Number(value)<=0?'Agotado':`${value} disponible${Number(value)===1?'':'s'}`;
   const currentProduct=id=>products.find(p=>p.id===id);
   const isOrdersTab=()=>['pedidos','encargos'].includes(tab);
   const paymentSummary=d=>{
@@ -174,7 +174,18 @@ export async function tiendaAdminView(view,ctx){
       const [settings,list,existing]=await Promise.all([call('/tiendas'+query),canEdit()?call('/tiendas/productos'+query):[],canEdit()?call('/tiendas/catalogo'+query):[]]);
       if(!valid()||id!==loadId)return;
       config=settings.config||settings;products=Array.isArray(list)?list:list.productos||[];catalog=Array.isArray(existing)?existing:existing.productos||[];
+      const intentKey='zilky-tienda-producto:'+negocio,fromInventory=canEdit()?sessionStorage.getItem(intentKey):null;
+      if(fromInventory){
+        sessionStorage.removeItem(intentKey);
+        const source=catalog.find(p=>p.id===fromInventory);
+        if(source){
+          const linked=products.find(p=>p.producto_id===fromInventory);
+          editing=linked?{...linked,modelos:[...linked.modelos||[]]}:{producto_id:source.id,nombre:source.nombre,descripcion:source.descripcion||'',categoria:source.categoria||'',precio_centavos:source.precio_contado_centavos||0,orden:products.length,modelos:[],talle:'',color:'',publicado:false};
+          productMode=linked?'nuevo':'existente';tab='catalogo';
+        }
+      }
       if(isOrdersTab())await loadOrders(false);if(valid()&&id===loadId)render();
+      if(fromInventory&&editing?.id&&valid())await loadMedia(editing.id);
     }catch(error){if(valid()&&id===loadId){setHTML(root,'<div class="ta-empty"><p>No se pudo cargar la tienda.</p><button type="button" class="btn btn-secondary" data-ta-load>Volver a intentar</button><p id="ta-status" role="status"></p></div>');fail(error);}}
     finally{loading=false;}
   }

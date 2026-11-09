@@ -1353,9 +1353,14 @@ async function viewProductos(view) {
         ${p.foto_url?`<img class="product-thumbnail" src="${esc(p.foto_url)}" alt="${esc(p.nombre)}" loading="lazy" referrerpolicy="no-referrer">`:`<span class="avatar">${esc(p.nombre[0])}</span>`}
         <div class="list-item-body"><div class="list-item-title">${esc(p.nombre)}</div><div class="list-item-sub">${esc(p.variante||p.categoria||'')} · Stock: ${esc(p.stock===null?'sin control':p.stock)}${p.stock!==null&&p.stock<=p.stock_minimo?' · Stock bajo':''}</div></div>
         <div class="list-item-trail"><div class="list-item-amount">${esc(formatARS(p.precio_financiado_centavos))}</div></div></div>
-        ${admin?`<div class="product-actions"><button class="btn btn-secondary" data-product-edit="${esc(p.id)}">Editar</button><button class="btn btn-secondary" data-product-stock="${esc(p.id)}">Reponer / Ajustar</button><button class="btn btn-secondary" data-product-history="${esc(p.id)}">Historial</button></div>`:''}</article>`).join('')}`);
+        ${admin?`<div class="product-actions"><button class="btn btn-secondary" data-product-edit="${esc(p.id)}">Editar</button><button class="btn btn-secondary" data-product-stock="${esc(p.id)}">Reponer / Ajustar</button><button class="btn btn-secondary" data-product-history="${esc(p.id)}">Historial</button><button class="btn btn-secondary" data-product-web="${esc(p.id)}">Conectar a tienda web${p.stock===0?' · agotado':''}</button></div>`:''}</article>`).join('')}`);
   const action=(selector,method)=>view.querySelectorAll(selector).forEach(el=>el.addEventListener('click',async()=>{try{const mod=await import('./productosEditor.js');if(ctx.valid())await mod[method](ctx,el.dataset.productEdit||el.dataset.productStock||el.dataset.productHistory||null);}catch(err){toast(err.message,true);}}));
   action('#product-new','productoEditor');action('[data-product-edit]','productoEditor');action('[data-product-stock]','productoStock');action('[data-product-history]','productoHistorial');
+  view.querySelectorAll('[data-product-web]').forEach(button=>button.addEventListener('click',()=>{
+    if(!ctx.valid())return;
+    sessionStorage.setItem('zilky-tienda-producto:'+state.negocioActual,button.dataset.productWeb);
+    location.hash='#/tienda';
+  }));
 }
 
 // ---------------- Vista: Comprobantes ----------------

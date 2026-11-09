@@ -61,7 +61,7 @@ function quantityLimit(product, esEncargo = false) {
   return Number.isSafeInteger(product?.stock_disponible) ? Math.max(0, Math.min(99, product.stock_disponible)) : 99;
 }
 function stockLabel(product) {
-  if (!available(product)) return 'Sin stock · Por encargo';
+  if (!available(product)) return 'Agotado · Consultar por encargo';
   const stock = product.stock_disponible;
   return Number.isSafeInteger(stock) ? stock === 1 ? '1 disponible' : stock + ' disponibles' : 'Disponible para pedir';
 }

@@ -45,6 +45,25 @@ const writes=b=>b.calls.filter(isWrite);
 const submit=(b,selector)=>b.el(selector).dispatchEvent(new b.w.Event('submit',{bubbles:true,cancelable:true}));
 const storageText=b=>Array.from({length:b.w.sessionStorage.length},(_,i)=>b.w.sessionStorage.getItem(b.w.sessionStorage.key(i))).join('\n');
 
+test('Tienda admin: acceso desde stock abre el producto ya vinculado o prepara su vinculación sin duplicar inventario',async()=>{
+  for(const id of ['core1','core2']){
+    const b=browser({respond:(path,opts,fallback)=>route(path)==='/tiendas/catalogo'?[...core(),{id:'core2',nombre:'Remera de stock',stock:0,precio_contado_centavos:4050000,categoria:'Remeras'}]:fallback(path,opts)});
+    try{
+      b.w.sessionStorage.setItem('zilky-tienda-producto:n',id);
+      await b.mount();
+      assert.equal(b.w.sessionStorage.getItem('zilky-tienda-producto:n'),null);
+      assert.equal(b.el('#ta-product-form [name="nombre"]').value,id==='core1'?'Funda transparente':'Remera de stock');
+      if(id==='core2'){
+        assert.equal(b.el('#ta-product-form [name="origen"]').value,'existente');
+        assert.equal(b.el('#ta-product-form [name="producto_id"]').value,'core2');
+        assert.equal(b.el('#ta-product-form [name="stock"]'),null,'el inventario conserva el stock original');
+        assert.match(b.el('#ta-product-form').textContent,/Agotado/);
+      }else assert.equal(b.el('#ta-product-form [name="origen"]'),null,'el producto web ya existe');
+      assert.equal(writes(b).length,0,'abrir el enlace no publica ni crea productos sin guardar');
+    }finally{b.w.close();}
+  }
+});
+
 test('Tienda admin: las fotos grandes se reducen a 1600 px conservando MIME, nombre y transparencia PNG',async()=>{
   for(const type of ['image/jpeg','image/png']) {
     const b=browser(),encodings=[],draws=[];let closed=0;
