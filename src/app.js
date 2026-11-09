@@ -6,6 +6,7 @@ import { tiendasRouter, tiendaPublicaRouter } from './routes/tiendas.js';
 import { tiendaPedidosRouter, tiendaPedidosPublicosRouter } from './routes/tiendaPedidos.js';
 import { tiendaCobrosRouter } from './routes/tiendaCobros.js';
 import { tiendaMediaRouter, tiendaMediaPublicaRouter } from './routes/tiendaMedia.js';
+import { tiendanubeAdminRouter, tiendanubePublicaRouter } from './routes/tiendanube.js';
 import express from 'express';
 import cors from 'cors';
 import path from 'node:path';
@@ -36,7 +37,11 @@ app.use((req,res,next)=>{
   else if(['/', '/index.html', '/app.js', '/styles.css', '/tienda.html', '/tienda.js', '/tienda.css', '/tiendaAdmin.js', '/tiendaAdmin.css'].includes(req.path)||req.path.startsWith('/tienda/'))res.setHeader('Cache-Control','no-cache');
   next();
 });
+// Tiendanube exige HMAC sobre los bytes originales: esta ruta debe ir antes
+// del parser JSON global. Ninguna ruta antigua cambia su comportamiento.
+app.use('/api/tiendanube/webhook', express.raw({type:'application/json',limit:'100kb',inflate:false}));
 app.use(express.json({inflate:false}));
+app.use('/api/tiendanube',tiendanubePublicaRouter);
 
 // El catálogo y los pedidos de clientes se abren sin una cuenta de empleado.
 app.use('/api/tienda-publica', tiendaPublicaRouter);
@@ -61,6 +66,7 @@ app.use('/api/contratos', contratosRouter);
 app.use('/api/negocios', negociosRouter);
 app.use('/api/clientes', clientesRouter);
 app.use('/api/productos', productosRouter);
+app.use('/api/tiendanube', tiendanubeAdminRouter);
 app.use('/api/ventas', ventasRouter);
 app.use('/api/pagos', pagosRouter);
 app.use('/api/dashboard', dashboardRouter);
