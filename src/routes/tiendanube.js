@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { db } from '../db/connection.js';
 import { requireAdmin } from '../middleware/authorize.js';
 import { TIENDANUBE_APP_ID, nuevoEstadoOAuth, cifrarToken, descifrarToken, firmaWebhookValida, validarIdExterno, hashEvento, clienteTiendanube, stockPublicable } from '../lib/tiendanube.js';
+import { resumenPedidoTiendanube, cambiosPedidoTiendanube } from '../lib/tiendanubeConciliacion.js';
 
 export const tiendanubeAdminRouter = Router();
 export const tiendanubePublicaRouter = Router();
@@ -101,6 +102,34 @@ tiendanubeAdminRouter.post('/vinculos',wrap(async(req,res)=>{
     await db.prepare('INSERT INTO tiendanube_stock_outbox(producto_id,negocio_id,stock_deseado) VALUES(?,?,?)').run(producto_id,negocio_id,stockPublicable(producto.stock));
   });
   res.status(201).json({producto_id,product_id:remoteProduct,variant_id:remoteVariant,sincronizacion:'pausada'});
+}));
+
+// Auditoría manual sin efecto comercial. Permite comparar el pedido verdadero
+// de la API con nuestras variantes ANTES de permitir cualquier descuento.
+tiendanubeAdminRouter.post('/pedidos/conciliar',wrap(async(req,res)=>{
+  const {negocio_id,order_id}=req.body;
+  await negocioValido(negocio_id);
+  const remoteOrder=validarIdExterno(order_id);
+  const con=await db.prepare('SELECT store_id,token_cifrado FROM tiendanube_conexiones WHERE negocio_id=?').get(negocio_id);
+  if(!con) throw error('Primero vinculá tu tienda de Tiendanube',409);
+  const api=clienteTiendanube({tiendaId:con.store_id,accessToken:descifrarToken(con.token_cifrado),contactEmail});
+  const pedido=resumenPedidoTiendanube(await api('GET',`/orders/${remoteOrder}`));
+  if(pedido.order_id!==remoteOrder) throw error('Tiendanube devolvió un pedido distinto',502);
+  const vinculos=await db.prepare('SELECT variant_id,producto_id FROM tiendanube_variantes WHERE store_id=? AND negocio_id=?').all(con.store_id,negocio_id);
+  const porVariante=new Map(vinculos.map(v=>[v.variant_id,v.producto_id]));
+  const sinVincular=Object.keys(pedido.cantidades).filter(k=>!porVariante.has(k));
+  let comparacion;
+  await db.transaction(async()=>{
+    const anterior=await db.prepare('SELECT cantidades,pagado,cancelado FROM tiendanube_pedidos WHERE store_id=? AND order_id=? FOR UPDATE').get(con.store_id,remoteOrder);
+    comparacion=cambiosPedidoTiendanube(anterior?{...anterior,order_id:remoteOrder}:null,pedido);
+    await db.prepare(`INSERT INTO tiendanube_pedidos(negocio_id,store_id,order_id,estado,cantidades,pagado,cancelado,pendiente_revision)
+      VALUES(?,?,?,?,?::jsonb,?,?,TRUE)
+      ON CONFLICT(store_id,order_id) DO UPDATE SET estado=EXCLUDED.estado,cantidades=EXCLUDED.cantidades,
+      pagado=EXCLUDED.pagado,cancelado=EXCLUDED.cancelado,pendiente_revision=TRUE,actualizado_at=NOW()`)
+      .run(negocio_id,con.store_id,remoteOrder,pedido.estado,JSON.stringify(pedido.cantidades),pedido.pagado,pedido.cancelado);
+  });
+  res.json({pedido,comparacion,sin_vincular:sinVincular,stock_actualizado:false,
+    mensaje:'Solo conciliación para revisión; no se descontó stock ni se registraron cobros'});
 }));
 
 tiendanubePublicaRouter.post('/webhook',wrap(async(req,res)=>{

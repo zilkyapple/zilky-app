@@ -21,6 +21,11 @@ Aplicación privada creada en Tiendanube: **51162**, `Zilky · Integración de s
   estado con `GET /api/tiendanube/estado?negocio_id=...` sin exponer el token.
 - Los vínculos por variante se crean individualmente y con verificación de la
   variante real mediante `POST /api/tiendanube/vinculos`.
+- El administrador puede hacer una **conciliación de solo lectura comercial**
+  con `POST /api/tiendanube/pedidos/conciliar` y
+  `{ "negocio_id": "...", "order_id": "..." }`. Recupera el pedido real,
+  detecta variantes sin vínculo, cambios de cantidad y cancelaciones. Guarda
+  el estado para revisión, pero **no descuenta inventario ni marca cobros**.
 
 ## Garantías actuales y trabajo pendiente
 
@@ -28,6 +33,12 @@ El esquema adjunto almacena enlaces e inbox de webhooks y crea una cola
 transaccional para todos los cambios locales de stock. Los cambios permanecen
 **pausados**: no se envían automáticamente. Este primer avance **no equivale**
 a sincronizar las ventas entre los sistemas.
+
+Verificado en el Portal de Socios: los datos básicos y permisos están todavía
+sin guardar; el callback que figura en el formulario es el predeterminado del
+portal, no el callback de este repositorio. No se debe instalar la app ni
+guardar URLs de privacidad mientras los endpoints correspondientes no estén
+operativos en el servidor de producción.
 
 Antes de activar la conexión se debe:
 
