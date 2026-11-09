@@ -35,6 +35,8 @@ function aplicarPermisosUI(root) {
   const links={'#/productos':'productos.ver','#/comprobantes':'comprobantes.ver','#/ventas/nueva':'ventas.crear','#/clientes':'clientes.ver','#/cobrar':'cobranzas.ver','#/calendario':'cobranzas.ver'};
   root.querySelectorAll('a[href]').forEach(a=>{const href=a.getAttribute('href');if(links[href])a.hidden=!puede(links[href]);if(href?.startsWith('#/ventas/nueva/'))a.hidden=!puede('ventas.crear');if(href==='#/configuracion')a.hidden=!admin;if(href==='#/empleados')a.hidden=!puede('empleados.gestionar',null);});
   root.querySelectorAll('a[href="#/tienda"]').forEach(a=>a.hidden=!admin&&!puede('tienda.editar')&&!puede('tienda.pedidos'));
+  root.querySelectorAll('a[href="#/tiendanube"]').forEach(a=>a.hidden=!admin);
+  root.querySelectorAll('a[href="#/tiendanube/pedidos"]').forEach(a=>a.hidden=!admin&&(!puede('tienda.pedidos')||!puede('ventas.crear')));
   const actions={'registrar-pago':'pagos.registrar','editar-cliente':'clientes.editar','editar-seguimiento':'clientes.editar','crear-cliente-inline':'clientes.editar','nueva-venta':'ventas.crear','ir-cobrar':'cobranzas.ver','anular-comprobante':'comprobantes.anular','corregir-financiacion':'cuotas.editar'};
   root.querySelectorAll('[data-action]').forEach(el=>{const action=el.dataset.action;if(actions[action])el.hidden=!puede(actions[action],el.dataset.negocio||state.negocioActual);if(['abrir-crear-negocio','crear-producto'].includes(action))el.hidden=!admin;});
 }
@@ -71,7 +73,7 @@ async function api(path, opts = {}) {
     clearToken();
     showAuthScreen();
   }
-  if (!res.ok) throw Object.assign(new Error(body?.error || `Error ${res.status}`), {status:res.status});
+  if (!res.ok) throw Object.assign(new Error(body?.error || `Error ${res.status}`), {status:res.status,...(typeof body?.code==='string'?{code:body.code}:{})});
   return body;
 }
 
@@ -250,7 +252,8 @@ async function render() {
     ventas: 'ventas.crear', productos: 'productos.ver',
     comprobantes: 'comprobantes.ver', empleados: 'empleados.gestionar',
   };
-  if (['configuracion','caja','contratos','exportaciones'].includes(root) && state.usuario?.rol !== 'administrador') {
+  const pedidosTiendanube = root === 'tiendanube' && parts.length === 2 && parts[1] === 'pedidos';
+  if ((['configuracion','caja','contratos','exportaciones'].includes(root) || (root === 'tiendanube' && !pedidosTiendanube)) && state.usuario?.rol !== 'administrador') {
     setHTML(view, '<div class="empty-state"><p>Requiere administrador</p></div>');
     return;
   }
@@ -270,6 +273,10 @@ async function render() {
     else if (root === 'ventas') await viewVentaNueva(view, parts[1] === 'nueva' ? parts[2] || null : parts[1] || null);
     else if (root === 'productos') await viewProductos(view);
     else if (root === 'tienda') await viewTienda(view);
+    else if (pedidosTiendanube) await viewTiendanubePedidos(view);
+    else if (root === 'tiendanube' && parts.length === 2 && parts[1] === 'baseline') await viewTiendanube(view,'baseline');
+    else if (root === 'tiendanube' && parts.length === 2 && parts[1] === 'privacidad') await viewTiendanube(view,'privacidad');
+    else if (root === 'tiendanube') await viewTiendanube(view);
     else if (root === 'comprobantes') await viewComprobantes(view, parts[1] === 'cliente' ? parts[2] || null : null);
     else if (root === 'configuracion') await viewConfiguracion(view);
     else if (root === 'empleados') await viewEmpleados(view);
@@ -284,6 +291,31 @@ async function render() {
   }
 }
 const notFound = () => '<div class="empty-state"><p>No encontrado.</p></div>';
+
+async function viewTiendanube(view,tipo='conexion') {
+  const negocio=state.negocioActual,usuarioId=state.usuario?.id,token=getToken();
+  const valid=()=>view.isConnected&&state.negocioActual===negocio&&getToken()===token&&state.usuario?.id===usuarioId&&state.usuario?.rol==='administrador';
+  const scopedApi=async(path,options)=>{
+    if(!valid())throw Error('La sesión o el negocio cambió.');
+    const result=await api(path,options);
+    if(!valid())throw Error('La sesión o el negocio cambió.');
+    return result;
+  };
+  const component=tipo==='baseline'?(await import('./tiendanubeBaseline.js')).tiendanubeBaselineView:
+    tipo==='privacidad'?(await import('./tiendanubePrivacidad.js')).tiendanubePrivacidadView:
+      (await import('./tiendanubeAdmin.js')).tiendanubeAdminView;
+  if(valid())await component(view,{api:scopedApi,setHTML,negocio,toast,admin:true,valid});
+}
+
+async function viewTiendanubePedidos(view) {
+  const negocio=state.negocioActual,usuarioId=state.usuario?.id,rol=state.usuario?.rol,token=getToken();
+  const permitted=()=>rol==='administrador'||(puede('tienda.pedidos',negocio)&&puede('ventas.crear',negocio));
+  const valid=()=>view.isConnected&&state.negocioActual===negocio&&getToken()===token&&state.usuario?.id===usuarioId&&state.usuario?.rol===rol&&permitted();
+  if(!negocio||!permitted()){setHTML(view,'<div class="empty-state"><p>Elegí un negocio en el que tengas permiso para gestionar pedidos y ventas.</p></div>');return;}
+  const scopedApi=async(path,options)=>{if(!valid())throw Error('La sesión o el negocio cambió.');const result=await api(path,options);if(!valid())throw Error('La sesión o el negocio cambió.');return result;};
+  const {tiendanubePedidosView}=await import('./tiendanubePedidos.js');
+  if(valid())await tiendanubePedidosView(view,{api:scopedApi,setHTML,negocio,usuarioId,admin:rol==='administrador',puede,valid});
+}
 
 async function viewTienda(view) {
   const negocio=state.negocioActual,usuario=state.usuario,token=getToken(),usuarioId=state.usuario?.id,rol=state.usuario?.rol;
@@ -1441,6 +1473,8 @@ async function viewMas(view) {
     <div class="section-title">Más</div>
     <a class="list-item" href="#/productos"><span class="avatar">${iconProductos()}</span><div class="list-item-body"><div class="list-item-title">Productos y stock</div></div><span class="chev">${iconChevron()}</span></a>
     <a class="list-item" href="#/tienda"><span class="avatar">${iconProductos()}</span><div class="list-item-body"><div class="list-item-title">Tienda web y pedidos</div><div class="list-item-sub">Catálogo para compartir con tus clientes</div></div><span class="chev">${iconChevron()}</span></a>
+    ${state.usuario?.rol==='administrador'?'<a class="list-item" href="#/tiendanube"><div class="list-item-body"><div class="list-item-title">Conexión con Tiendanube</div><div class="list-item-sub">Autorizar cuenta y vincular talles y colores</div></div></a>':''}
+    ${(state.usuario?.rol==='administrador'||(puede('tienda.pedidos')&&puede('ventas.crear')))?'<a class="list-item" href="#/tiendanube/pedidos"><div class="list-item-body"><div class="list-item-title">Pedidos Tiendanube</div><div class="list-item-sub">Confirmar entrega y dinero realmente recibido</div></div></a>':''}
     <a class="list-item" href="#/comprobantes"><span class="avatar">🧾</span><div class="list-item-body"><div class="list-item-title">Comprobantes</div></div><span class="chev">${iconChevron()}</span></a>
     <a class="list-item" href="#/configuracion"><span class="avatar">⚙️</span><div class="list-item-body"><div class="list-item-title">Configuración del negocio</div></div><span class="chev">${iconChevron()}</span></a>
     <a class="list-item" href="#/empleados"><span class="avatar">👥</span><div class="list-item-body"><div class="list-item-title">Empleados y permisos</div></div><span class="chev">${iconChevron()}</span></a>

@@ -14,6 +14,21 @@ import { crearCuota, listCuotasPorCredito } from '../repositories/cuotas.js';
 import { crearCliente, getCliente, vincularClienteNegocio } from '../repositories/clientes.js';
 
 export async function crearVenta(input) {
+  // HTTP callers always use the ordinary inventory path. Extra JSON fields
+  // cannot select the internal reservation capability below.
+  return crearVentaInterna(input, null);
+}
+
+// Server-only entry point. The callable capability is constructed by the
+// Tiendanube delivery service after authorization and transaction locks; it is
+// impossible to represent in a JSON request. Never wire this export to HTTP.
+export async function crearVentaConReservaTiendanube(input, reservaInterna) {
+  if(typeof reservaInterna?.adoptar!=='function')throw badRequest('Falta validar la reserva interna');
+  if(input.modalidad!=='unico')throw badRequest('La reserva solo admite saldo único');
+  return crearVentaInterna(input, reservaInterna);
+}
+
+async function crearVentaInterna(input, reservaInterna) {
   return db.transaction(async () => {
   let {
     negocio_id, cliente_id, fecha = todayAR(), modalidad, items = [],
@@ -84,8 +99,14 @@ export async function crearVenta(input) {
     } else if(it.descripcion!==undefined&&(typeof it.descripcion!=='string'||it.descripcion.length>500))throw badRequest('Descripción inválida');
     lineas.push({...it,id:id(),descripcion:producto?.nombre||it.descripcion||'Venta manual',categoria:producto?.categoria||null,componentes});
   }
-  for(const [p,cantidad] of [...stock].sort((a,b)=>a[0].localeCompare(b[0]))){
-    integer(cantidad,'unidades de stock',{min:1});const {advertencia}=await descontarStock(p,cantidad,input.usuario_id||null,ventaId);if(advertencia)advertencias.push(advertencia);
+  if(reservaInterna){
+    // Does not add stock back or generate a second deduction. The adopter
+    // verifies the exact stock map under the existing catalog/finance locks.
+    await reservaInterna.adoptar({negocio_id,venta_id:ventaId,stock,lineas});
+  }else{
+    for(const [p,cantidad] of [...stock].sort((a,b)=>a[0].localeCompare(b[0]))){
+      integer(cantidad,'unidades de stock',{min:1});const {advertencia}=await descontarStock(p,cantidad,input.usuario_id||null,ventaId);if(advertencia)advertencias.push(advertencia);
+    }
   }
   await db.prepare(`INSERT INTO ventas(id,negocio_id,cliente_id,fecha,modalidad,monto_total_centavos,entrega_inicial_centavos,notas,empleado,usuario_id,vendedor_id,canal) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).run(ventaId,negocio_id,cliente_id,fecha,modalidad,monto_total_centavos,entrega_inicial_centavos,notas,empleado,input.usuario_id||null,input.comision_usuario_id||input.usuario_id||null,input.canal||'minorista');
   for(const it of lineas)await db.prepare(`INSERT INTO venta_detalle(id,venta_id,producto_id,descripcion,cantidad,precio_unitario_centavos,categoria,componentes) VALUES(?,?,?,?,?,?,?,?::jsonb)`).run(it.id,ventaId,it.producto_id||null,it.descripcion,it.cantidad??1,it.precio_unitario_centavos,it.categoria,JSON.stringify(it.componentes));
@@ -130,7 +151,7 @@ export async function crearVenta(input) {
 
   if(saldoFinanciado===0) await db.prepare("UPDATE creditos SET estado='finalizado' WHERE id=?").run(credito.id);
   let entregaInicial=null;
-  if(entrega_inicial_centavos>0) entregaInicial=await registrarEntregaInicial({credito_id:credito.id,monto_centavos:entrega_inicial_centavos,fecha_hora:fecha===todayAR()?nowAR():`${fecha}T12:00:00-03:00`,medio_pago:input.medio_pago_entrega || 'no_especificado',usuario_id:input.usuario_id || null});
+  if(entrega_inicial_centavos>0) entregaInicial=await registrarEntregaInicial({credito_id:credito.id,monto_centavos:entrega_inicial_centavos,fecha_hora:reservaInterna?.fechaHoraCobro||(fecha===todayAR()?nowAR():`${fecha}T12:00:00-03:00`),medio_pago:input.medio_pago_entrega || 'no_especificado',usuario_id:input.usuario_id || null});
   await auditar('venta',ventaId,'crear',null,{negocio_id,cliente_id,monto_total_centavos,entrega_inicial_centavos,credito_id:credito.id},input.usuario_id||null);
   await acordarComision(ventaId,input.comision_usuario_id||input.usuario_id);
   const cuotasCreadas=await listCuotasPorCredito(credito.id);
