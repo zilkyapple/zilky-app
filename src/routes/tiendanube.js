@@ -202,6 +202,9 @@ tiendanubeAdminRouter.post('/vinculos',wrap(async(req,res)=>{
     if(conexionActual.sync_lease_token||conexionActual.sync_reserva_token)throw error('Hay una operación pendiente de conciliación antes de vincular variantes',409);
     const productoActual=await db.prepare('SELECT id,stock FROM productos WHERE id=? AND negocio_id=? FOR UPDATE').get(producto_id,negocio_id);
     if(!productoActual)throw error('Producto no encontrado en este negocio',404);
+    // El permiso pudo revocarse durante la consulta remota. Revalidarlo
+    // bajo los bloqueos antes de guardar el vínculo o preparar el outbox.
+    await negocioValido(negocio_id,req.usuarioId);
     // No vincular silenciosamente una variante externa a un producto distinto.
     const conflict=await db.prepare('SELECT producto_id FROM tiendanube_variantes WHERE store_id=? AND variant_id=? AND producto_id<>?').get(con.store_id,remoteVariant,producto_id);
     if(conflict)throw error('Esta variante ya está vinculada a otro producto de Zilky',409);

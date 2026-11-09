@@ -88,9 +88,11 @@ test('URLs previas o duplicados se informan sin borrar, editar ni crear más',as
   try{
     f.hooks=[{id:1,event:'order/created',url:'https://otra.invalid/?token=NO-EXHIBIR'}];
     let result=await f.service.configurar('n1');assert.equal(result.registrados,false);assert.deepEqual(result.otras_urls,['order/created']);
+    assert.equal((await f.service.estado('n1')).error,'REGISTRO_WEBHOOKS_OTRA_URL');
     assert.ok(f.calls.every(c=>c.method==='GET'));assert.doesNotMatch(JSON.stringify(result),/NO-EXHIBIR|otra.invalid/);
     f.calls.length=0;f.hooks=[...complete(),{id:999,event:'order/created',url}];
     result=await f.service.configurar('n1');assert.equal(result.registrados,false);assert.deepEqual(result.duplicados,['order/created']);
+    assert.equal((await f.service.estado('n1')).error,'REGISTRO_WEBHOOKS_DUPLICADO');
     assert.ok(f.calls.every(c=>c.method==='GET'));assert.equal(result.recepcion_firmada_confirmada,false);
   }finally{await f.pg.close();}
 });

@@ -68,3 +68,20 @@ test('baseline HTTP responde bloqueos precisos sin revelar errores SQL, proveedo
     }finally{await s.close();}
   }
 });
+test('diagnósticos fijos del proveedor y SQL se publican sin mensaje, metadata ni causa originales',async()=>{
+  for(const code of [
+    'BASELINE_CONSULTA_REMOTA_INVALIDA','BASELINE_ACCESO_REMOTO_SUSPENDIDO',
+    'BASELINE_PEDIDOS_REMOTOS_NO_ENCONTRADOS','BASELINE_PRODUCTO_REMOTO_NO_ENCONTRADO',
+    'BASELINE_CONSULTA_REMOTA_NO_PROCESABLE','BASELINE_LIMITE_REMOTO',
+    'BASELINE_SERVICIO_REMOTO_NO_DISPONIBLE','BASELINE_TIEMPO_REMOTO_AGOTADO',
+    'BASELINE_ESQUEMA_LOCAL_INCOMPLETO','BASELINE_CONSULTA_LOCAL_INVALIDA','BASELINE_DATOS_LOCALES_INVALIDOS',
+  ]){
+    const error=Object.assign(Error('PRIVATE_CANARY'),{status:502,code,cause:{message:'PRIVATE_CANARY'},detail:'PRIVATE_CANARY',url:'https://PRIVATE_CANARY'});
+    const s=await server({reject:error});try{
+      const r=await s.request('/baseline/preview?negocio_id=n1');
+      assert.equal(r.status,502);assert.equal(r.body.code,code);
+      assert.deepEqual(Object.keys(r.body).sort(),['code','error']);assert.doesNotMatch(JSON.stringify(r.body),/PRIVATE_CANARY/);
+      if(code==='BASELINE_PEDIDOS_REMOTOS_NO_ENCONTRADOS')assert.match(r.body.error,/no verifica que no haya pedidos/);
+    }finally{await s.close();}
+  }
+});

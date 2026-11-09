@@ -67,6 +67,14 @@ db.prepare=sql=>{
       if(text.includes('FROM tiendanube_conexiones WHERE store_id=? AND negocio_id<>?'))return state.otherStoreConnection;
       if(text.includes('FROM tiendanube_conexiones WHERE negocio_id=?'))return params[0]==='negocio-a'?projection(text,state.connection):undefined;
       if(text.includes('FROM tiendanube_conexiones WHERE store_id=?'))return params[0]===state.connection?.store_id?projection(text,state.connection):undefined;
+      if(/^SELECT id,stock FROM productos WHERE id=\? AND negocio_id=\?(?: FOR UPDATE)?$/.test(text)){
+        const producto=state.products.get(params[0]);
+        return producto?.negocio_id===params[1]?projection(text,producto):undefined;
+      }
+      if(text==='SELECT producto_id FROM tiendanube_variantes WHERE store_id=? AND variant_id=? AND producto_id<>?'){
+        return state.links.find(link=>link.store_id===params[0]&&link.variant_id===params[1]&&link.producto_id!==params[2]);
+      }
+      if(text==='SELECT producto_id FROM tiendanube_variantes WHERE producto_id=?')return state.links.find(link=>link.producto_id===params[0]);
       if(text.includes('FROM tiendanube_variantes')&&text.includes('COUNT(*)'))return {total:state.variants,sin_baseline:state.withoutBaseline};
       if(text.includes('FROM tiendanube_stock_outbox')&&text.includes('COUNT(*)'))return {revision:state.outboxReview};
       if(text.includes('FROM tiendanube_eventos')&&text.includes('COUNT(*)'))return {revision:state.inboxReview};
@@ -125,6 +133,14 @@ db.prepare=sql=>{
       if(text.startsWith('UPDATE tiendanube_variantes SET sync_baseline_at=NULL')){
         assert.equal(params[0],'negocio-a');state.withoutBaseline=state.variants;return {changes:state.variants};
       }
+      if(text==='INSERT INTO tiendanube_variantes(producto_id,negocio_id,store_id,product_id,variant_id) VALUES(?,?,?,?,?)'){
+        const [producto_id,negocio_id,store_id,product_id,variant_id]=params;
+        state.links.push({producto_id,negocio_id,store_id,product_id,variant_id});return {changes:1};
+      }
+      if(text==='INSERT INTO tiendanube_stock_outbox(producto_id,negocio_id,stock_deseado) VALUES(?,?,?)'){
+        const [producto_id,negocio_id,stock_deseado]=params;
+        state.outbox.push({producto_id,negocio_id,stock_deseado});return {changes:1};
+      }
       throw Error('Escritura SQL no simulada');
     },
   };
@@ -136,12 +152,13 @@ let externalResponse=null;
 globalThis.fetch=async(...args)=>{externalCalls++;if(externalResponse)return externalResponse(...args);throw Error('La prueba bloqueó una llamada externa');};
 const {tiendanubeAdminRouter,tiendanubePublicaRouter}=await import('../src/routes/tiendanube.js');
 const {hashPedidoPrivacidad}=await import('../src/services/tiendanubePrivacidadService.js');
-const {descifrarToken}=await import('../src/lib/tiendanube.js');
+const {cifrarToken,descifrarToken}=await import('../src/lib/tiendanube.js');
 
 function reset(){
   calls.length=0;externalCalls=0;externalResponse=null;
   process.env.TIENDANUBE_SYNC_ENABLED='true';
   state={membershipActive:true,variants:1,withoutBaseline:1,outboxReview:0,inboxReview:0,links:[],events:new Map(),deletedOrders:new Set(),oauth:null,privacyEpoch:'0',
+    products:new Map([['producto-a',{id:'producto-a',negocio_id:'negocio-a',stock:2}]]),outbox:[],
     connection:{negocio_id:'negocio-a',store_id:'321',app_id:'123456789',scopes:'write_products,read_orders',pausada:false,sync_lease_token:null,
       sync_activada_at:'2026-11-09T00:00:00.000Z',sync_baseline_at:null,sync_webhooks_at:null,sync_motivo_pausa:null,
       creada_at:'2026-11-09T00:00:00.000Z',actualizada_at:'2026-11-09T00:00:00.000Z',token_cifrado:'NO-EXPONER-TOKEN-FAKE'}};
@@ -357,6 +374,48 @@ test('Tiendanube HTTP aislado: permisos, readiness y recepción de webhooks',asy
     assert.equal(response.status,404);await response.text();
     assert.equal(state.connection.token_cifrado,'NO-EXPONER-TOKEN-FAKE');
     assert.equal(calls.filter(c=>c.method==='run').length,0);
+  }));
+
+  await t.test('revocar membresía durante la consulta de variante no crea vínculo ni outbox',async()=>fixture(async({request})=>{
+    state.connection.pausada=true;state.connection.token_cifrado=cifrarToken('TOKEN-VINCULO-FICTICIO');
+    externalResponse=async(url,options)=>{
+      assert.equal(url,'https://api.tiendanube.com/2025-03/321/products/11/variants/111');
+      assert.equal(options.method,'GET');assert.equal(options.redirect,'error');
+      state.membershipActive=false;
+      return {ok:true,text:async()=>JSON.stringify({id:111,product_id:11,stock:2,stock_management:true})};
+    };
+    const response=await request('/api/tiendanube/vinculos',{identity:'admin-a',method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({negocio_id:'negocio-a',producto_id:'producto-a',product_id:'11',variant_id:'111'})});
+    assert.equal(response.status,404);assert.match((await response.json()).error,/sin autorización/);
+    assert.equal(externalCalls,1);assert.equal(state.connection.pausada,true);
+    assert.deepEqual(state.links,[]);assert.deepEqual(state.outbox,[]);
+    assert.equal(state.products.get('producto-a').stock,2);
+    assert.equal(calls.filter(c=>c.method==='run').length,0);
+    const authorizations=calls.map((call,index)=>({call,index})).filter(({call})=>call.sql.startsWith('SELECT n.id FROM negocios n'));
+    assert.equal(authorizations.length,2);
+    assert.ok(authorizations[1].index>calls.findIndex(call=>call.sql==='SELECT id,stock FROM productos WHERE id=? AND negocio_id=? FOR UPDATE'));
+  }));
+
+  await t.test('vínculo pausado autorizado revalida permiso y prepara outbox sin modificar stock',async()=>fixture(async({request})=>{
+    state.connection.pausada=true;state.connection.token_cifrado=cifrarToken('TOKEN-VINCULO-FICTICIO');
+    externalResponse=async(url,options)=>{
+      assert.equal(url,'https://api.tiendanube.com/2025-03/321/products/11/variants/111');
+      assert.equal(options.method,'GET');assert.equal(options.redirect,'error');
+      return {ok:true,text:async()=>JSON.stringify({id:111,product_id:11,stock:2,stock_management:true})};
+    };
+    const response=await request('/api/tiendanube/vinculos',{identity:'admin-a',method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({negocio_id:'negocio-a',producto_id:'producto-a',product_id:'11',variant_id:'111'})});
+    assert.equal(response.status,201);
+    assert.deepEqual(await response.json(),{producto_id:'producto-a',product_id:'11',variant_id:'111',sincronizacion:'pausada'});
+    assert.deepEqual(state.links,[{producto_id:'producto-a',negocio_id:'negocio-a',store_id:'321',product_id:'11',variant_id:'111'}]);
+    assert.deepEqual(state.outbox,[{producto_id:'producto-a',negocio_id:'negocio-a',stock_deseado:2}]);
+    assert.equal(state.products.get('producto-a').stock,2);assert.equal(state.connection.pausada,true);
+    assert.equal(externalCalls,1);
+    const authorizations=calls.map((call,index)=>({call,index})).filter(({call})=>call.sql.startsWith('SELECT n.id FROM negocios n'));
+    assert.equal(authorizations.length,2);
+    assert.ok(authorizations[1].index>calls.findIndex(call=>call.sql==='SELECT id,stock FROM productos WHERE id=? AND negocio_id=? FOR UPDATE'));
+    assert.ok(authorizations[1].index<calls.findIndex(call=>call.method==='run'));
+    assert.equal(calls.filter(call=>call.method==='run').length,2);
   }));
 
   await t.test('webhook firmado guarda solo lista mínima, sin PII ni stock/pagos',async()=>fixture(async({signed})=>{
