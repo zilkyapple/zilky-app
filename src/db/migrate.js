@@ -3,6 +3,9 @@ import {tiendasSchema} from './tiendasSchema.js';
 import {tiendaMediaSchema} from './tiendaMediaSchema.js';
 import {stockSchema} from './stockSchema.js';
 import {tiendanubeSchema} from './tiendanubeSchema.js';
+import {tiendanubePrivacidadSchema} from './tiendanubePrivacidadSchema.js';
+import {tiendanubeSyncSchema} from './tiendanubeSyncSchema.js';
+import {tiendanubeEntregasSchema} from './tiendanubeEntregasSchema.js';
 import {comisionesSchema} from './comisionesSchema.js';
 import {contratosSchema} from './contratosSchema.js';
 import {cajaSchema} from './cajaSchema.js';
@@ -489,6 +492,9 @@ export async function migrate() {
     await db.exec(tiendasSchema);
     await db.exec(tiendaMediaSchema);
     await db.exec(tiendanubeSchema);
+    await db.exec(tiendanubePrivacidadSchema);
+    await db.exec(tiendanubeSyncSchema);
+    await db.exec(tiendanubeEntregasSchema);
     await db.exec(`
       ALTER TABLE creditos ADD COLUMN IF NOT EXISTS producto_descripcion TEXT;
       ALTER TABLE creditos ADD COLUMN IF NOT EXISTS condiciones TEXT;

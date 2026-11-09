@@ -34,7 +34,7 @@ app.use((req,res,next)=>{
   res.setHeader('X-Content-Type-Options','nosniff');
   res.setHeader('Referrer-Policy','no-referrer');
   if(req.path.startsWith('/api'))res.setHeader('Cache-Control','no-store');
-  else if(['/', '/index.html', '/app.js', '/styles.css', '/tienda.html', '/tienda.js', '/tienda.css', '/tiendaAdmin.js', '/tiendaAdmin.css'].includes(req.path)||req.path.startsWith('/tienda/'))res.setHeader('Cache-Control','no-cache');
+  else if(['/', '/index.html', '/app.js', '/styles.css', '/tienda.html', '/tienda.js', '/tienda.css', '/tiendaAdmin.js', '/tiendaAdmin.css', '/tiendanubeAdmin.js'].includes(req.path)||req.path.startsWith('/tienda/'))res.setHeader('Cache-Control','no-cache');
   next();
 });
 // Tiendanube exige HMAC sobre los bytes originales: esta ruta debe ir antes

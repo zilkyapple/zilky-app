@@ -49,8 +49,10 @@ export function descifrarToken(value) {
 }
 
 export function validarIdExterno(value) {
+  const invalido=()=>Object.assign(new Error('ID de Tiendanube inválido'),{status:400});
+  if(typeof value==='number'&&!Number.isSafeInteger(value))throw invalido();
   const id = String(value ?? '');
-  if (!/^[1-9]\d{0,19}$/.test(id)) throw new Error('ID de Tiendanube inválido');
+  if (!/^[1-9]\d{0,19}$/.test(id)) throw invalido();
   return id;
 }
 
@@ -62,7 +64,7 @@ export function clienteTiendanube({ tiendaId, accessToken, contactEmail, fetchIm
     const respuesta = await fetchImpl(`https://api.tiendanube.com/${apiVersion}/${id}${resource}`, {
       method, headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': `Zilky (${contactEmail})`, Accept: 'application/json', ...(data === undefined ? {} : { 'Content-Type': 'application/json' }) },
       ...(data === undefined ? {} : { body: JSON.stringify(data) }),
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(15000),redirect:'error',
     });
     if (!respuesta.ok) {
       const err = new Error(`Tiendanube respondió ${respuesta.status}`);
