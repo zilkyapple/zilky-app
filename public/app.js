@@ -252,7 +252,7 @@ async function render() {
     ventas: 'ventas.crear', productos: 'productos.ver',
     comprobantes: 'comprobantes.ver', empleados: 'empleados.gestionar',
   };
-  if (['configuracion','caja','contratos','exportaciones','tiendanube'].includes(root) && state.usuario?.rol !== 'administrador') {
+  if ((['configuracion','caja','contratos','exportaciones'].includes(root) || (root === 'tiendanube' && parts[1] !== 'pedidos')) && state.usuario?.rol !== 'administrador') {
     setHTML(view, '<div class="empty-state"><p>Requiere administrador</p></div>');
     return;
   }
