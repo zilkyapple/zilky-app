@@ -69,7 +69,7 @@ export async function linkDePago(cuenta) {
   if (!monto) throw fallo(503, 'Falta configurar el precio');
   const base = urlApp();
   if (!base.startsWith('https://')) throw fallo(503, 'Falta configurar la dirección de la app');
-  const pre = await crearSuscripcion({ cuentaId: cuenta.id, email: cuenta.email, montoCentavos: monto, backUrl: `${base}/#/suscripcion` });
+  const pre = await crearSuscripcion({ cuentaId: cuenta.id, email: cuenta.email, montoCentavos: monto, backUrl: `${base}/app#/suscripcion` });
   await actualizarCuenta(cuenta.id, { mp_preapproval_id: pre.id, mp_estado: pre.status || 'pending', mp_init_point: pre.init_point });
   return pre.init_point;
 }

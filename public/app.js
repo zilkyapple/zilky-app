@@ -2112,6 +2112,15 @@ async function arrancarApp() {
 (async function init() {
   cargarConfigPlataforma();
   wireAuthScreen();
+  // Desde la página de venta: "Empezar" abre el alta e "Ingresar" el inicio de sesión.
+  const desdeVenta = ['#/crear-cuenta', '#/ingresar'].includes(location.hash) ? location.hash : null;
+  if (desdeVenta && getToken()) history.replaceState({}, '', location.pathname + '#/inicio');
+  if (desdeVenta && !getToken()) {
+    history.replaceState({}, '', location.pathname);
+    showAuthScreen();
+    if (desdeVenta === '#/crear-cuenta' && esSaaS()) document.querySelector('#authTabs [data-mode="alta"]')?.click();
+    return;
+  }
   if (new URLSearchParams(location.search).get('token')) { await renderAceptarInvitacion(); return; }
   if (!getToken()) { showAuthScreen(); return; }
   await arrancarApp();

@@ -60,7 +60,7 @@ test('Alta: crea la cuenta, su espacio propio y el link de Mercado Pago en pesos
   assert.equal(r.body.estado, 'pendiente_pago');
   assert.equal(r.body.init_point, 'https://mp.test/checkout/pre1');
   assert.deepEqual(mp.creadas[0].auto_recurring, { frequency: 1, frequency_type: 'months', transaction_amount: 10000, currency_id: 'ARS' });
-  assert.equal(mp.creadas[0].back_url, 'https://cobranzas.test/#/suscripcion');
+  assert.equal(mp.creadas[0].back_url, 'https://cobranzas.test/app#/suscripcion');
   A = { token: r.body.token, cuenta: await cuentaDe('ana@negocio.invalid') };
   assert.match(A.cuenta.esquema, /^t_[a-z0-9]{20}$/);
   assert.equal(A.cuenta.telefono, '351 555 0000');
@@ -195,12 +195,27 @@ test('Webhook con secreto: rechaza firmas falsas y acepta las válidas', async (
   } finally { delete process.env.MP_WEBHOOK_SECRET; }
 });
 
+test('Página de venta en "/" con el precio en pesos; la app en "/app"', async () => {
+  process.env.PLATAFORMA_CONTACTO = 'WhatsApp <351> 555';
+  try {
+    const venta = await api('/');
+    assert.equal(venta.status, 200);
+    assert.match(venta.text, /Empezar por \$\s10\.000 al mes/);
+    assert.match(venta.text, /href="\/app#\/crear-cuenta"/);
+    assert.match(venta.text, /Contacto: WhatsApp &lt;351&gt; 555/);
+    assert.doesNotMatch(venta.text, /\{\{|US\$|Tiendanube|Tienda web/);
+    assert.match((await api('/app')).text, /id="authScreen"/);
+    assert.match((await api('/?token=abc')).text, /id="authScreen"/, 'los enlaces de invitación abren la app');
+  } finally { delete process.env.PLATAFORMA_CONTACTO; }
+});
+
 test('Sin EDICION=saas la app sigue como siempre', async () => {
   process.env.EDICION = '';
   try {
     assert.match((await api('/plataforma-config.js')).text, /"propia"/);
     assert.equal((await alta('otra@negocio.invalid')).status, 404);
     assert.equal((await api('/api/plataforma/config')).body.edicion, 'propia');
+    assert.match((await api('/')).text, /id="authScreen"/, 'la raíz sigue siendo la app');
   } finally { process.env.EDICION = 'saas'; }
   assert.match((await api('/plataforma-config.js')).text, /"saas"/);
 });

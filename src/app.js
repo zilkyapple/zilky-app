@@ -27,7 +27,8 @@ import { usuariosRouter } from './routes/usuarios.js';
 import { invitacionesRouter } from './routes/invitaciones.js';
 import { cargarUsuario, requireAuth } from './middleware/authorize.js';
 import { plataformaPublicaRouter, suscripcionRouter, plataformaAdminRouter } from './routes/plataforma.js';
-import { modoSaaS } from './plataforma/config.js';
+import { modoSaaS, precioMensualCentavos } from './plataforma/config.js';
+import { readFile } from 'node:fs/promises';
 import { resolverCuenta, exigirSuscripcionActiva, exigirFuncion, noDisponibleEnSaaS } from './plataforma/middleware.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -97,6 +98,24 @@ app.use('/api/comprobantes', comprobantesRouter);
 app.use('/api/usuarios', usuariosRouter);
 app.use('/api/invitaciones', invitacionesRouter);
 
+// Edición de venta: la página de venta va en "/" y la app en "/app".
+// Los enlaces de invitación (/?token=...) siguen abriendo la app.
+const archivoPublico = (nombre) => path.join(__dirname, '..', 'public', nombre);
+let plantillaVenta = null;
+async function paginaDeVenta() {
+  plantillaVenta ??= await readFile(archivoPublico('landing.html'), 'utf8');
+  const centavos = precioMensualCentavos();
+  const precio = centavos ? new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(centavos / 100) : 'un precio fijo';
+  const contacto = (process.env.PLATAFORMA_CONTACTO || '').trim();
+  const esc = (t) => t.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  return plantillaVenta.replaceAll('{{PRECIO}}', esc(precio)).replace('{{CONTACTO}}', contacto ? `<span>Contacto: ${esc(contacto)}</span>` : '');
+}
+app.get('/', async (req, res, next) => {
+  if (!modoSaaS() || req.query.token) return next();
+  try { res.set('Cache-Control', 'no-cache').type('html').send(await paginaDeVenta()); } catch (e) { next(e); }
+});
+app.get('/landing.html', (req, res) => res.redirect(301, '/'));
+app.get('/app', (req, res) => { res.set('Cache-Control', 'no-cache'); res.sendFile(archivoPublico('index.html')); });
 // Edición activa para el frontend, sin un pedido extra al arrancar.
 app.get('/plataforma-config.js', (req,res)=>{res.type('application/javascript').set('Cache-Control','no-cache').send(`window.ZILKY_EDICION=${JSON.stringify(modoSaaS()?'saas':'propia')};`);});
 app.get('/tienda/:slug', (req,res)=>res.sendFile(path.join(__dirname,'..','public','tienda.html')));
