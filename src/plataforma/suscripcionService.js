@@ -13,6 +13,13 @@ import { crearSuscripcion, obtenerSuscripcion, obtenerPagoAutorizado, cambiarMon
 import { listarCuentas } from './cuentas.js';
 
 const fallo = (status, msg) => Object.assign(new Error(msg), { status });
+// Mercado Pago solo deja pagar con la cuenta del correo indicado: si la
+// persona usa otro correo en Mercado Pago, lo guardamos aparte.
+export function emailDePago(valor, emailCuenta) {
+  if (valor === undefined || valor === null || String(valor).trim() === '') return null;
+  const e = normalizarEmail(valor);
+  return e === emailCuenta ? null : e;
+}
 function texto(valor, campo, max, obligatorio = true) {
   const v = typeof valor === 'string' ? valor.trim() : '';
   if (obligatorio && !v) throw fallo(400, `Completá ${campo}`);
@@ -24,7 +31,7 @@ function texto(valor, campo, max, obligatorio = true) {
 // administradora, su primer negocio y, si no es la dueña de la plataforma,
 // el link de pago de Mercado Pago. Sin pago la cuenta queda bloqueada.
 export async function registrarCuenta(body = {}) {
-  const permitidos = ['nombre', 'negocio', 'email', 'telefono', 'password'];
+  const permitidos = ['nombre', 'negocio', 'email', 'email_pago', 'telefono', 'password'];
   if (Object.keys(body).some(k => !permitidos.includes(k))) throw fallo(400, 'Campo no permitido');
   const nombre = texto(body.nombre, 'tu nombre', 120);
   const negocio = texto(body.negocio, 'el nombre del negocio', 80);
@@ -32,13 +39,14 @@ export async function registrarCuenta(body = {}) {
   if (!/^[+\d][\d\s()-]{5,29}$/.test(telefono)) throw fallo(400, 'Teléfono inválido');
   const email = normalizarEmail(body.email);
   validarPassword(body.password);
+  const email_pago = emailDePago(body.email_pago, email);
   if (await esquemaPorEmail(email)) throw fallo(409, 'Ya existe una cuenta con ese email');
   const exenta = email === emailDuenaPlataforma();
   if (!exenta && !(await precioActualCentavos())) throw fallo(503, 'Las altas todavía no están habilitadas');
 
   const esquema = nuevoEsquema();
   let cuenta;
-  try { cuenta = await insertarCuenta({ esquema, nombre, negocio_nombre: negocio, email, telefono, estado: exenta ? 'exenta' : 'pendiente_pago' }); }
+  try { cuenta = await insertarCuenta({ esquema, nombre, negocio_nombre: negocio, email, email_pago, telefono, estado: exenta ? 'exenta' : 'pendiente_pago' }); }
   catch (e) { if (e.code === '23505') throw fallo(409, 'Ya existe una cuenta con ese email'); throw e; }
   let token;
   try {
@@ -58,7 +66,7 @@ export async function registrarCuenta(body = {}) {
   let init_point = null, pago_error = null;
   if (!exenta) {
     try { init_point = await linkDePago(cuenta); }
-    catch (e) { pago_error = e.status && e.status < 500 ? e.message : 'No pudimos generar el link de pago. Probá de nuevo desde la app.'; }
+    catch (e) { pago_error = (e.status && e.status < 500) || e.publico ? e.message : 'No pudimos generar el link de pago. Probá de nuevo desde la app.'; }
   }
   return { token, estado: exenta ? 'exenta' : 'pendiente_pago', init_point, pago_error };
 }
@@ -72,7 +80,7 @@ export async function linkDePago(cuenta) {
   if (!monto) throw fallo(503, 'Falta configurar el precio');
   const base = urlApp();
   if (!base.startsWith('https://')) throw fallo(503, 'Falta configurar la dirección de la app');
-  const pre = await crearSuscripcion({ cuentaId: cuenta.id, email: cuenta.email, montoCentavos: monto, backUrl: `${base}/app#/suscripcion` });
+  const pre = await crearSuscripcion({ cuentaId: cuenta.id, email: cuenta.email_pago || cuenta.email, montoCentavos: monto, backUrl: `${base}/app#/suscripcion` });
   await actualizarCuenta(cuenta.id, { mp_preapproval_id: pre.id, mp_estado: pre.status || 'pending', mp_init_point: pre.init_point, mp_monto_centavos: monto });
   return pre.init_point;
 }
@@ -90,7 +98,8 @@ export async function procesarNotificacion({ tipo, recursoId }) {
     let cuenta = await cuentaPorPreapproval(pre.id);
     if (!cuenta && pre.external_reference) {
       const porRef = await cuentaPorId(pre.external_reference);
-      if (porRef && porRef.email === String(pre.payer_email || '').toLowerCase()) cuenta = porRef;
+      const pagador = String(pre.payer_email || '').toLowerCase();
+      if (porRef && [porRef.email, porRef.email_pago].includes(pagador)) cuenta = porRef;
     }
     if (!cuenta) return { ignorada: true };
     await registrarEvento(cuenta.id, 'suscripcion', pre.id, pre.status, { status: pre.status });
@@ -139,4 +148,10 @@ export async function aplicarPrecioASuscripciones() {
     catch { resultado.errores.push(c.email); }
   }
   return { ...resultado, precio_centavos: monto };
+}
+
+export async function cambiarEmailDePago(cuenta, valor) {
+  const email_pago = emailDePago(valor, cuenta.email);
+  if ((email_pago || null) === (cuenta.email_pago || null)) return cuenta;
+  return actualizarCuenta(cuenta.id, { email_pago, mp_init_point: null });
 }

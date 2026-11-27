@@ -4,11 +4,11 @@ import { id as nuevoId } from '../lib/id.js';
 // Repositorio de la plataforma: siempre con nombres calificados (public.),
 // porque también se llama desde dentro del esquema de una cuenta.
 export function nuevoEsquema() { return 't_' + randomBytes(10).toString('hex'); }
-const CAMPOS = 'id,esquema,nombre,negocio_nombre,email,telefono,estado,mp_preapproval_id,mp_estado,mp_init_point,mp_monto_centavos,primer_pago_en,ultimo_pago_en,rechazo_desde,creada_en,actualizada_en';
-export async function insertarCuenta({ esquema, nombre, negocio_nombre, email, telefono, estado }) {
+const CAMPOS = 'id,esquema,nombre,negocio_nombre,email,email_pago,telefono,estado,mp_preapproval_id,mp_estado,mp_init_point,mp_monto_centavos,primer_pago_en,ultimo_pago_en,rechazo_desde,creada_en,actualizada_en';
+export async function insertarCuenta({ esquema, nombre, negocio_nombre, email, email_pago, telefono, estado }) {
   const id = nuevoId();
-  const { rows } = await db.query(`INSERT INTO public.plataforma_cuentas (id,esquema,nombre,negocio_nombre,email,telefono,estado) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING ${CAMPOS}`,
-    [id, esquema, nombre, negocio_nombre, email, telefono || null, estado]);
+  const { rows } = await db.query(`INSERT INTO public.plataforma_cuentas (id,esquema,nombre,negocio_nombre,email,email_pago,telefono,estado) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING ${CAMPOS}`,
+    [id, esquema, nombre, negocio_nombre, email, email_pago || null, telefono || null, estado]);
   return rows[0];
 }
 export async function cuentaPorEsquema(esquema) {
@@ -23,7 +23,7 @@ export async function cuentaPorPreapproval(preapprovalId) {
 export async function listarCuentas() {
   return (await db.query(`SELECT ${CAMPOS} FROM public.plataforma_cuentas ORDER BY creada_en DESC`)).rows;
 }
-const EDITABLES = ['estado','mp_preapproval_id','mp_estado','mp_init_point','mp_monto_centavos','primer_pago_en','ultimo_pago_en','rechazo_desde'];
+const EDITABLES = ['email_pago','estado','mp_preapproval_id','mp_estado','mp_init_point','mp_monto_centavos','primer_pago_en','ultimo_pago_en','rechazo_desde'];
 export async function actualizarCuenta(id, cambios) {
   const claves = Object.keys(cambios).filter(k => EDITABLES.includes(k));
   if (!claves.length) return cuentaPorId(id);

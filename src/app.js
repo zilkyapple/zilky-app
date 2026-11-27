@@ -124,5 +124,5 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 
 app.use((err, req, res, next) => {
   if(!err.status || err.status>=500) console.error(err);
-  res.status(err.status || 500).json({ error: err.status && err.status<500 ? err.message : 'Error interno' });
+  res.status(err.status || 500).json({ error: (err.status && err.status<500) || err.publico ? err.message : 'Error interno' });
 });

@@ -1889,7 +1889,7 @@ document.addEventListener('click', async (e) => {
     setHTML(document.getElementById('vClienteResultados'), '');
   }
   else if (action === 'crear-cliente-inline') abrirCrearCliente();
-  else if (action === 'suscripcion-pagar') { el.disabled=true; try { const r=await api('/suscripcion/pagar',{method:'POST'}); if(r?.init_point) location.href=r.init_point; } catch(err){ toast(err.message,true); el.disabled=false; } }
+  else if (action === 'suscripcion-pagar') { el.disabled=true; try { const inp=document.getElementById('suscEmailPago'); const r=await api('/suscripcion/pagar',{method:'POST',body:JSON.stringify(inp?{email_pago:inp.value.trim()}:{})}); if(r?.init_point) location.href=r.init_point; } catch(err){ toast(err.message,true); el.disabled=false; } }
   else if (action === 'suscripcion-actualizar') { location.hash = '#/inicio'; await arrancarApp(); }
   else if (action === 'plataforma-exportar') { try { const r=await api('/plataforma-admin/cuentas/exportar'); const blob=new Blob([r.csv],{type:'text/csv;charset=utf-8'}); const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=r.filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000); } catch(err){ toast(err.message,true); } }
   else if (action === 'plataforma-precio-guardar') { try { const usd=Number(document.getElementById('platUsd').value), cotizacion=Number(document.getElementById('platCot').value); const r=await api('/plataforma-admin/precio',{method:'PUT',body:JSON.stringify({usd,cotizacion})}); toast(`Precio guardado: ${formatARS(r.ajuste.centavos)} por mes`); render(); } catch(err){ toast(err.message,true); } }
@@ -2062,7 +2062,7 @@ function wireAuthScreen() {
     btn.classList.add('active');
     document.getElementById('authNombreField').style.display = ['registro','alta'].includes(authMode) ? 'block' : 'none';
     document.getElementById('authAltaFields').style.display = authMode === 'alta' ? 'block' : 'none';
-    document.getElementById('authSubmit').textContent = authMode === 'alta' ? 'Crear cuenta y pagar' : authMode === 'registro' ? 'Crear cuenta' : 'Entrar';
+    document.getElementById('authSubmit').textContent = authMode === 'alta' ? 'Crear cuenta y pagar con tarjeta o Mercado Pago' : authMode === 'registro' ? 'Crear cuenta' : 'Entrar';
     document.getElementById('authError').style.display = 'none';
   });
   document.getElementById('authSubmit').addEventListener('click', async () => {
@@ -2076,7 +2076,8 @@ function wireAuthScreen() {
       if (authMode === 'alta') {
         const negocio = document.getElementById('authNegocio').value.trim(), telefono = document.getElementById('authTelefono').value.trim();
         if (!nombre || !negocio || !telefono) { errBox.textContent = 'Completá tu nombre, el negocio y el teléfono.'; errBox.style.display = 'block'; return; }
-        const data = await api('/plataforma/registro', { method: 'POST', body: JSON.stringify({ nombre, negocio, telefono, email, password }) });
+        const email_pago = document.getElementById('authEmailPago').value.trim();
+        const data = await api('/plataforma/registro', { method: 'POST', body: JSON.stringify({ nombre, negocio, telefono, email, password, ...(email_pago ? { email_pago } : {}) }) });
         setToken(data.token);
         if (data.init_point) { location.href = data.init_point; return; }
         if (data.pago_error) toast(data.pago_error, true);
@@ -2476,7 +2477,7 @@ async function viewSuscripcion(view) {
     ${c.precio_centavos && c.estado !== 'exenta' ? `<p style="font-size:15px">Plan Cobranzas: <strong>${esc(formatARS(c.precio_centavos))} por mes</strong>, sin límites.</p>` : ''}
     ${c.estado === 'pago_rechazado' && c.habilitada ? `<p class="field-hint">Tenés ${esc(c.dias_gracia)} días desde el primer rechazo para regularizar el pago.</p>` : ''}
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px">
-      ${debePagar && admin ? '<button class="btn btn-primary btn-block btn-lg" data-action="suscripcion-pagar">Pagar con Mercado Pago</button>' : ''}
+      ${debePagar && admin ? `<div class="field"><label for="suscEmailPago">Correo de tu cuenta de Mercado Pago</label><input id="suscEmailPago" type="email" maxlength="254" value="${esc(c.email_pago || c.email || '')}" /><div class="field-hint">Mercado Pago solo deja pagar con la cuenta de este correo. Adentro elegís tarjeta de crédito, débito o dinero en Mercado Pago.</div></div><button class="btn btn-primary btn-block btn-lg" data-action="suscripcion-pagar">Pagar con tarjeta o Mercado Pago</button>` : ''}
       ${debePagar && !admin ? '<p class="field-hint">Pedile al dueño de la cuenta que regularice el pago.</p>' : ''}
       ${debePagar ? '<button class="btn btn-secondary btn-block" data-action="suscripcion-actualizar">Ya pagué, actualizar</button>' : ''}
       ${c.habilitada ? '<button class="btn btn-secondary btn-block" data-action="suscripcion-actualizar">Ir a la app</button>' : ''}

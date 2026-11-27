@@ -16,10 +16,11 @@ async function llamar(method, ruta, body) {
     signal: AbortSignal.timeout(15000),
   });
   const data = await r.json().catch(() => null);
-  if (!r.ok) throw Object.assign(new Error('Mercado Pago rechazó la operación'), { status: 502, detalle: data });
+  if (!r.ok) throw Object.assign(new Error('No pudimos conectar con Mercado Pago. Probá de nuevo en unos minutos.'), { status: 502, publico: true, detalle: data });
   return data;
 }
 export function crearSuscripcion({ cuentaId, email, montoCentavos, backUrl }) {
+  // email: el de la cuenta de Mercado Pago con la que va a pagar.
   return llamar('POST', '/preapproval', {
     reason: 'Cobranzas · suscripción mensual',
     external_reference: cuentaId,

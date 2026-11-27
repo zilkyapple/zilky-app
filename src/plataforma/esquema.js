@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS plataforma_cuentas (
   actualizada_en TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE plataforma_cuentas ADD COLUMN IF NOT EXISTS mp_monto_centavos BIGINT;
+ALTER TABLE plataforma_cuentas ADD COLUMN IF NOT EXISTS email_pago TEXT;
 CREATE TABLE IF NOT EXISTS plataforma_directorio (
   email TEXT PRIMARY KEY,
   esquema TEXT NOT NULL REFERENCES plataforma_cuentas(esquema) ON DELETE CASCADE

@@ -230,6 +230,30 @@ test('Página de venta en "/" con el precio en pesos; la app en "/app"', async (
   } finally { delete process.env.PLATAFORMA_CONTACTO; }
 });
 
+test('Correo de Mercado Pago distinto: el link de pago se genera para ese correo', async () => {
+  const r = await alta('beto@negocio.invalid', { email_pago: 'Beto.MP@correo.invalid' });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(mp.creadas.at(-1).payer_email, 'beto.mp@correo.invalid');
+  const s = await api('/api/suscripcion', r.body.token);
+  assert.equal(s.body.email_pago, 'beto.mp@correo.invalid');
+  const otro = await api('/api/suscripcion/pagar', r.body.token, 'POST', { email_pago: 'otro.mp@correo.invalid' });
+  assert.equal(otro.status, 200); assert.equal(mp.creadas.at(-1).payer_email, 'otro.mp@correo.invalid');
+  const mismo = await api('/api/suscripcion/pagar', r.body.token, 'POST', { email_pago: 'otro.mp@correo.invalid' });
+  assert.equal(mismo.body.init_point, otro.body.init_point, 'sin cambios reutiliza el link');
+  await pool.query("DELETE FROM plataforma_cuentas WHERE email='beto@negocio.invalid'");
+});
+
+test('Si Mercado Pago rechaza la clave, el mensaje se entiende', async () => {
+  const antes = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => String(url).startsWith('https://api.mercadopago.com') ? new Response('{"message":"Unauthorized access to resource.","status":401}', { status: 401 }) : antes(url, opts);
+  try {
+    const r = await alta('caro@negocio.invalid');
+    assert.equal(r.status, 201); assert.match(r.body.pago_error, /Mercado Pago/);
+    const p = await api('/api/suscripcion/pagar', r.body.token, 'POST');
+    assert.equal(p.status, 502); assert.match(p.body.error, /No pudimos conectar con Mercado Pago/);
+  } finally { globalThis.fetch = antes; await pool.query("DELETE FROM plataforma_cuentas WHERE email='caro@negocio.invalid'"); }
+});
+
 test('Sin EDICION=saas la app sigue como siempre', async () => {
   process.env.EDICION = '';
   try {
