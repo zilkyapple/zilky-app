@@ -656,6 +656,7 @@ async function viewClienteDetail(view, id) {
     <div class="debt-hero">
       <div class="lbl">Deuda ${esc(state.negocioActual ? 'en ' + negocioNombre(state.negocioActual) : 'en los negocios autorizados')}</div>
       <div class="amt">${esc(formatARS(c.deudaTotalCentavos))}</div>
+      ${deudaDesgloseHtml(c)}
       <div class="meta">
         ${vencimientosClienteHtml(c)}
         &nbsp;·&nbsp; <span class="badge badge-${esc(riesgoClass)}">Riesgo ${esc(c.riesgo?.nivel || 'bajo')}</span>
@@ -677,7 +678,7 @@ async function viewClienteDetail(view, id) {
 
     <details class="client-section" open>
     <summary>Financiaciones y cuotas (${esc(c.creditos.length)})</summary>
-    ${c.creditos.length === 0 ? `<div class="empty-state"><p>${c.pagos.some(p=>p.tipo==='pedido_web')?'No tiene financiaciones registradas': 'Todavía no compró nada'}${esc(state.negocioActual ? ' en ' + negocioNombre(state.negocioActual) : '')}.</p></div>` : c.creditos.map((cr) => creditoCardHtml(cr)).join('')}
+    ${c.creditos.length === 0 ? `<div class="empty-state"><p>${c.pagos.some(p=>p.tipo==='pedido_web')?'No tiene financiaciones registradas': 'Todavía no compró nada'}${esc(state.negocioActual ? ' en ' + negocioNombre(state.negocioActual) : '')}.</p></div>` : c.creditos.map((cr) => creditoCardHtml(cr, c.pagos)).join('')}
     </details>
 
     <details class="client-section">
@@ -691,6 +692,20 @@ async function viewClienteDetail(view, id) {
   `);
 }
 
+// Separa la deuda total en capital y mora con el mismo criterio que el backend
+// (cuotas sin estado manual), y muestra aparte lo que ya está vencido para cobrar.
+function deudaDesgloseHtml(c) {
+  const cuotas = (c.creditos || []).flatMap(cr => cr.cuotas || []).filter(cu => !cu.estado_manual);
+  const capital = cuotas.reduce((s, cu) => s + Math.max(0, cu.saldo_pendiente_centavos || 0), 0);
+  const mora = cuotas.reduce((s, cu) => s + Math.max(0, cu.moraPendiente || 0), 0);
+  const compras = (c.creditos || []).filter(cr => !['anulada','devuelta'].includes(cr.venta_estado) && (cr.cuotas || []).some(cu => !cu.estado_manual && ((cu.saldo_pendiente_centavos || 0) > 0 || (cu.moraPendiente || 0) > 0))).length;
+  const exigible = Number.isSafeInteger(c.saldoExigibleCentavos) ? c.saldoExigibleCentavos : null;
+  return `<div class="debt-desglose">
+    <div><span>Capital</span><strong>${esc(formatARS(capital))}</strong></div>
+    <div class="${esc(mora > 0 ? 'dato-mal' : '')}"><span>Mora</span><strong>${esc(formatARS(mora))}</strong></div>
+    ${exigible !== null ? `<div class="${esc(exigible > 0 ? 'dato-alerta' : '')}"><span>Vencido a cobrar</span><strong>${esc(formatARS(exigible))}</strong></div>` : `<div><span>Compras con deuda</span><strong>${esc(compras)}</strong></div>`}
+  </div>`;
+}
 function etiquetaPago(tipo) { return tipo==='entrega_inicial'?'Entrega inicial':tipo==='pedido_web'?'Cobro de pedido web':'Pago de cuota'; }
 function pagoHistorialHtml(p) {
   const momento=fechaHoraPagoAR(p.fecha_hora);
@@ -791,50 +806,186 @@ async function abrirMensajeEspecial(clienteId,negocioId) {
   }catch(err){if(vigente())setHTML(sheet,`<p>${esc(err.message)}</p><button class="btn btn-secondary" data-action="cerrar-sheet">Cerrar</button>`);}
 }
 
-function creditoCardHtml(cr) {
+const MODALIDAD_LABEL = { libre: 'Pago libre', cuotas: 'Cuotas mensuales', unico: 'Pago único' };
+// Clasifica cada cuota en una sola categoría visible para los filtros del plan de pago.
+function categoriaCuota(cu) {
+  if (cu.estado_manual) return 'otras';
+  const saldo = cu.saldo_pendiente_centavos || 0, mora = cu.moraPendiente || 0;
+  if (saldo <= 0 && mora <= 0) return 'pagada';
+  if ((cu.diasAtraso || 0) > 0 || mora > 0 || ['gracia', 'mora'].includes(cu.estado)) return 'vencida';
+  return 'pendiente';
+}
+// Totales de una compra calculados con los mismos criterios que la deuda del cliente:
+// las cuotas con estado manual (refinanciadas, incobrables, etc.) no suman deuda.
+function resumenCompra(cr) {
+  const cuotas = cr.cuotas || [], activas = cuotas.filter(c => !c.estado_manual);
+  const suma = (lista, campo) => lista.reduce((s, c) => s + Math.max(0, Number(c[campo]) || 0), 0);
+  const plan = suma(activas, 'monto_centavos'), capital = suma(activas, 'saldo_pendiente_centavos');
+  const cats = { pendiente: 0, vencida: 0, pagada: 0, otras: 0 };
+  cuotas.forEach(c => { cats[categoriaCuota(c)]++; });
+  const abiertas = activas.filter(c => categoriaCuota(c) !== 'pagada').sort((a, b) => String(a.fecha_vencimiento).localeCompare(String(b.fecha_vencimiento)));
+  const montos = [...new Set(cuotas.map(c => c.monto_centavos))];
+  return {
+    plan, capital, pagado: Math.max(0, plan - capital), mora: suma(activas, 'moraPendiente'),
+    moraGenerada: suma(cuotas, 'moraGenerada'), moraCobrada: suma(cuotas, 'moraCobrada'), moraPerdonada: suma(cuotas, 'moraPerdonada'),
+    cats, total: cuotas.length, proxima: abiertas[0] || null,
+    atrasoMax: Math.max(0, ...activas.map(c => Number(c.diasAtraso) || 0)),
+    valorCuota: montos.length === 1 ? montos[0] : null,
+  };
+}
+function tituloCompra(cr) {
+  const items = (cr.items || []).map(it => `${Number(it.cantidad) > 1 ? `${it.cantidad} × ` : ''}${it.descripcion || it.producto_nombre || 'Producto'}`);
+  if (items.length) return items.join(' + ');
+  if (cr.producto_descripcion) return cr.producto_descripcion;
+  return cr.fecha_inicio ? `Compra del ${fmtFecha(cr.fecha_inicio)}` : 'Compra';
+}
+const infoFila = (k, v, cls = '') => `<div class="info-fila ${esc(cls)}"><span class="info-k">${esc(k)}</span> <span class="info-v">${esc(v)}</span></div>`;
+
+function creditoCardHtml(cr, pagosCliente = []) {
   const negocio = state.negocios.find((n) => n.id === cr.negocio_id);
   if(['anulada','devuelta'].includes(cr.venta_estado))return `<details class="card credito-card" data-venta-anulada="${esc(cr.venta_id)}"><summary><strong>${cr.venta_estado==='anulada'?'Venta anulada':'Venta devuelta'}</strong> · ${esc(fmtFecha(cr.fecha_inicio))} · ${esc(negocio?.nombre||'')}</summary><p>Esta operación no tiene deuda activa. Se conserva el registro para consultar el historial.</p>${(cr.items||[]).map(it=>`<p>${esc(it.descripcion||it.producto_nombre||'Producto')} · Cantidad: ${esc(it.cantidad)}</p>`).join('')}</details>`;
-  const pendientes = cr.cuotas.filter(c => (c.saldo_pendiente_centavos > 0 || c.moraPendiente > 0) && !c.estado_manual);
-  const pendiente = pendientes.length > 0;
-  const estadoOperacion = !pendiente ? cr.estado : pendientes.some(c => c.diasAtraso > 0) ? 'atrasada' : 'al_dia';
-  const atrasos = cr.cuotas.filter(c => c.diasAtraso > 0 || c.dias_atraso_al_pagar > 0);
-  const editarCuotas=puedeEditarCuotas(cr.negocio_id);
-  return `
-    <div class="card credito-card">
-      <div class="credito-top">
-        <div>
-          <div class="credito-modalidad"><span class="cred-negocio-tag">${esc(negocio?.nombre || '')}</span> · ${esc({ libre: 'Pago libre', cuotas: 'Cuotas mensuales', unico: 'Pago único' }[cr.modalidad] || cr.modalidad)}</div>
-          <div style="font-weight:700;margin-top:6px">${esc(formatARS(cr.saldo_financiado_centavos))} financiados</div>
-        </div>
-        <span class="badge badge-${esc(cr.estado === 'finalizado' ? 'pagada' : estadoOperacion === 'atrasada' ? 'mora' : 'activa')}">${esc(estadoOperacion.replaceAll('_', ' '))}</span>
-      </div>
-      <div class="field-hint">Compra: ${esc(fmtFecha(cr.fecha_inicio))} · Total: ${esc(formatARS(cr.monto_total_centavos))} · Entrega inicial: ${esc(formatARS(cr.entrega_inicial_centavos))}</div>
-      <div class="field-hint">Entrega / retiro del producto por el cliente: ${cr.fecha_entrega_producto ? esc(fmtFecha(cr.fecha_entrega_producto)) : 'Sin fecha registrada'}</div>
-      ${editarCuotas ? `<button class="btn btn-secondary" style="margin-top:10px" data-action="corregir-financiacion" data-credito="${esc(cr.id)}" data-negocio="${esc(cr.negocio_id)}">${state.usuario?.rol==='administrador'?'Editar fechas y cuotas':'Editar cuotas'}</button>` : ''}
-      ${state.usuario?.rol==='administrador'&&cr.venta_id?`<button class="btn btn-secondary" style="margin-top:10px" data-action="eliminar-venta-error" data-venta="${esc(cr.venta_id)}" data-negocio="${esc(cr.negocio_id)}">Eliminar venta cargada por error</button>`:''}
-      ${cr.producto_descripcion ? `<p>Producto/equipo corregido: ${esc(cr.producto_descripcion)}</p>` : ''}${cr.condiciones ? `<p>Condiciones: ${esc(cr.condiciones)}</p>` : ''}
-      ${(cr.items || []).length ? `<ul>${cr.items.map(it => `<li>${esc(it.descripcion || it.producto_nombre || 'Producto')} · Cantidad: ${esc(it.cantidad)}${it.producto_variante ? ` · ${esc(it.producto_variante)}` : ''}${it.producto_imei ? ` · IMEI: ${esc(it.producto_imei)}` : ''}</li>`).join('')}</ul>` : '<p class="field-hint">Sin detalle de producto registrado.</p>'}
-      <p class="field-hint">Cuotas pagadas: ${esc(cr.cuotas.filter(c => c.saldo_pendiente_centavos <= 0 && !c.estado_manual).length)}/${esc(cr.cuotas.length)} · Saldo pendiente: ${esc(formatARS(pendientes.reduce((s,c) => s+c.saldo_pendiente_centavos+(c.moraPendiente || 0),0)))}</p>
-      ${cr.cuotas.map((cu) => `
-        <div class="cuota-row credito-cuota">
-          <div class="cn credito-cuota-info"><div class="credito-cuota-titulo">Cuota ${esc(cu.numero)}/${esc(cr.cuotas.length)} · vence ${esc(fmtFecha(cu.fecha_vencimiento))}</div>
-            <div class="field-hint">Valor: <span class="credito-cuota-dinero">${esc(formatARS(cu.monto_centavos))}</span>${cu.saldo_pendiente_centavos > 0 && !cu.estado_manual && Number.isFinite(cu.diasHasta) ? ` · ${cu.diasHasta < 0 ? `${esc(-cu.diasHasta)} días de atraso` : cu.diasHasta === 0 ? 'Vence hoy' : `Vence en ${esc(cu.diasHasta)} días`}` : cu.fecha_saldada ? ` · Pagada: ${esc(fmtFecha(cu.fecha_saldada))}` : ''}</div>
-            ${cu.moraGenerada > 0 ? `<div class="credito-cuota-mora"><span>Mora generada: <span class="credito-cuota-dinero">${esc(formatARS(cu.moraGenerada))}</span></span><span>Pendiente: <span class="credito-cuota-dinero">${esc(formatARS(cu.moraPendiente))}</span></span><span>Cobrada: <span class="credito-cuota-dinero">${esc(formatARS(cu.moraCobrada))}</span></span><span>Perdonada: <span class="credito-cuota-dinero">${esc(formatARS(cu.moraPerdonada))}</span></span></div>` : ''}
+  const cuotas = cr.cuotas || [];
+  const r = resumenCompra(cr);
+  const pendiente = r.capital + r.mora > 0 || cuotas.some(c => !c.estado_manual && ((c.saldo_pendiente_centavos || 0) > 0 || (c.moraPendiente || 0) > 0));
+  const atrasada = r.cats.vencida > 0;
+  const estado = !pendiente ? { txt: cr.estado === 'finalizado' || r.total ? 'Pagada' : 'Sin cuotas', cls: 'pagada' } : atrasada ? { txt: 'Atrasada', cls: 'mora' } : { txt: 'Al día', cls: 'activa' };
+  const atrasos = cuotas.filter(c => c.diasAtraso > 0 || c.dias_atraso_al_pagar > 0);
+  const editarCuotas = puedeEditarCuotas(cr.negocio_id);
+  const porcentaje = r.plan > 0 ? Math.min(100, Math.round(100 * r.pagado / r.plan)) : (pendiente ? 0 : 100);
+  const pagos = (pagosCliente || []).filter(p => p.credito_id === cr.id);
+  const pagosValidos = pagos.filter(p => !p.anulado);
+  const pagadoTotal = pagosValidos.reduce((s, p) => s + (p.monto_centavos || 0), 0);
+  const pagadoMora = pagosValidos.reduce((s, p) => s + (p.mora_aplicada_centavos || 0), 0);
+  const proxima = r.proxima;
+  const vencimientoTxt = !proxima ? null : (proxima.diasAtraso || 0) > 0
+    ? { k: 'Vencida desde', v: `${fmtFecha(proxima.fecha_vencimiento)} (${proxima.diasAtraso} días)`, cls: 'dato-mal' }
+    : proxima.diasHasta === 0 ? { k: 'Próximo vencimiento', v: 'Hoy', cls: 'dato-alerta' }
+    : { k: 'Próximo vencimiento', v: fmtFecha(proxima.fecha_vencimiento), cls: '' };
+  const filtros = [['todas', 'Todas', r.total], ['pendiente', 'Pendientes', r.cats.pendiente], ['vencida', 'Vencidas', r.cats.vencida], ['pagada', 'Pagadas', r.cats.pagada]];
+  const filaCuota = (cu) => {
+    const cat = categoriaCuota(cu);
+    const importe = cat === 'pagada' ? cu.monto_centavos : cu.saldo_pendiente_centavos;
+    return `
+        <div class="cuota-row credito-cuota cuota-cat-${esc(cat)}" data-cat="${esc(cat)}">
+          <div class="cn credito-cuota-info"><div class="credito-cuota-titulo">Cuota ${esc(cu.numero)}/${esc(cuotas.length)} · vence ${esc(fmtFecha(cu.fecha_vencimiento))}</div>
+            <div class="field-hint">Valor: <span class="credito-cuota-dinero">${esc(formatARS(cu.monto_centavos))}</span>${cu.saldo_pendiente_centavos > 0 && !cu.estado_manual && Number.isFinite(cu.diasHasta) ? ` · ${cu.diasHasta < 0 ? `<span class="dato-mal">${esc(-cu.diasHasta)} días de atraso</span>` : cu.diasHasta === 0 ? '<span class="dato-alerta">Vence hoy</span>' : `Vence en ${esc(cu.diasHasta)} días`}` : cu.fecha_saldada ? ` · Pagada: ${esc(fmtFecha(cu.fecha_saldada))}` : ''}</div>
+            ${cu.moraGenerada > 0 ? `<div class="credito-cuota-mora"><span>Mora generada: <span class="credito-cuota-dinero">${esc(formatARS(cu.moraGenerada))}</span></span><span class="${esc(cu.moraPendiente > 0 ? 'dato-mal' : '')}">Pendiente: <span class="credito-cuota-dinero">${esc(formatARS(cu.moraPendiente))}</span></span><span>Cobrada: <span class="credito-cuota-dinero">${esc(formatARS(cu.moraCobrada))}</span></span><span>Perdonada: <span class="credito-cuota-dinero">${esc(formatARS(cu.moraPerdonada))}</span></span></div>` : ''}
           </div>
-          <div class="cr credito-cuota-resumen"><span class="amt credito-cuota-importe">${esc(formatARS(cu.saldo_pendiente_centavos))}</span><span class="badge badge-${esc(cu.estado)}">${esc(ESTADO_LABEL[cu.estado] || cu.estado)}</span></div>
+          <div class="cr credito-cuota-resumen"><span class="credito-cuota-lbl">${esc(cat === 'pagada' ? 'Pagó' : cat === 'otras' ? 'Saldo' : 'Debe')}</span><span class="amt credito-cuota-importe">${esc(formatARS(importe))}</span><span class="badge badge-${esc(cu.estado)}">${esc(ESTADO_LABEL[cu.estado] || cu.estado || '')}</span></div>
           ${(editarCuotas && cu.saldo_pendiente_centavos > 0 && !cu.fecha_saldada && !cu.estado_manual) || (state.usuario?.rol==='administrador' && cu.moraPendiente > 0) ? `<div class="credito-cuota-acciones">
             ${editarCuotas && cu.saldo_pendiente_centavos > 0 && !cu.fecha_saldada && !cu.estado_manual ? `<button class="btn btn-secondary" data-action="corregir-financiacion" data-credito="${esc(cr.id)}" data-negocio="${esc(cr.negocio_id)}" data-cuota="${esc(cu.id)}">Editar cuota</button>` : ''}
           ${cu.moraPendiente > 0 && state.usuario?.rol === 'administrador' ? `<button class="btn btn-secondary" data-action="perdonar-mora" data-cuota="${esc(cu.id)}" data-negocio="${esc(cr.negocio_id)}">Perdonar mora</button>` : ''}
           </div>` : ''}
+        </div>`;
+  };
+  return `
+    <details class="card credito-card compra-card compra-${esc(estado.cls)}" data-compra="${esc(cr.id)}">
+      <summary class="compra-resumen">
+        <div class="compra-top">
+          <span class="compra-meta"><span class="cred-negocio-tag">${esc(negocio?.nombre || '')}</span> · ${esc(MODALIDAD_LABEL[cr.modalidad] || cr.modalidad || '')}${cr.fecha_inicio ? ` · ${esc(fmtFecha(cr.fecha_inicio))}` : ''}</span>
+          <span class="badge badge-${esc(estado.cls)}">${esc(estado.txt)}</span>
         </div>
-      `).join('')}
-      ${atrasos.length ? `<details><summary>Historial de atrasos (${esc(atrasos.length)})</summary>${atrasos.map(c => `<p>Cuota ${esc(c.numero)} · Vencimiento: ${esc(fmtFecha(c.fecha_vencimiento))} · ${c.saldo_pendiente_centavos <= 0 ? `Regularizada el ${esc(fmtFecha(c.fecha_saldada))} tras ${esc(c.dias_atraso_al_pagar)} días de atraso` : `${esc(c.diasAtraso)} días de atraso actual`}</p>`).join('')}</details>` : ''}
-      ${(cr.correcciones||[]).length ? `<details><summary>Correcciones de financiación</summary>${cr.correcciones.map(correccionFinanciacionHtml).join('')}</details>` : ''}
-      ${(cr.moraHistorial||[]).length ? `<details><summary>Decisiones de mora</summary>${cr.moraHistorial.map(e=>`<p>Cuota ${esc(e.numero)} · ${esc(e.fecha_hora)} · ${esc(e.autor||'Administrador')} · ${esc(e.motivo)}</p>`).join('')}</details>` : ''}
-      ${incidenciasHtml(cr)}
-      ${pendiente ? `<button class="btn btn-primary btn-block" style="margin-top:12px" data-action="registrar-pago" data-negocio="${esc(cr.negocio_id)}" data-credito="${esc(cr.id)}">${iconCobrar()}Registrar pago</button>` : ''}
-    </div>
+        <div class="compra-titulo">${esc(tituloCompra(cr))}</div>
+        <div class="compra-deuda">
+          <div><div class="compra-lbl">Saldo pendiente</div><div class="compra-monto">${esc(formatARS(r.capital + r.mora))}</div></div>
+          <div class="compra-desglose">
+            <div><span>Capital</span><strong>${esc(formatARS(r.capital))}</strong></div>
+            <div class="${esc(r.mora > 0 ? 'dato-mal' : '')}"><span>Mora</span><strong>${esc(formatARS(r.mora))}</strong></div>
+          </div>
+        </div>
+        <div class="compra-barra" aria-hidden="true"><span style="width:${esc(porcentaje)}%"></span></div>
+        <div class="compra-barra-txt">Pagado ${esc(formatARS(r.pagado))} de ${esc(formatARS(r.plan))} en cuotas · ${esc(porcentaje)}%</div>
+        <div class="compra-datos">
+          <div><span>Cuotas pagadas</span><strong>${esc(r.cats.pagada)} de ${esc(r.total)}</strong></div>
+          <div><span>Valor cuota</span><strong>${esc(r.valorCuota !== null && r.total ? formatARS(r.valorCuota) : 'Variable')}</strong></div>
+          ${vencimientoTxt ? `<div class="${esc(vencimientoTxt.cls)}"><span>${esc(vencimientoTxt.k)}</span><strong>${esc(vencimientoTxt.v)}</strong></div>` : '<div><span>Próximo vencimiento</span><strong>Nada pendiente</strong></div>'}
+          ${r.cats.vencida ? `<div class="dato-mal"><span>Cuotas vencidas</span><strong>${esc(r.cats.vencida)}</strong></div>` : `<div><span>Entrega inicial</span><strong>${esc(formatARS(cr.entrega_inicial_centavos || 0))}</strong></div>`}
+        </div>
+        <div class="compra-ver"><span class="ver-abrir">Ver cuotas, pagos y detalle</span><span class="ver-cerrar">Ocultar detalle</span>${iconChevron()}</div>
+      </summary>
+      <div class="compra-cuerpo">
+        <div class="compra-acciones">
+          ${pendiente ? `<button class="btn btn-primary" data-action="registrar-pago" data-negocio="${esc(cr.negocio_id)}" data-credito="${esc(cr.id)}">${iconCobrar()}Registrar pago</button>` : ''}
+          ${editarCuotas ? `<button class="btn btn-secondary" data-action="corregir-financiacion" data-credito="${esc(cr.id)}" data-negocio="${esc(cr.negocio_id)}">${state.usuario?.rol==='administrador'?'Editar fechas y cuotas':'Editar cuotas'}</button>` : ''}
+        </div>
+        <div class="tabs compra-tabs" role="tablist">
+          <button type="button" class="active" data-action="compra-tab" data-tab="cuotas">Plan de pago</button>
+          <button type="button" data-action="compra-tab" data-tab="pagos">Pagos (${esc(pagos.length)})</button>
+          <button type="button" data-action="compra-tab" data-tab="info">Info</button>
+        </div>
+
+        <div class="compra-panel" data-panel="cuotas">
+          <div class="compra-filtros">
+            ${filtros.map(([id, txt, n], i) => `<button type="button" class="filtro-${esc(id)}${i === 0 ? ' active' : ''}" data-action="compra-filtro" data-filtro="${esc(id)}">${esc(txt)} <b>${esc(n)}</b></button>`).join('')}
+          </div>
+          ${cuotas.length ? cuotas.map(filaCuota).join('') : '<p class="field-hint">Esta compra no tiene cuotas registradas.</p>'}
+          <p class="field-hint compra-filtro-vacio" hidden>No hay cuotas en este grupo.</p>
+        </div>
+
+        <div class="compra-panel" data-panel="pagos" hidden>
+          <div class="compra-pagos-total">
+            <div><span>Total pagado</span><strong>${esc(formatARS(pagadoTotal))}</strong></div>
+            <div><span>Fue a mora</span><strong>${esc(formatARS(pagadoMora))}</strong></div>
+            <div><span>Pagos</span><strong>${esc(pagosValidos.length)}</strong></div>
+          </div>
+          ${pagos.length ? `<div class="compra-pagos-lista">${pagos.map(p => pagoHistorialHtml(p)).join('')}</div>` : '<p class="field-hint">Todavía no hay pagos registrados para esta compra.</p>'}
+        </div>
+
+        <div class="compra-panel" data-panel="info" hidden>
+          <div class="info-bloque">
+            <div class="info-titulo">La compra</div>
+            ${infoFila('Fecha de la compra', fmtFecha(cr.fecha_inicio))}
+            ${infoFila('Forma de pago', MODALIDAD_LABEL[cr.modalidad] || cr.modalidad || '—')}
+            ${infoFila('Total de la compra', formatARS(cr.monto_total_centavos))}
+            ${infoFila('Entrega inicial', formatARS(cr.entrega_inicial_centavos))}
+            ${infoFila('Financiado', formatARS(cr.saldo_financiado_centavos))}
+            ${infoFila('Cantidad de cuotas', String(r.total))}
+            ${infoFila('Valor cuota', r.valorCuota !== null && r.total ? formatARS(r.valorCuota) : 'Variable')}
+            ${infoFila('Entrega / retiro del producto', cr.fecha_entrega_producto ? fmtFecha(cr.fecha_entrega_producto) : 'Sin fecha registrada')}
+            ${cr.producto_descripcion ? infoFila('Producto/equipo corregido', cr.producto_descripcion) : ''}
+            ${cr.condiciones ? infoFila('Condiciones', cr.condiciones) : ''}
+          </div>
+          <div class="info-bloque">
+            <div class="info-titulo">Productos que retiró</div>
+            ${(cr.items || []).length ? `<ul class="compra-items">${cr.items.map(it => `<li><strong>${esc(it.descripcion || it.producto_nombre || 'Producto')}</strong> · Cantidad: ${esc(it.cantidad)}${it.producto_variante ? ` · ${esc(it.producto_variante)}` : ''}${it.producto_imei ? ` · IMEI: ${esc(it.producto_imei)}` : ''}</li>`).join('')}</ul>` : '<p class="field-hint">Sin detalle de producto registrado.</p>'}
+          </div>
+          <div class="info-bloque">
+            <div class="info-titulo">Pagado</div>
+            ${infoFila('Pagado de cuotas (capital)', formatARS(r.pagado))}
+            ${infoFila('Mora cobrada', formatARS(r.moraCobrada))}
+            ${infoFila('Mora perdonada', formatARS(r.moraPerdonada))}
+          </div>
+          <div class="info-bloque">
+            <div class="info-titulo">Lo que falta</div>
+            ${infoFila('Capital pendiente', formatARS(r.capital))}
+            ${infoFila('Mora pendiente', formatARS(r.mora), r.mora > 0 ? 'dato-mal' : '')}
+            ${infoFila('Saldo total', formatARS(r.capital + r.mora), 'info-total')}
+          </div>
+          ${atrasos.length ? `<details><summary>Historial de atrasos (${esc(atrasos.length)})</summary>${atrasos.map(c => `<p>Cuota ${esc(c.numero)} · Vencimiento: ${esc(fmtFecha(c.fecha_vencimiento))} · ${c.saldo_pendiente_centavos <= 0 ? `Regularizada el ${esc(fmtFecha(c.fecha_saldada))} tras ${esc(c.dias_atraso_al_pagar)} días de atraso` : `${esc(c.diasAtraso)} días de atraso actual`}</p>`).join('')}</details>` : ''}
+          ${(cr.correcciones||[]).length ? `<details><summary>Correcciones de financiación</summary>${cr.correcciones.map(correccionFinanciacionHtml).join('')}</details>` : ''}
+          ${(cr.moraHistorial||[]).length ? `<details><summary>Decisiones de mora</summary>${cr.moraHistorial.map(e=>`<p>Cuota ${esc(e.numero)} · ${esc(e.fecha_hora)} · ${esc(e.autor||'Administrador')} · ${esc(e.motivo)}</p>`).join('')}</details>` : ''}
+          ${incidenciasHtml(cr)}
+          ${state.usuario?.rol==='administrador'&&cr.venta_id?`<button class="btn btn-secondary" style="margin-top:12px" data-action="eliminar-venta-error" data-venta="${esc(cr.venta_id)}" data-negocio="${esc(cr.negocio_id)}">Eliminar venta cargada por error</button>`:''}
+        </div>
+      </div>
+    </details>
   `;
+}
+function cambiarPestanaCompra(boton) {
+  const card = boton.closest('.compra-card');
+  if (!card) return;
+  card.querySelectorAll('.compra-tabs [data-action="compra-tab"]').forEach(b => b.classList.toggle('active', b === boton));
+  card.querySelectorAll('.compra-panel').forEach(p => { p.hidden = p.dataset.panel !== boton.dataset.tab; });
+}
+function filtrarCuotasCompra(boton) {
+  const panel = boton.closest('.compra-panel');
+  if (!panel) return;
+  const filtro = boton.dataset.filtro;
+  panel.querySelectorAll('[data-action="compra-filtro"]').forEach(b => b.classList.toggle('active', b === boton));
+  let visibles = 0;
+  panel.querySelectorAll('.credito-cuota[data-cat]').forEach(row => { row.hidden = filtro !== 'todas' && row.dataset.cat !== filtro; if (!row.hidden) visibles++; });
+  const vacio = panel.querySelector('.compra-filtro-vacio');
+  if (vacio) vacio.hidden = visibles > 0;
 }
 
 function incidenciasHtml(cr) {
@@ -1688,6 +1839,8 @@ document.addEventListener('click', async (e) => {
   else if (action === 'corregir-financiacion') abrirCorreccionFinanciacion(credito,el.dataset.negocio,el.dataset.cuota);
   else if (action === 'corregir-fecha-pago') abrirCorreccionFechaPago(id,el.dataset.negocio);
   else if (action === 'perdonar-mora') abrirPerdonarMora(el.dataset.cuota,el.dataset.negocio);
+  else if (action === 'compra-tab') cambiarPestanaCompra(el);
+  else if (action === 'compra-filtro') filtrarCuotasCompra(el);
   else if (action === 'editar-cliente') abrirEditarCliente(id);
   else if (action === 'eliminar-cliente') abrirEliminarCliente(id);
   else if (action === 'eliminar-venta-error') abrirEliminarVentaError(el.dataset.venta,el.dataset.negocio);

@@ -28,7 +28,7 @@ test('Fechas y cuotas: acceso visible en compra, atajo pendiente y corrección s
     const v=vista(),cr={...v.credito,cliente_id:'cliente',estado:'activo',modalidad:'cuotas',cuotas:v.cuotas,incidencias:[{id:'e1',tipo:'equipo_entregado',fecha:'2026-10-04'},{id:'e2',tipo:'equipo_retirado',fecha:'2026-10-05'},{id:'e3',tipo:'finalizada_correctamente',fecha:'2026-10-06'}]};
     b.w.setHTML(b.w.document.getElementById('view'),b.w.creditoCardHtml(cr));
     const view=b.w.document.getElementById('view');
-    assert.match(view.textContent,/Entrega \/ retiro del producto por el cliente: 03\/10\/2026/);
+    assert.match(view.textContent,/Entrega \/ retiro del producto\s*03\/10\/2026/);
     assert.equal(view.querySelector('[data-action="corregir-financiacion"]').textContent,'Editar fechas y cuotas');
     assert.equal(view.querySelectorAll('[data-action="corregir-financiacion"][data-cuota]').length,2);
     assert.equal(view.querySelectorAll('[data-action="corregir-fecha-incidencia"]').length,2);
