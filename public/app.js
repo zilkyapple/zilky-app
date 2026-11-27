@@ -2498,15 +2498,16 @@ function cargarSdkMercadoPago() {
 }
 async function montarPagoTarjeta(c) {
   await cargarSdkMercadoPago();
+  if (!window.MercadoPago) throw new Error('sin SDK');
   if (!document.getElementById('suscTarjeta')) return;
   document.getElementById('suscTarjeta').textContent = '';
   const mp = new window.MercadoPago(c.mp_public_key, { locale: 'es-AR' });
   await mp.bricks().create('cardPayment', 'suscTarjeta', {
     initialization: { amount: c.precio_centavos / 100, payer: { email: c.email || '' } },
-    customization: { paymentMethods: { maxInstallments: 1, types: { excluded: ['prepaid_card'] } }, visual: { texts: { formSubmit: 'Pagar suscripción' } } },
+    customization: { paymentMethods: { maxInstallments: 1, types: { included: ['credit_card', 'debit_card', 'prepaid_card'] } }, visual: { texts: { formSubmit: 'Pagar suscripción' } } },
     callbacks: {
       onReady: () => {},
-      onError: (e) => console.error('Formulario de pago', e),
+      onError: (e) => { console.error('Formulario de pago', e); if (e?.type === 'critical') { const box = document.getElementById('suscTarjeta'); if (box) box.textContent = 'No se pudo cargar el formulario de pago (' + (e.message || e.cause || 'error') + '). Recargá la página.'; } },
       onSubmit: async (datos) => {
         try {
           const r = await api('/suscripcion/tarjeta', { method: 'POST', body: JSON.stringify({ token: datos.token, email: datos.payer?.email || '' }) });
