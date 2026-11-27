@@ -2504,7 +2504,7 @@ async function montarPagoTarjeta(c) {
   const mp = new window.MercadoPago(c.mp_public_key, { locale: 'es-AR' });
   await mp.bricks().create('cardPayment', 'suscTarjeta', {
     initialization: { amount: c.precio_centavos / 100, payer: { email: c.email || '' } },
-    customization: { paymentMethods: { maxInstallments: 1, types: { included: ['credit_card', 'debit_card', 'prepaid_card'] } }, visual: { texts: { formSubmit: 'Pagar suscripción' } } },
+    customization: { paymentMethods: { maxInstallments: 1 }, visual: { texts: { formSubmit: 'Pagar suscripción' } } },
     callbacks: {
       onReady: () => {},
       onError: (e) => { console.error('Formulario de pago', e); if (e?.type === 'critical') { const box = document.getElementById('suscTarjeta'); if (box) box.textContent = 'No se pudo cargar el formulario de pago (' + (e.message || e.cause || 'error') + '). Recargá la página.'; } },
