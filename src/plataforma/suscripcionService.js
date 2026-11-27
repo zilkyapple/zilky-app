@@ -9,7 +9,7 @@ import { id as nuevoId } from '../lib/id.js';
 import { emailDuenaPlataforma, urlApp } from './config.js';
 import { precioActualCentavos } from './precio.js';
 import { nuevoEsquema, insertarCuenta, actualizarCuenta, esquemaPorEmail, cuentaPorId, cuentaPorPreapproval } from './cuentas.js';
-import { crearSuscripcion, obtenerSuscripcion, obtenerPagoAutorizado, cambiarMontoSuscripcion } from './mercadopago.js';
+import { crearSuscripcion, crearSuscripcionConTarjeta, obtenerSuscripcion, obtenerPagoAutorizado, cambiarMontoSuscripcion } from './mercadopago.js';
 import { listarCuentas } from './cuentas.js';
 
 const fallo = (status, msg) => Object.assign(new Error(msg), { status });
@@ -83,6 +83,24 @@ export async function linkDePago(cuenta) {
   const pre = await crearSuscripcion({ cuentaId: cuenta.id, email: cuenta.email_pago || cuenta.email, montoCentavos: monto, backUrl: `${base}/app#/suscripcion` });
   await actualizarCuenta(cuenta.id, { mp_preapproval_id: pre.id, mp_estado: pre.status || 'pending', mp_init_point: pre.init_point, mp_monto_centavos: monto });
   return pre.init_point;
+}
+
+// Pago con tarjeta desde nuestra página: queda autorizada y se cobra sola cada mes.
+export async function pagarConTarjeta(cuenta, { token, email } = {}) {
+  if (cuenta.estado === 'exenta') throw fallo(400, 'Esta cuenta no paga suscripción');
+  if (cuenta.estado === 'activa') throw fallo(409, 'Tu suscripción ya está al día');
+  if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{8,200}$/.test(token)) throw fallo(400, 'Faltan los datos de la tarjeta');
+  const payer = email ? normalizarEmail(email) : cuenta.email;
+  const monto = await precioActualCentavos();
+  if (!monto) throw fallo(503, 'Falta configurar el precio');
+  const base = urlApp();
+  if (!base.startsWith('https://')) throw fallo(503, 'Falta configurar la dirección de la app');
+  const pre = await crearSuscripcionConTarjeta({ cuentaId: cuenta.id, email: payer, cardTokenId: token, montoCentavos: monto, backUrl: `${base}/app#/suscripcion` });
+  const cambios = { mp_preapproval_id: pre.id, mp_estado: pre.status, mp_init_point: null, mp_monto_centavos: monto };
+  if (pre.status === 'authorized') Object.assign(cambios, { estado: 'activa', rechazo_desde: null });
+  await registrarEvento(cuenta.id, 'suscripcion', pre.id, pre.status, { status: pre.status, medio: 'tarjeta' });
+  const c = await actualizarCuenta(cuenta.id, cambios);
+  return { estado: c.estado, mp_estado: pre.status };
 }
 
 async function registrarEvento(cuentaId, tipo, recursoId, estado, detalle) {

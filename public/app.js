@@ -2076,11 +2076,9 @@ function wireAuthScreen() {
       if (authMode === 'alta') {
         const negocio = document.getElementById('authNegocio').value.trim(), telefono = document.getElementById('authTelefono').value.trim();
         if (!nombre || !negocio || !telefono) { errBox.textContent = 'Completá tu nombre, el negocio y el teléfono.'; errBox.style.display = 'block'; return; }
-        const email_pago = document.getElementById('authEmailPago').value.trim();
-        const data = await api('/plataforma/registro', { method: 'POST', body: JSON.stringify({ nombre, negocio, telefono, email, password, ...(email_pago ? { email_pago } : {}) }) });
+        const data = await api('/plataforma/registro', { method: 'POST', body: JSON.stringify({ nombre, negocio, telefono, email, password }) });
         setToken(data.token);
-        if (data.init_point) { location.href = data.init_point; return; }
-        if (data.pago_error) toast(data.pago_error, true);
+        location.hash = '#/suscripcion';
         await arrancarApp(); return;
       }
       const body = authMode === 'registro' ? { email, password, nombre } : { email, password };
@@ -2477,12 +2475,47 @@ async function viewSuscripcion(view) {
     ${c.precio_centavos && c.estado !== 'exenta' ? `<p style="font-size:15px">Plan Cobranzas: <strong>${esc(formatARS(c.precio_centavos))} por mes</strong>, sin límites.</p>` : ''}
     ${c.estado === 'pago_rechazado' && c.habilitada ? `<p class="field-hint">Tenés ${esc(c.dias_gracia)} días desde el primer rechazo para regularizar el pago.</p>` : ''}
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px">
-      ${debePagar && admin ? `<div class="field"><label for="suscEmailPago">Correo de tu cuenta de Mercado Pago</label><input id="suscEmailPago" type="email" maxlength="254" value="${esc(c.email_pago || c.email || '')}" /><div class="field-hint">Mercado Pago solo deja pagar con la cuenta de este correo. Adentro elegís tarjeta de crédito, débito o dinero en Mercado Pago.</div></div><button class="btn btn-primary btn-block btn-lg" data-action="suscripcion-pagar">Pagar con tarjeta o Mercado Pago</button>` : ''}
+      ${debePagar && admin ? `<div class="pago-opcion"><h3 style="margin:0 0 4px">Pagar con tarjeta de crédito o débito</h3>
+        <p class="field-hint" style="margin:0 0 8px">Cargás los datos de la tarjeta y listo. No hace falta tener cuenta de Mercado Pago. Se cobra solo cada mes.</p>
+        ${c.mp_public_key ? '<div id="suscTarjeta"><p class="field-hint">Cargando el formulario seguro de pago…</p></div>' : '<p class="field-hint">El pago con tarjeta todavía no está disponible.</p>'}</div>
+      <div class="pago-opcion"><h3 style="margin:0 0 4px">Pagar con mi cuenta de Mercado Pago</h3>
+        <p class="field-hint" style="margin:0 0 8px">Te lleva a Mercado Pago para pagar con tu dinero en cuenta o tus tarjetas guardadas.</p>
+        <details><summary class="field-hint" style="cursor:pointer">¿Tu Mercado Pago usa otro correo?</summary>
+          <div class="field" style="margin-top:8px"><label for="suscEmailPago">Correo de tu cuenta de Mercado Pago</label><input id="suscEmailPago" type="email" maxlength="254" value="${esc(c.email_pago || c.email || '')}" /></div></details>
+        <button class="btn btn-secondary btn-block" style="margin-top:8px" data-action="suscripcion-pagar">Ir a Mercado Pago</button></div>` : ''}
       ${debePagar && !admin ? '<p class="field-hint">Pedile al dueño de la cuenta que regularice el pago.</p>' : ''}
       ${debePagar ? '<button class="btn btn-secondary btn-block" data-action="suscripcion-actualizar">Ya pagué, actualizar</button>' : ''}
       ${c.habilitada ? '<button class="btn btn-secondary btn-block" data-action="suscripcion-actualizar">Ir a la app</button>' : ''}
       <button class="btn btn-secondary btn-block" data-action="logout">Cerrar sesión</button>
     </div></div>`);
+  if (debePagar && admin && c.mp_public_key) montarPagoTarjeta(c).catch(() => { const box = document.getElementById('suscTarjeta'); if (box) box.textContent = 'No se pudo cargar el formulario de pago. Recargá la página o pagá con Mercado Pago.'; });
+}
+// Formulario seguro de Mercado Pago: los datos de la tarjeta nunca pasan por
+// nuestro servidor, solo el token que devuelve Mercado Pago.
+function cargarSdkMercadoPago() {
+  if (window.MercadoPago) return Promise.resolve();
+  return new Promise((ok, mal) => { const s = document.createElement('script'); s.src = 'https://sdk.mercadopago.com/js/v2'; s.onload = ok; s.onerror = mal; document.head.appendChild(s); });
+}
+async function montarPagoTarjeta(c) {
+  await cargarSdkMercadoPago();
+  if (!document.getElementById('suscTarjeta')) return;
+  document.getElementById('suscTarjeta').textContent = '';
+  const mp = new window.MercadoPago(c.mp_public_key, { locale: 'es-AR' });
+  await mp.bricks().create('cardPayment', 'suscTarjeta', {
+    initialization: { amount: c.precio_centavos / 100, payer: { email: c.email || '' } },
+    customization: { paymentMethods: { maxInstallments: 1, types: { excluded: ['prepaid_card'] } }, visual: { texts: { formSubmit: 'Pagar suscripción' } } },
+    callbacks: {
+      onReady: () => {},
+      onError: (e) => console.error('Formulario de pago', e),
+      onSubmit: async (datos) => {
+        try {
+          const r = await api('/suscripcion/tarjeta', { method: 'POST', body: JSON.stringify({ token: datos.token, email: datos.payer?.email || '' }) });
+          if (r.estado === 'activa') { toast('¡Listo! Tu suscripción quedó activa.'); location.hash = '#/inicio'; await arrancarApp(); }
+          else { toast('Recibimos el pago. Se está confirmando, puede tardar unos minutos.'); await viewSuscripcion(document.getElementById('view')); }
+        } catch (err) { toast(err.message, true); throw err; }
+      },
+    },
+  });
 }
 async function viewPlataforma(view) {
   if (!plataforma()?.duena) { setHTML(view, notFound()); return; }

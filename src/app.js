@@ -38,7 +38,9 @@ app.set('trust proxy', 1);
 app.set('query parser', 'simple');
 
 app.use((req,res,next)=>{
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+  // En la edición de venta se permite el formulario seguro de tarjetas de Mercado Pago.
+  const mpSrc = modoSaaS() ? ' https://sdk.mercadopago.com https://*.mercadopago.com https://*.mercadopago.com.ar https://*.mercadolibre.com https://*.mlstatic.com' : '';
+  res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'self'${mpSrc}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com${mpSrc}; font-src 'self' https://fonts.gstatic.com${mpSrc}; img-src 'self' data: blob: https:; media-src 'self' blob:; connect-src 'self'${mpSrc}; frame-src 'self'${mpSrc}; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`);
   res.setHeader('X-Content-Type-Options','nosniff');
   res.setHeader('Referrer-Policy','no-referrer');
   if(req.path.startsWith('/api'))res.setHeader('Cache-Control','no-store');

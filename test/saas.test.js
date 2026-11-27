@@ -31,9 +31,11 @@ globalThis.fetch = async (url, opts = {}) => {
   if (!u.startsWith('https://api.mercadopago.com')) return fetchReal(url, opts);
   const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
   if (u.endsWith('/preapproval') && opts.method === 'POST') {
-    const body = JSON.parse(opts.body); const id = `pre${mp.creadas.length + 1}`;
+    const body = JSON.parse(opts.body);
+    if (body.card_token_id === 'tokenRechazado123') return json(400, { message: 'CC_VAL_433 Credit card validation has failed', status: 400 });
+    const id = `pre${mp.creadas.length + 1}`;
     mp.creadas.push(body);
-    mp.preapprovals[id] = { id, status: 'pending', external_reference: body.external_reference, payer_email: body.payer_email, init_point: `https://mp.test/checkout/${id}` };
+    mp.preapprovals[id] = { id, status: body.card_token_id ? 'authorized' : 'pending', external_reference: body.external_reference, payer_email: body.payer_email, init_point: `https://mp.test/checkout/${id}` };
     return json(201, mp.preapprovals[id]);
   }
   let m = u.match(/\/preapproval\/([^/?]+)$/); if (m) return mp.preapprovals[m[1]] ? json(200, mp.preapprovals[m[1]]) : json(404, {});
@@ -270,4 +272,32 @@ test.after(async () => {
   globalThis.fetch = fetchReal;
   await limpiar();
   await pool.end();
+});
+
+test('Pago con tarjeta en la página: sin cuenta de Mercado Pago, queda activa al instante', async () => {
+  process.env.MP_PUBLIC_KEY = 'APP_USR-clave-publica-test';
+  const r = await alta('tarjeta@negocio.invalid'); assert.equal(r.status, 201);
+  const s = await api('/api/suscripcion', r.body.token);
+  assert.equal(s.body.mp_public_key, 'APP_USR-clave-publica-test');
+  assert.equal((await api('/api/negocios', r.body.token)).status, 402);
+  const sinToken = await api('/api/suscripcion/tarjeta', r.body.token, 'POST', {});
+  assert.equal(sinToken.status, 400);
+  const malo = await api('/api/suscripcion/tarjeta', r.body.token, 'POST', { token: 'tokenRechazado123', email: 'titular@tarjeta.invalid' });
+  assert.equal(malo.status, 402); assert.match(malo.body.error, /no aceptó esa tarjeta/);
+  const ok = await api('/api/suscripcion/tarjeta', r.body.token, 'POST', { token: 'tokenBueno123', email: 'titular@tarjeta.invalid' });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body)); assert.equal(ok.body.estado, 'activa');
+  const enviada = mp.creadas.at(-1);
+  assert.equal(enviada.card_token_id, 'tokenBueno123'); assert.equal(enviada.status, 'authorized'); assert.equal(enviada.payer_email, 'titular@tarjeta.invalid');
+  assert.equal(enviada.auto_recurring.currency_id, 'ARS');
+  assert.equal((await api('/api/negocios', r.body.token)).status, 200);
+  const otraVez = await api('/api/suscripcion/tarjeta', r.body.token, 'POST', { token: 'tokenBueno123' });
+  assert.equal(otraVez.status, 409);
+  delete process.env.MP_PUBLIC_KEY;
+});
+
+test('La página permite el formulario seguro de Mercado Pago', async () => {
+  const r = await fetchReal(base + '/app');
+  const csp = r.headers.get('content-security-policy');
+  assert.match(csp, /script-src 'self' https:\/\/sdk\.mercadopago\.com/);
+  assert.match(csp, /frame-src 'self' https:\/\/sdk\.mercadopago\.com/);
 });

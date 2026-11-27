@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { modoSaaS, diasGracia, MARCA, FUNCIONES_OPCIONALES } from '../plataforma/config.js';
-import { registrarCuenta, linkDePago, procesarNotificacion, aplicarPrecioASuscripciones, cambiarEmailDePago } from '../plataforma/suscripcionService.js';
+import { registrarCuenta, linkDePago, pagarConTarjeta, procesarNotificacion, aplicarPrecioASuscripciones, cambiarEmailDePago } from '../plataforma/suscripcionService.js';
 import { precioActualCentavos, ajustePrecio, guardarPrecio } from '../plataforma/precio.js';
 import { firmaValida } from '../plataforma/mercadopago.js';
 import { cuentaHabilitada, soloDuenaPlataforma, esDuenaPlataforma, funcionDisponible } from '../plataforma/middleware.js';
@@ -36,7 +36,7 @@ export const suscripcionRouter = Router();
 suscripcionRouter.use(soloSaaS);
 async function resumenCuenta(c) {
   return { estado: c.estado, habilitada: cuentaHabilitada(c), negocio: c.negocio_nombre, email: c.email, email_pago: c.email_pago, ultimo_pago_en: c.ultimo_pago_en,
-    rechazo_desde: c.rechazo_desde, precio_centavos: await precioActualCentavos(), dias_gracia: diasGracia() };
+    rechazo_desde: c.rechazo_desde, precio_centavos: await precioActualCentavos(), dias_gracia: diasGracia(), mp_public_key: process.env.MP_PUBLIC_KEY || null };
 }
 suscripcionRouter.get('/', async (req, res, next) => {
   try {
@@ -50,6 +50,12 @@ suscripcionRouter.post('/pagar', requireAdmin, async (req, res, next) => {
     let cuenta = await cuentaPorId(req.cuenta.id);
     if (req.body && 'email_pago' in req.body) cuenta = await cambiarEmailDePago(cuenta, req.body.email_pago);
     res.json({ init_point: await linkDePago(cuenta) });
+  } catch (e) { next(e); }
+});
+suscripcionRouter.post('/tarjeta', requireAdmin, async (req, res, next) => {
+  try {
+    if (!req.cuenta) return res.status(404).json({ error: 'Cuenta no encontrada' });
+    res.json(await pagarConTarjeta(await cuentaPorId(req.cuenta.id), { token: req.body?.token, email: req.body?.email }));
   } catch (e) { next(e); }
 });
 export async function datosPlataformaParaSesion(req) {

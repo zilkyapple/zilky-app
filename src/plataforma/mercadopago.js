@@ -30,6 +30,27 @@ export function crearSuscripcion({ cuentaId, email, montoCentavos, backUrl }) {
     auto_recurring: { frequency: 1, frequency_type: 'months', transaction_amount: montoCentavos / 100, currency_id: 'ARS' },
   });
 }
+// Suscripción con la tarjeta cargada en nuestra página (token del formulario
+// seguro de Mercado Pago): no hace falta tener cuenta de Mercado Pago.
+export async function crearSuscripcionConTarjeta({ cuentaId, email, cardTokenId, montoCentavos, backUrl }) {
+  try {
+    return await llamar('POST', '/preapproval', {
+      reason: 'Cobranzas · suscripción mensual',
+      external_reference: cuentaId,
+      payer_email: email,
+      card_token_id: cardTokenId,
+      back_url: backUrl,
+      status: 'authorized',
+      auto_recurring: { frequency: 1, frequency_type: 'months', transaction_amount: montoCentavos / 100, currency_id: 'ARS' },
+    });
+  } catch (e) {
+    if (e.detalle && e.detalle.status >= 400 && e.detalle.status < 500) {
+      console.error('Mercado Pago rechazó la tarjeta', e.detalle);
+      throw Object.assign(new Error('Mercado Pago no aceptó esa tarjeta. Revisá los datos o probá con otra tarjeta.'), { status: 402, publico: true });
+    }
+    throw e;
+  }
+}
 export function cambiarMontoSuscripcion(id, montoCentavos) {
   return llamar('PUT', `/preapproval/${encodeURIComponent(id)}`, { auto_recurring: { transaction_amount: montoCentavos / 100, currency_id: 'ARS' } });
 }

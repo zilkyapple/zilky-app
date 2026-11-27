@@ -533,3 +533,5 @@ label.cm-check { flex-direction:row;align-items:center;line-height:1.5;gap:10px;
 .compra-pago-desglose b { color:var(--text); font-weight:600; white-space:nowrap; }
 .compra-pago-desglose .dato-mal b { color:var(--danger); }
 .compra-card.compra-vence_hoy { border-left-color:var(--warning); }
+
+.pago-opcion{border:1px solid var(--border,#e2e2e2);border-radius:12px;padding:14px;text-align:left}
