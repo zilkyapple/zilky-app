@@ -16,6 +16,7 @@ import {crearVenta} from '../src/services/ventasService.js';
 import {registrarPago} from '../src/services/pagosService.js';
 import {guardarCaja,abrirCaja,cerrarCaja} from '../src/services/cajaService.js';
 import {todayAR,addDays} from '../src/lib/dates.js';
+import {expandirFicha} from './ficha-expandida.mjs';
 
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE||'/workspace/zilky-browser-tools/node_modules/playwright-core/index.mjs');
 const output=process.env.BROWSER_ARTIFACTS||'/workspace/zilky-venta-error-browser';
@@ -75,7 +76,7 @@ try {
     await ctx.route('**/*',route=>{const url=route.request().url();if(new URL(url).origin===base)return route.continue();externalRequestsBlocked.push(url);return route.abort('blockedbyclient');});
     ctx.on('page',p=>p.on('pageerror',error=>errors.push(error.message)));
   };
-  await restrict(context);page=await context.newPage();page.setDefaultTimeout(15000);
+  await restrict(context);await expandirFicha(context);page=await context.newPage();page.setDefaultTimeout(15000);
   page.on('request',request=>{if(request.method()==='POST'&&new URL(request.url()).pathname.endsWith('/eliminar-error'))postRequests.push({url:request.url(),body:request.postDataJSON()});});
   const login=async(p,email)=>{
     await p.goto(base);await p.locator('#authEmail').fill(email);await p.locator('#authPassword').fill(password);await p.locator('#authSubmit').click();
@@ -196,7 +197,7 @@ try {
   await check('Empleado: no recibe acciones de eliminación y ambas rutas directas responden 403',async()=>{
     const ctx=await browser.newContext({viewport:{width:390,height:844},locale:'es-AR',timezoneId:'UTC',colorScheme:'dark',serviceWorkers:'block'});
     try {
-      await restrict(ctx);const p=await ctx.newPage();await login(p,employee.email);await clientPage(p);
+      await restrict(ctx);await expandirFicha(ctx);const p=await ctx.newPage();await login(p,employee.email);await clientPage(p);
       assert.equal(await p.locator('[data-action="eliminar-venta-error"]').count(),0);
       const token=await p.evaluate(()=>localStorage.getItem('zilky_token'));
       const url=base+`/api/ventas/${real.venta.id}/eliminar-error?negocio_id=${store.id}`,headers={Authorization:'Bearer '+token};

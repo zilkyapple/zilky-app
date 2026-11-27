@@ -443,3 +443,93 @@ label.cm-check { flex-direction:row;align-items:center;line-height:1.5;gap:10px;
 @media(prefers-color-scheme:light){
  html:not(:has(body[data-theme=dark])):is(:has(.commissions),:has(.sale-form),:has(.sales-history)) .bottomnav{background:var(--bg-elevated)}
 }
+
+/* ---------- Ficha del cliente: deuda separada y compras en tarjetas ---------- */
+.dato-mal, .dato-mal strong { color: var(--danger) !important; }
+.dato-alerta, .dato-alerta strong { color: var(--warning) !important; }
+.debt-desglose { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-top:14px; }
+.debt-desglose > div, .compra-desglose > div, .compra-datos > div, .compra-pagos-total > div { display:flex; flex-direction:column; gap:3px; min-width:0; }
+.debt-desglose > div { padding:10px; border-radius:var(--radius-sm); background:var(--bg-elevated); border:1px solid var(--border-soft); }
+.debt-desglose span, .compra-desglose span, .compra-datos span, .compra-pagos-total span { font-size:11.5px; color:var(--text-muted); font-weight:500; }
+.debt-desglose strong { font-size:clamp(13px,3.8vw,16px); font-variant-numeric:tabular-nums; white-space:nowrap; }
+
+.compra-card { padding:0; overflow:hidden; border-left:4px solid var(--info); }
+.compra-card.compra-mora { border-left-color:var(--danger); }
+.compra-card.compra-pagada { border-left-color:var(--success); }
+.compra-card + .compra-card { margin-top:12px; }
+.compra-resumen { padding:16px 16px 0; }
+.compra-pagar { width:calc(100% - 32px); margin:14px 16px 0; }
+.compra-top { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+.compra-meta { font-size:11.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; font-weight:600; min-width:0; }
+.compra-titulo { font-size:17px; font-weight:700; margin-top:8px; line-height:1.35; overflow-wrap:anywhere; }
+.compra-deuda { display:flex; justify-content:space-between; align-items:flex-end; gap:12px; margin-top:12px; flex-wrap:wrap; }
+.compra-lbl { font-size:12px; color:var(--text-muted); font-weight:500; }
+.compra-monto { font-size:clamp(24px,7vw,30px); font-weight:800; font-variant-numeric:tabular-nums; white-space:nowrap; line-height:1.15; }
+.compra-pagada .compra-monto { color:var(--success); }
+.compra-desglose { display:flex; gap:16px; }
+.compra-desglose strong { font-size:14.5px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.compra-barra { height:8px; border-radius:100px; background:var(--surface-2); margin-top:14px; overflow:hidden; }
+.compra-barra span { display:block; height:100%; border-radius:100px; background:var(--accent); }
+.compra-mora .compra-barra span { background:var(--warning); }
+.compra-pagada .compra-barra span { background:var(--success); }
+.compra-barra-txt { font-size:12.5px; color:var(--text-muted); margin-top:6px; }
+.compra-datos { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px 14px; margin-top:14px; padding-top:14px; border-top:1px solid var(--border-soft); }
+.compra-datos strong { font-size:14px; overflow-wrap:anywhere; }
+.compra-ver { list-style:none; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; margin:14px 16px 0; padding:12px 0 14px; border-top:1px solid var(--border-soft); font-size:13px; font-weight:600; color:var(--accent); }
+.compra-ver svg { transform:rotate(90deg); transition:transform .2s ease; }
+.compra-detalle[open] .compra-ver svg { transform:rotate(-90deg); }
+.compra-ver::-webkit-details-marker { display:none; }
+.compra-ver .ver-cerrar, .compra-detalle[open] .compra-ver .ver-abrir { display:none; }
+.compra-detalle[open] .compra-ver .ver-cerrar { display:inline; }
+.compra-cuerpo { padding:0 16px 16px; }
+.compra-acciones { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
+.compra-acciones .btn { flex:1 1 160px; }
+.compra-tabs { margin-bottom:12px; }
+.compra-tabs button { flex:1 1 0; text-align:center; }
+.compra-panel[hidden], .credito-cuota[hidden], .compra-filtro-vacio[hidden] { display:none !important; }
+
+.compra-filtros { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px; }
+.compra-filtros button { flex:1 1 auto; padding:8px 10px; border-radius:100px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-muted); font-size:12.5px; font-weight:600; }
+.compra-filtros button b { margin-left:3px; }
+.compra-filtros button.active { color:var(--text); border-color:var(--text-muted); }
+.compra-filtros .filtro-pendiente.active { background:rgba(76,155,255,.16); color:var(--info); border-color:var(--info); }
+.compra-filtros .filtro-vencida.active { background:rgba(251,75,98,.16); color:var(--danger); border-color:var(--danger); }
+.compra-filtros .filtro-pagada.active { background:rgba(34,197,139,.16); color:var(--success); border-color:var(--success); }
+.credito-card .credito-cuota { border-left:3px solid transparent; padding-left:10px; }
+.credito-card .credito-cuota.cuota-cat-vencida { border-left-color:var(--danger); }
+.credito-card .credito-cuota.cuota-cat-pendiente { border-left-color:var(--info); }
+.credito-card .credito-cuota.cuota-cat-pagada { border-left-color:var(--success); }
+.credito-card .credito-cuota.cuota-cat-pagada .credito-cuota-importe { color:var(--text-muted); }
+.credito-card .credito-cuota.cuota-cat-vencida .credito-cuota-importe { color:var(--danger); }
+.credito-card .credito-cuota-lbl { font-size:11px; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+.credito-card .credito-cuota-mora { padding:8px 10px; border-radius:var(--radius-sm); background:rgba(251,75,98,.07); }
+
+.compra-pagos-total { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; padding:12px; border-radius:var(--radius-sm); background:var(--bg-elevated); border:1px solid var(--border-soft); margin-bottom:8px; }
+.compra-pagos-total strong { font-size:14px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+
+.info-bloque { padding:12px 0; border-top:1px solid var(--border-soft); }
+.info-bloque:first-child { border-top:none; padding-top:4px; }
+.info-titulo { font-size:12px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:6px; }
+.info-fila { display:flex; justify-content:space-between; align-items:baseline; gap:12px; padding:5px 0; font-size:14px; }
+.info-k { color:var(--text-muted); }
+.info-v { font-weight:600; text-align:right; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.info-total { margin-top:4px; padding-top:9px; border-top:1px dashed var(--border); font-size:16px; }
+.info-total .info-k { color:var(--text); font-weight:700; }
+.info-total .info-v { font-weight:800; }
+.compra-items { margin:0; padding-left:18px; line-height:1.6; }
+@media (max-width:380px) {
+  .debt-desglose, .compra-pagos-total { grid-template-columns:1fr; }
+  .compra-tabs button { padding:9px 8px; }
+}
+.client-section .compra-ver, .client-section[open] .compra-ver { font-size:13px; font-weight:600; margin-bottom:0; }
+.compra-acciones:empty { display:none; }
+.compra-pago { padding:12px 0; border-top:1px solid var(--border-soft); }
+.compra-pago:first-child { border-top:none; }
+.compra-pago-top { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+.compra-pago-tipo { font-weight:600; font-size:14px; }
+.compra-pago-monto { color:var(--success); font-size:16px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.compra-pago-anulado .compra-pago-monto { color:var(--text-faint); text-decoration:line-through; }
+.compra-pago-desglose { display:flex; flex-wrap:wrap; gap:4px 14px; margin-top:6px; font-size:12.5px; color:var(--text-muted); }
+.compra-pago-desglose b { color:var(--text); font-weight:600; white-space:nowrap; }
+.compra-pago-desglose .dato-mal b { color:var(--danger); }
+.compra-card.compra-vence_hoy { border-left-color:var(--warning); }

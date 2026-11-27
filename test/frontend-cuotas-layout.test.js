@@ -51,3 +51,21 @@ test('Cuotas: empleados conservan importes e historial visibles sin controles de
     assert.equal(b.view.querySelector('[data-action="perdonar-mora"], [data-action="corregir-financiacion"]'),null);
   }finally{b.w.close();}
 });
+
+test('Compra: resumen separa capital y mora, y las pestañas y filtros muestran solo lo elegido',()=>{
+  const b=browser();
+  try {
+    const card=b.view.querySelector('.compra-card');
+    assert.match(card.querySelector('.compra-resumen').textContent,/Saldo pendiente.*100\.500.*Capital.*88\.000.*Mora.*12\.500/s);
+    assert.match(card.querySelector('.compra-resumen').textContent,/Atrasada/);
+    card.querySelector('[data-action="compra-filtro"][data-filtro="pagada"]').click();
+    assert.equal(card.querySelector('.credito-cuota').hidden,true);
+    assert.equal(card.querySelector('.compra-filtro-vacio').hidden,false);
+    card.querySelector('[data-action="compra-filtro"][data-filtro="vencida"]').click();
+    assert.equal(card.querySelector('.credito-cuota').hidden,false);
+    card.querySelector('[data-action="compra-tab"][data-tab="info"]').click();
+    assert.equal(card.querySelector('[data-panel="cuotas"]').hidden,true);
+    assert.equal(card.querySelector('[data-panel="info"]').hidden,false);
+    assert.match(card.querySelector('[data-panel="info"]').textContent,/Saldo total\s*\$\s*100\.500/);
+  }finally{b.w.close();}
+});
