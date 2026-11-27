@@ -848,7 +848,11 @@ function creditoCardHtml(cr, pagosCliente = []) {
   const r = resumenCompra(cr);
   const pendiente = r.capital + r.mora > 0 || cuotas.some(c => !c.estado_manual && ((c.saldo_pendiente_centavos || 0) > 0 || (c.moraPendiente || 0) > 0));
   const atrasada = r.cats.vencida > 0;
-  const estado = !pendiente ? { txt: cr.estado === 'finalizado' || r.total ? 'Pagada' : 'Sin cuotas', cls: 'pagada' } : atrasada ? { txt: 'Atrasada', cls: 'mora' } : { txt: 'Al día', cls: 'activa' };
+  // "Por vencer" usa la misma ventana más amplia de Cobrar (próximos 7 días).
+  const diasProxima = r.proxima && Number.isFinite(r.proxima.diasHasta) ? r.proxima.diasHasta : null;
+  const porVencer = !atrasada && diasProxima !== null && diasProxima >= 0 && diasProxima <= 7;
+  const estado = !pendiente ? { txt: cr.estado === 'finalizado' || r.total ? 'Pagada' : 'Sin cuotas', cls: 'pagada' } : atrasada ? { txt: 'Atrasada', cls: 'mora' }
+    : porVencer ? { txt: diasProxima === 0 ? 'Vence hoy' : 'Por vencer', cls: 'vence_hoy' } : { txt: 'Al día', cls: 'activa' };
   const atrasos = cuotas.filter(c => c.diasAtraso > 0 || c.dias_atraso_al_pagar > 0);
   const editarCuotas = puedeEditarCuotas(cr.negocio_id);
   const porcentaje = r.plan > 0 ? Math.min(100, Math.round(100 * r.pagado / r.plan)) : (pendiente ? 0 : 100);
@@ -860,7 +864,7 @@ function creditoCardHtml(cr, pagosCliente = []) {
   const vencimientoTxt = !proxima ? null : (proxima.diasAtraso || 0) > 0
     ? { k: 'Vencida desde', v: `${fmtFecha(proxima.fecha_vencimiento)} (${proxima.diasAtraso} días)`, cls: 'dato-mal' }
     : proxima.diasHasta === 0 ? { k: 'Próximo vencimiento', v: 'Hoy', cls: 'dato-alerta' }
-    : { k: 'Próximo vencimiento', v: fmtFecha(proxima.fecha_vencimiento), cls: '' };
+    : { k: 'Próximo vencimiento', v: `${fmtFecha(proxima.fecha_vencimiento)}${Number.isFinite(proxima.diasHasta) ? ` (en ${proxima.diasHasta} día${proxima.diasHasta === 1 ? '' : 's'})` : ''}`, cls: Number.isFinite(proxima.diasHasta) && proxima.diasHasta <= 7 ? 'dato-alerta' : '' };
   const filtros = [['todas', 'Todas', r.total], ['pendiente', 'Pendientes', r.cats.pendiente], ['vencida', 'Vencidas', r.cats.vencida], ['pagada', 'Pagadas', r.cats.pagada]];
   const filaCuota = (cu) => {
     const cat = categoriaCuota(cu);
