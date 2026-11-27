@@ -26,6 +26,9 @@ import { comprobantesRouter } from './routes/comprobantes.js';
 import { usuariosRouter } from './routes/usuarios.js';
 import { invitacionesRouter } from './routes/invitaciones.js';
 import { cargarUsuario, requireAuth } from './middleware/authorize.js';
+import { plataformaPublicaRouter, suscripcionRouter, plataformaAdminRouter } from './routes/plataforma.js';
+import { modoSaaS } from './plataforma/config.js';
+import { resolverCuenta, exigirSuscripcionActiva, exigirFuncion, noDisponibleEnSaaS } from './plataforma/middleware.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const app = express();
@@ -45,18 +48,31 @@ app.use((req,res,next)=>{
 app.use('/api/tiendanube/webhook', express.raw({type:'application/json',limit:'100kb',inflate:false}));
 app.use('/api/tiendanube/privacy', express.raw({type:'application/json',limit:'100kb',inflate:false}));
 app.use(express.json({inflate:false}));
-app.use('/api/tiendanube',tiendanubePublicaRouter);
+// Edición de venta: las rutas públicas de tienda y Tiendanube no tienen
+// cuenta asociada todavía, así que ahí no existen.
+app.use(['/api/tienda-publica','/api/tienda-media'], noDisponibleEnSaaS);
+app.use('/api/tiendanube',(req,res,next)=>modoSaaS()?next():tiendanubePublicaRouter(req,res,next));
 
 // El catálogo y los pedidos de clientes se abren sin una cuenta de empleado.
 app.use('/api/tienda-publica', tiendaPublicaRouter);
 app.use('/api/tienda-publica', tiendaPedidosPublicosRouter);
 app.use('/api/tienda-media', tiendaMediaPublicaRouter);
+// Alta de cuentas y avisos de Mercado Pago (sin sesión).
+app.use('/api/plataforma', plataformaPublicaRouter);
+// Edición de venta: la cuenta del token define el esquema de la base.
+app.use('/api', resolverCuenta);
 
 // Cargar usuario en todas las rutas /api (puede ser null si no hay token)
 app.use('/api', cargarUsuario);
 
 app.use('/api/auth', authRouter);
 app.use('/api', requireAuth); // a partir de acá todo requiere token válido
+app.use('/api/suscripcion', suscripcionRouter);
+app.use('/api/plataforma-admin', plataformaAdminRouter);
+// Edición de venta: sin suscripción al día no se puede usar el resto de la app.
+app.use('/api', exigirSuscripcionActiva);
+app.use('/api/tiendas', exigirFuncion('tienda'));
+app.use('/api/tiendanube', exigirFuncion('tiendanube'));
 
 app.use('/api/tiendas', tiendaMediaRouter);
 app.use('/api/tiendas', tiendaCobrosRouter);
@@ -81,6 +97,8 @@ app.use('/api/comprobantes', comprobantesRouter);
 app.use('/api/usuarios', usuariosRouter);
 app.use('/api/invitaciones', invitacionesRouter);
 
+// Edición activa para el frontend, sin un pedido extra al arrancar.
+app.get('/plataforma-config.js', (req,res)=>{res.type('application/javascript').set('Cache-Control','no-cache').send(`window.ZILKY_EDICION=${JSON.stringify(modoSaaS()?'saas':'propia')};`);});
 app.get('/tienda/:slug', (req,res)=>res.sendFile(path.join(__dirname,'..','public','tienda.html')));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 

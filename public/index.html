@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20261127-ficha-deuda" />
+  <link rel="stylesheet" href="/styles.css?v=20261127-cobranzas" />
   <link rel="stylesheet" href="/tiendaAdmin.css?v=20261102-cobros-encargos" />
 </head>
 <body>
@@ -23,6 +23,10 @@
       <div id="authNombreField" class="field" style="display:none">
         <label>Tu nombre</label>
         <input id="authNombre" placeholder="Ej: Ulises" />
+      </div>
+      <div id="authAltaFields" style="display:none">
+        <div class="field"><label for="authNegocio">Nombre de tu negocio</label><input id="authNegocio" maxlength="80" placeholder="Ej: Indumentaria Sol" /></div>
+        <div class="field"><label for="authTelefono">Teléfono</label><input id="authTelefono" type="tel" maxlength="30" placeholder="Ej: 351 555 1234" autocomplete="tel" /></div>
       </div>
       <div class="field"><label>Email</label><input id="authEmail" type="email" placeholder="vos@ejemplo.com" autocomplete="username" /></div>
       <div class="field"><label>Contraseña</label><input id="authPassword" type="password" placeholder="Mínimo 6 caracteres" autocomplete="current-password" /></div>
@@ -92,6 +96,7 @@
   <div id="toastRoot" class="toast-root"></div>
 
   <script src="/vendor/purify.min.js"></script>
-  <script src="/app.js?v=20261127-ficha-deuda"></script>
+  <script src="/plataforma-config.js"></script>
+  <script src="/app.js?v=20261127-cobranzas"></script>
 </body>
 </html>

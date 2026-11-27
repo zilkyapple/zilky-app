@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import { esquemaActual } from '../db/connection.js';
 
 const SECRET = process.env.JWT_SECRET;
 if (!SECRET) {
@@ -7,7 +8,9 @@ if (!SECRET) {
 }
 
 export function firmarToken(usuario) {
-  return jwt.sign({ sub: usuario.id, email: usuario.email }, SECRET, { expiresIn: '30d' });
+  // Edición de venta: el token lleva la cuenta (esquema) a la que pertenece.
+  const ten = esquemaActual();
+  return jwt.sign({ sub: usuario.id, email: usuario.email, ...(ten ? { ten } : {}) }, SECRET, { expiresIn: '30d' });
 }
 export function verificarToken(token) {
   return jwt.verify(token, SECRET);

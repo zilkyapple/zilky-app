@@ -1,12 +1,15 @@
 import { verificarToken } from '../lib/auth.js';
 import { getUsuarioById, getUsuarioNegocios } from '../repositories/usuarios.js';
-import { db } from '../db/connection.js';
+import { db, esquemaActual } from '../db/connection.js';
+import { modoSaaS } from '../plataforma/config.js';
 export const PERMISOS = ['clientes.ver','clientes.editar','cuotas.editar','ventas.crear','pagos.registrar','productos.ver','tienda.editar','tienda.pedidos','costos.ver','cobranzas.ver','dashboard_financiero.ver','comprobantes.ver','comprobantes.anular','empleados.gestionar'];
 export function parsePermisos(value) {
   try { const p=typeof value==='string'?JSON.parse(value):value; return p && typeof p==='object' && !Array.isArray(p)?p:{}; } catch { return {}; }
 }
 export async function cargarUsuario(req,res,next) {
   req.usuario=null;
+  // Edición de venta: sin una cuenta válida en el token no hay usuario.
+  if (modoSaaS() && !esquemaActual()) return next();
   const header=req.headers.authorization || '';
   if (!header.startsWith('Bearer ')) return next();
   let payload;

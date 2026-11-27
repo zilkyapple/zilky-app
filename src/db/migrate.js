@@ -460,7 +460,7 @@ ON CONFLICT DO NOTHING;
 async function migrarTokensInvitaciones() {
   const client = db;
   {
-    const cols = await client.query(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='invitaciones'`);
+    const cols = await client.query(`SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='invitaciones'`);
     const names = new Set(cols.rows.map((r) => r.column_name));
     if (!names.has('token_hash')) await client.query('ALTER TABLE invitaciones ADD COLUMN token_hash TEXT');
     if (names.has('token')) {
@@ -515,6 +515,11 @@ export async function migrate() {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  migrate().then(() => process.exit(0)).catch((err) => { console.error(err); process.exit(1); });
+  // Edición de venta: el esquema public guarda solo la plataforma y cada
+  // cuenta se migra dentro de su propio esquema.
+  const correr = process.env.EDICION === 'saas'
+    ? async () => (await import('../plataforma/esquema.js')).migrarPlataforma()
+    : migrate;
+  correr().then(() => process.exit(0)).catch((err) => { console.error(err); process.exit(1); });
 }
 
