@@ -457,8 +457,8 @@ label.cm-check { flex-direction:row;align-items:center;line-height:1.5;gap:10px;
 .compra-card.compra-mora { border-left-color:var(--danger); }
 .compra-card.compra-pagada { border-left-color:var(--success); }
 .compra-card + .compra-card { margin-top:12px; }
-.compra-resumen { list-style:none; cursor:pointer; padding:16px; display:block; }
-.compra-resumen::-webkit-details-marker { display:none; }
+.compra-resumen { padding:16px 16px 0; }
+.compra-pagar { width:calc(100% - 32px); margin:14px 16px 0; }
 .compra-top { display:flex; justify-content:space-between; align-items:center; gap:10px; }
 .compra-meta { font-size:11.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; font-weight:600; min-width:0; }
 .compra-titulo { font-size:17px; font-weight:700; margin-top:8px; line-height:1.35; overflow-wrap:anywhere; }
@@ -475,11 +475,12 @@ label.cm-check { flex-direction:row;align-items:center;line-height:1.5;gap:10px;
 .compra-barra-txt { font-size:12.5px; color:var(--text-muted); margin-top:6px; }
 .compra-datos { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px 14px; margin-top:14px; padding-top:14px; border-top:1px solid var(--border-soft); }
 .compra-datos strong { font-size:14px; overflow-wrap:anywhere; }
-.compra-ver { display:flex; align-items:center; justify-content:center; gap:6px; margin-top:14px; padding-top:12px; border-top:1px solid var(--border-soft); font-size:13px; font-weight:600; color:var(--accent); }
+.compra-ver { list-style:none; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; margin:14px 16px 0; padding:12px 0 14px; border-top:1px solid var(--border-soft); font-size:13px; font-weight:600; color:var(--accent); }
 .compra-ver svg { transform:rotate(90deg); transition:transform .2s ease; }
-.compra-card[open] .compra-ver svg { transform:rotate(-90deg); }
-.compra-ver .ver-cerrar, .compra-card[open] .compra-ver .ver-abrir { display:none; }
-.compra-card[open] .compra-ver .ver-cerrar { display:inline; }
+.compra-detalle[open] .compra-ver svg { transform:rotate(-90deg); }
+.compra-ver::-webkit-details-marker { display:none; }
+.compra-ver .ver-cerrar, .compra-detalle[open] .compra-ver .ver-abrir { display:none; }
+.compra-detalle[open] .compra-ver .ver-cerrar { display:inline; }
 .compra-cuerpo { padding:0 16px 16px; }
 .compra-acciones { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; }
 .compra-acciones .btn { flex:1 1 160px; }
@@ -520,4 +521,5 @@ label.cm-check { flex-direction:row;align-items:center;line-height:1.5;gap:10px;
   .debt-desglose, .compra-pagos-total { grid-template-columns:1fr; }
   .compra-tabs button { padding:9px 8px; }
 }
-.client-section .compra-resumen, .client-section[open] .compra-resumen { font-weight:400; font-size:14px; margin-bottom:0; }
+.client-section .compra-ver, .client-section[open] .compra-ver { font-size:13px; font-weight:600; margin-bottom:0; }
+.compra-acciones:empty { display:none; }

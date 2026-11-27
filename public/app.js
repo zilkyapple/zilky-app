@@ -879,8 +879,8 @@ function creditoCardHtml(cr, pagosCliente = []) {
         </div>`;
   };
   return `
-    <details class="card credito-card compra-card compra-${esc(estado.cls)}" data-compra="${esc(cr.id)}">
-      <summary class="compra-resumen">
+    <div class="card credito-card compra-card compra-${esc(estado.cls)}" data-compra="${esc(cr.id)}">
+      <div class="compra-resumen">
         <div class="compra-top">
           <span class="compra-meta"><span class="cred-negocio-tag">${esc(negocio?.nombre || '')}</span> · ${esc(MODALIDAD_LABEL[cr.modalidad] || cr.modalidad || '')}${cr.fecha_inicio ? ` · ${esc(fmtFecha(cr.fecha_inicio))}` : ''}</span>
           <span class="badge badge-${esc(estado.cls)}">${esc(estado.txt)}</span>
@@ -901,11 +901,12 @@ function creditoCardHtml(cr, pagosCliente = []) {
           ${vencimientoTxt ? `<div class="${esc(vencimientoTxt.cls)}"><span>${esc(vencimientoTxt.k)}</span><strong>${esc(vencimientoTxt.v)}</strong></div>` : '<div><span>Próximo vencimiento</span><strong>Nada pendiente</strong></div>'}
           ${r.cats.vencida ? `<div class="dato-mal"><span>Cuotas vencidas</span><strong>${esc(r.cats.vencida)}</strong></div>` : `<div><span>Entrega inicial</span><strong>${esc(formatARS(cr.entrega_inicial_centavos || 0))}</strong></div>`}
         </div>
-        <div class="compra-ver"><span class="ver-abrir">Ver cuotas, pagos y detalle</span><span class="ver-cerrar">Ocultar detalle</span>${iconChevron()}</div>
-      </summary>
+      </div>
+      ${pendiente ? `<button class="btn btn-primary btn-block compra-pagar" data-action="registrar-pago" data-negocio="${esc(cr.negocio_id)}" data-credito="${esc(cr.id)}">${iconCobrar()}Registrar pago</button>` : ''}
+      <details class="compra-detalle">
+      <summary class="compra-ver"><span class="ver-abrir">Ver cuotas, pagos y detalle</span><span class="ver-cerrar">Ocultar detalle</span>${iconChevron()}</summary>
       <div class="compra-cuerpo">
         <div class="compra-acciones">
-          ${pendiente ? `<button class="btn btn-primary" data-action="registrar-pago" data-negocio="${esc(cr.negocio_id)}" data-credito="${esc(cr.id)}">${iconCobrar()}Registrar pago</button>` : ''}
           ${editarCuotas ? `<button class="btn btn-secondary" data-action="corregir-financiacion" data-credito="${esc(cr.id)}" data-negocio="${esc(cr.negocio_id)}">${state.usuario?.rol==='administrador'?'Editar fechas y cuotas':'Editar cuotas'}</button>` : ''}
         </div>
         <div class="tabs compra-tabs" role="tablist">
@@ -968,7 +969,8 @@ function creditoCardHtml(cr, pagosCliente = []) {
           ${state.usuario?.rol==='administrador'&&cr.venta_id?`<button class="btn btn-secondary" style="margin-top:12px" data-action="eliminar-venta-error" data-venta="${esc(cr.venta_id)}" data-negocio="${esc(cr.negocio_id)}">Eliminar venta cargada por error</button>`:''}
         </div>
       </div>
-    </details>
+      </details>
+    </div>
   `;
 }
 function cambiarPestanaCompra(boton) {
