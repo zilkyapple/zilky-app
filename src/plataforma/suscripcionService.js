@@ -8,8 +8,9 @@ import { normalizarEmail, validarPassword } from '../lib/invitaciones.js';
 import { id as nuevoId } from '../lib/id.js';
 import { emailDuenaPlataforma, urlApp } from './config.js';
 import { precioActualCentavos } from './precio.js';
+import { pagoMesVigente } from './middleware.js';
 import { nuevoEsquema, insertarCuenta, actualizarCuenta, esquemaPorEmail, cuentaPorId, cuentaPorPreapproval } from './cuentas.js';
-import { crearSuscripcion, crearSuscripcionConTarjeta, obtenerSuscripcion, obtenerPagoAutorizado, cambiarMontoSuscripcion } from './mercadopago.js';
+import { crearSuscripcion, crearSuscripcionConTarjeta, crearPagoMes, obtenerPago, obtenerSuscripcion, obtenerPagoAutorizado, cambiarMontoSuscripcion } from './mercadopago.js';
 import { listarCuentas } from './cuentas.js';
 
 const fallo = (status, msg) => Object.assign(new Error(msg), { status });
@@ -88,7 +89,7 @@ export async function linkDePago(cuenta) {
 // Pago con tarjeta desde nuestra página: queda autorizada y se cobra sola cada mes.
 export async function pagarConTarjeta(cuenta, { token, email } = {}) {
   if (cuenta.estado === 'exenta') throw fallo(400, 'Esta cuenta no paga suscripción');
-  if (cuenta.estado === 'activa') throw fallo(409, 'Tu suscripción ya está al día');
+  if (cuenta.mp_estado === 'authorized' && cuenta.estado === 'activa') throw fallo(409, 'Ya tenés el débito automático activo');
   if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{8,200}$/.test(token)) throw fallo(400, 'Faltan los datos de la tarjeta');
   const payer = email ? normalizarEmail(email) : cuenta.email;
   const monto = await precioActualCentavos();
@@ -101,6 +102,44 @@ export async function pagarConTarjeta(cuenta, { token, email } = {}) {
   await registrarEvento(cuenta.id, 'suscripcion', pre.id, pre.status, { status: pre.status, medio: 'tarjeta' });
   const c = await actualizarCuenta(cuenta.id, cambios);
   return { estado: c.estado, mp_estado: pre.status };
+}
+
+// Link para pagar un mes (Checkout Pro).
+export const DIAS_POR_PAGO = 30;
+export async function linkPagoMes(cuenta) {
+  if (cuenta.estado === 'exenta') throw fallo(400, 'Esta cuenta no paga suscripción');
+  const monto = await precioActualCentavos();
+  if (!monto) throw fallo(503, 'Falta configurar el precio');
+  const base = urlApp();
+  if (!base.startsWith('https://')) throw fallo(503, 'Falta configurar la dirección de la app');
+  const pref = await crearPagoMes({ cuentaId: cuenta.id, email: cuenta.email, montoCentavos: monto, base });
+  return pref.init_point;
+}
+// Aplica un pago de un mes ya consultado a la API. Cada pago suma 30 días una sola vez.
+export async function aplicarPagoMes(pago, cuentaEsperada = null) {
+  const ref = String(pago?.external_reference || '');
+  if (!ref.startsWith('mes:')) return { ignorada: true };
+  const cuenta = await cuentaPorId(ref.slice(4));
+  if (!cuenta || (cuentaEsperada && cuenta.id !== cuentaEsperada)) return { ignorada: true };
+  if (pago.status !== 'approved' || pago.currency_id !== 'ARS') return { cuenta_id: cuenta.id, estado: cuenta.estado, pago: pago.status };
+  const ins = await db.query(`INSERT INTO public.plataforma_eventos_pago (id,cuenta_id,tipo,recurso_id,estado,detalle) VALUES ($1,$2,'pago_mes',$3,$4,$5)
+    ON CONFLICT (recurso_id) WHERE tipo = 'pago_mes' DO NOTHING RETURNING id`,
+    [nuevoId(), cuenta.id, String(pago.id), pago.status, JSON.stringify({ monto: pago.transaction_amount, medio: pago.payment_type_id || null })]);
+  if (!ins.rows.length) { const c = await cuentaPorId(cuenta.id); return { cuenta_id: c.id, estado: c.estado, pagado_hasta: c.pagado_hasta, repetido: true }; }
+  if (cuenta.estado === 'exenta') return { cuenta_id: cuenta.id, estado: 'exenta' };
+  const ahora = Date.now();
+  const desde = Math.max(ahora, cuenta.pagado_hasta ? new Date(cuenta.pagado_hasta).getTime() : 0);
+  const iso = new Date(ahora).toISOString();
+  const c = await actualizarCuenta(cuenta.id, { estado: 'activa', rechazo_desde: null, pagado_hasta: new Date(desde + DIAS_POR_PAGO * 86400000).toISOString(),
+    ultimo_pago_en: iso, primer_pago_en: cuenta.primer_pago_en || iso });
+  return { cuenta_id: c.id, estado: c.estado, pagado_hasta: c.pagado_hasta };
+}
+// Al volver de Mercado Pago: se confirma enseguida sin esperar el aviso.
+export async function confirmarPagoMes(cuenta, paymentId) {
+  if (!/^\d{1,25}$/.test(String(paymentId || ''))) throw fallo(400, 'Pago inválido');
+  const r = await aplicarPagoMes(await obtenerPago(String(paymentId)), cuenta.id);
+  if (r.ignorada) throw fallo(400, 'Ese pago no corresponde a esta cuenta');
+  return r;
 }
 
 async function registrarEvento(cuentaId, tipo, recursoId, estado, detalle) {
@@ -130,6 +169,7 @@ export async function procesarNotificacion({ tipo, recursoId }) {
     await actualizarCuenta(cuenta.id, cambios);
     return { cuenta_id: cuenta.id, estado: cambios.estado || cuenta.estado };
   }
+  if (tipo === 'payment') return aplicarPagoMes(await obtenerPago(recursoId));
   if (['subscription_authorized_payment', 'authorized_payment'].includes(tipo)) {
     const ap = await obtenerPagoAutorizado(recursoId);
     const cuenta = ap?.preapproval_id ? await cuentaPorPreapproval(ap.preapproval_id) : null;
@@ -142,7 +182,7 @@ export async function procesarNotificacion({ tipo, recursoId }) {
       await actualizarCuenta(cuenta.id, { estado: 'activa', ultimo_pago_en: ahora, primer_pago_en: cuenta.primer_pago_en || ahora, rechazo_desde: null });
       return { cuenta_id: cuenta.id, estado: 'activa' };
     }
-    if (['rejected', 'cancelled'].includes(estadoPago) && ['activa', 'pago_rechazado'].includes(cuenta.estado)) {
+    if (['rejected', 'cancelled'].includes(estadoPago) && ['activa', 'pago_rechazado'].includes(cuenta.estado) && !pagoMesVigente(cuenta)) {
       await actualizarCuenta(cuenta.id, { estado: 'pago_rechazado', rechazo_desde: cuenta.rechazo_desde || ahora });
       return { cuenta_id: cuenta.id, estado: 'pago_rechazado' };
     }

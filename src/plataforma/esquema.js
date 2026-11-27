@@ -51,6 +51,8 @@ CREATE TABLE IF NOT EXISTS plataforma_eventos_pago (
   detalle JSONB,
   recibido_en TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE plataforma_cuentas ADD COLUMN IF NOT EXISTS pagado_hasta TIMESTAMPTZ;
+CREATE UNIQUE INDEX IF NOT EXISTS plataforma_eventos_pago_mes_unico ON plataforma_eventos_pago (recurso_id) WHERE tipo = 'pago_mes';
 `;
 export async function migrarPlataforma() {
   await db.transaction(async()=>{

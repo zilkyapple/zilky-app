@@ -51,6 +51,21 @@ export async function crearSuscripcionConTarjeta({ cuentaId, email, cardTokenId,
     throw e;
   }
 }
+// Pago de un solo mes con Checkout Pro: acepta cualquier tarjeta (también
+// prepagas) y dinero disponible en Mercado Pago.
+export function crearPagoMes({ cuentaId, email, montoCentavos, base }) {
+  return llamar('POST', '/checkout/preferences', {
+    items: [{ id: 'cobranzas-mes', title: 'Cobranzas · 1 mes', quantity: 1, unit_price: montoCentavos / 100, currency_id: 'ARS' }],
+    payer: { email },
+    external_reference: `mes:${cuentaId}`,
+    back_urls: { success: `${base}/app?mp=mes`, pending: `${base}/app?mp=mes`, failure: `${base}/app?mp=mes` },
+    auto_return: 'approved',
+    notification_url: `${base}/api/plataforma/mercadopago/webhook?source_news=webhooks`,
+    statement_descriptor: 'COBRANZAS',
+    payment_methods: { installments: 1 },
+  });
+}
+export const obtenerPago = (id) => llamar('GET', `/v1/payments/${encodeURIComponent(id)}`);
 export function cambiarMontoSuscripcion(id, montoCentavos) {
   return llamar('PUT', `/preapproval/${encodeURIComponent(id)}`, { auto_recurring: { transaction_amount: montoCentavos / 100, currency_id: 'ARS' } });
 }

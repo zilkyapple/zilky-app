@@ -18,9 +18,17 @@ export async function resolverCuenta(req, res, next) {
     await entrarCuentaEnPeticion(res, payload.ten, next);
   } catch (e) { next(e); }
 }
+// Pago mes a mes: el acceso dura hasta pagado_hasta, con un par de días de margen.
+export const MARGEN_PAGO_MES_MS = 2 * 86400000;
+export function pagoMesVigente(cuenta, ahora = new Date()) {
+  return !!cuenta?.pagado_hasta && ahora.getTime() < new Date(cuenta.pagado_hasta).getTime() + MARGEN_PAGO_MES_MS;
+}
 export function cuentaHabilitada(cuenta, ahora = new Date()) {
   if (!cuenta) return false;
-  if (['activa', 'exenta'].includes(cuenta.estado)) return true;
+  if (cuenta.estado === 'exenta') return true;
+  if (pagoMesVigente(cuenta, ahora)) return true;
+  // Activa por pago mes a mes y ya vencida (sin débito automático): bloqueada.
+  if (cuenta.estado === 'activa') return !cuenta.pagado_hasta || cuenta.mp_estado === 'authorized';
   if (cuenta.estado === 'pago_rechazado' && cuenta.rechazo_desde)
     return ahora.getTime() - new Date(cuenta.rechazo_desde).getTime() < diasGracia() * 86400000;
   return false;

@@ -24,7 +24,7 @@ await limpiar();
 await migrarPlataforma();
 
 // Mercado Pago simulado: solo se interceptan sus URLs.
-const mp = { creadas: [], preapprovals: {}, pagos: {} };
+const mp = { creadas: [], preapprovals: {}, pagos: {}, preferencias: [], payments: {} };
 const fetchReal = globalThis.fetch;
 globalThis.fetch = async (url, opts = {}) => {
   const u = String(url);
@@ -38,7 +38,12 @@ globalThis.fetch = async (url, opts = {}) => {
     mp.preapprovals[id] = { id, status: body.card_token_id ? 'authorized' : 'pending', external_reference: body.external_reference, payer_email: body.payer_email, init_point: `https://mp.test/checkout/${id}` };
     return json(201, mp.preapprovals[id]);
   }
-  let m = u.match(/\/preapproval\/([^/?]+)$/); if (m) return mp.preapprovals[m[1]] ? json(200, mp.preapprovals[m[1]]) : json(404, {});
+  if (u.endsWith('/checkout/preferences') && opts.method === 'POST') {
+    const body = JSON.parse(opts.body); mp.preferencias.push(body);
+    return json(201, { id: `pref${mp.preferencias.length}`, init_point: `https://mp.test/pagar/pref${mp.preferencias.length}` });
+  }
+  let m = u.match(/\/v1\/payments\/([^/?]+)$/); if (m) return mp.payments[m[1]] ? json(200, mp.payments[m[1]]) : json(404, {});
+  m = u.match(/\/preapproval\/([^/?]+)$/); if (m) return mp.preapprovals[m[1]] ? json(200, mp.preapprovals[m[1]]) : json(404, {});
   m = u.match(/\/authorized_payments\/([^/?]+)$/); if (m) return mp.pagos[m[1]] ? json(200, mp.pagos[m[1]]) : json(404, {});
   return json(404, {});
 };
@@ -300,4 +305,47 @@ test('La página permite el formulario seguro de Mercado Pago', async () => {
   const csp = r.headers.get('content-security-policy');
   assert.match(csp, /script-src 'self' https:\/\/sdk\.mercadopago\.com/);
   assert.match(csp, /frame-src 'self' https:\/\/sdk\.mercadopago\.com/);
+});
+
+test('Pagar un mes: cualquier tarjeta o dinero en cuenta, 30 días de acceso, una sola vez por pago', async () => {
+  const r = await alta('mensual@negocio.invalid'); assert.equal(r.status, 201);
+  const tok = r.body.token; const cuenta = await cuentaDe('mensual@negocio.invalid');
+  const link = await api('/api/suscripcion/pagar-mes', tok, 'POST', {});
+  assert.equal(link.status, 200, JSON.stringify(link.body)); assert.match(link.body.init_point, /^https:\/\/mp\.test\/pagar\//);
+  const pref = mp.preferencias.at(-1);
+  assert.equal(pref.external_reference, `mes:${cuenta.id}`);
+  assert.equal(pref.items[0].unit_price, 10000); assert.equal(pref.items[0].currency_id, 'ARS');
+  assert.equal(pref.back_urls.success, 'https://cobranzas.test/app?mp=mes');
+  assert.equal(pref.payment_methods.excluded_payment_types, undefined);
+  // Pago pendiente: todavía bloqueada.
+  mp.payments['9001'] = { id: 9001, status: 'pending', currency_id: 'ARS', transaction_amount: 10000, external_reference: `mes:${cuenta.id}` };
+  const pend = await api('/api/suscripcion/confirmar-mes', tok, 'POST', { payment_id: '9001' });
+  assert.equal(pend.body.pago, 'pending'); assert.equal((await api('/api/negocios', tok)).status, 402);
+  // Aprobado (por ejemplo con una prepaga o dinero en cuenta).
+  mp.payments['9001'].status = 'approved'; mp.payments['9001'].payment_type_id = 'prepaid_card';
+  const ok = await api('/api/suscripcion/confirmar-mes', tok, 'POST', { payment_id: '9001' });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body)); assert.equal(ok.body.estado, 'activa');
+  const dias = (new Date(ok.body.pagado_hasta) - Date.now()) / 86400000;
+  assert.ok(dias > 29.9 && dias <= 30, String(dias));
+  assert.equal((await api('/api/negocios', tok)).status, 200);
+  // El aviso de Mercado Pago del mismo pago no suma otro mes.
+  const w = await webhook('payment', '9001'); assert.equal(w.status, 200); assert.equal(w.body.repetido, true);
+  assert.equal(new Date((await cuentaDe('mensual@negocio.invalid')).pagado_hasta).toISOString(), new Date(ok.body.pagado_hasta).toISOString());
+  // Otro pago adelantado suma 30 días más sobre lo que queda.
+  mp.payments['9002'] = { id: 9002, status: 'approved', currency_id: 'ARS', transaction_amount: 10000, external_reference: `mes:${cuenta.id}` };
+  assert.equal((await webhook('payment', '9002')).status, 200);
+  const dias2 = (new Date((await cuentaDe('mensual@negocio.invalid')).pagado_hasta) - Date.now()) / 86400000;
+  assert.ok(dias2 > 59.9 && dias2 <= 60, String(dias2));
+  // Un pago de otra cuenta no se puede usar acá.
+  const otra = await alta('ajena@negocio.invalid');
+  const robo = await api('/api/suscripcion/confirmar-mes', otra.body.token, 'POST', { payment_id: '9002' });
+  assert.equal(robo.status, 400);
+  assert.equal((await api('/api/negocios', otra.body.token)).status, 402);
+  // Vencido el mes, se bloquea.
+  await pool.query("UPDATE plataforma_cuentas SET pagado_hasta = now() - interval '3 days' WHERE email='mensual@negocio.invalid'");
+  const bloq = await api('/api/negocios', tok); assert.equal(bloq.status, 402);
+  const s = await api('/api/suscripcion', tok); assert.equal(s.body.habilitada, false); assert.ok(s.body.pagado_hasta);
+  // Y dentro del margen de 2 días sigue andando.
+  await pool.query("UPDATE plataforma_cuentas SET pagado_hasta = now() - interval '1 day' WHERE email='mensual@negocio.invalid'");
+  assert.equal((await api('/api/negocios', tok)).status, 200);
 });

@@ -1890,6 +1890,7 @@ document.addEventListener('click', async (e) => {
   }
   else if (action === 'crear-cliente-inline') abrirCrearCliente();
   else if (action === 'suscripcion-pagar') { el.disabled=true; try { const inp=document.getElementById('suscEmailPago'); const r=await api('/suscripcion/pagar',{method:'POST',body:JSON.stringify(inp?{email_pago:inp.value.trim()}:{})}); if(r?.init_point) location.href=r.init_point; } catch(err){ toast(err.message,true); el.disabled=false; } }
+  else if (action === 'suscripcion-pagar-mes') { el.disabled=true; try { const r=await api('/suscripcion/pagar-mes',{method:'POST',body:'{}'}); if(r?.init_point) location.href=r.init_point; } catch(err){ toast(err.message,true); el.disabled=false; } }
   else if (action === 'suscripcion-actualizar') { location.hash = '#/inicio'; await arrancarApp(); }
   else if (action === 'plataforma-exportar') { try { const r=await api('/plataforma-admin/cuentas/exportar'); const blob=new Blob([r.csv],{type:'text/csv;charset=utf-8'}); const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=r.filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000); } catch(err){ toast(err.message,true); } }
   else if (action === 'plataforma-precio-guardar') { try { const usd=Number(document.getElementById('platUsd').value), cotizacion=Number(document.getElementById('platCot').value); const r=await api('/plataforma-admin/precio',{method:'PUT',body:JSON.stringify({usd,cotizacion})}); toast(`Precio guardado: ${formatARS(r.ajuste.centavos)} por mes`); render(); } catch(err){ toast(err.message,true); } }
@@ -2089,7 +2090,31 @@ function wireAuthScreen() {
   });
 }
 
+// Al volver de pagar un mes en Mercado Pago se confirma el pago enseguida.
+async function confirmarVueltaMercadoPago() {
+  const q = new URLSearchParams(location.search);
+  if (q.get('mp') !== 'mes') return;
+  const paymentId = q.get('payment_id') || q.get('collection_id');
+  const estado = q.get('status') || q.get('collection_status');
+  history.replaceState(null, '', location.pathname + '#/suscripcion');
+  if (!paymentId || paymentId === 'null') { if (estado && estado !== 'approved') toast('El pago no se completó. Podés intentarlo de nuevo.', true); return; }
+  try {
+    const r = await api('/suscripcion/confirmar-mes', { method: 'POST', body: JSON.stringify({ payment_id: paymentId }) });
+    if (r.pagado_hasta && r.estado === 'activa') { toast(`¡Listo! Pagaste hasta el ${fmtFecha(String(r.pagado_hasta).slice(0, 10))}.`); location.hash = '#/inicio'; }
+    else if (r.pago === 'pending' || r.pago === 'in_process') toast('Tu pago está pendiente. Cuando Mercado Pago lo apruebe se activa solo.');
+    else if (r.pago) toast('Mercado Pago no aprobó el pago. Probá con otro medio.', true);
+  } catch (err) { toast(err.message, true); }
+}
+let avisoMesMostrado = false;
+function avisoVencimientoMes(cuenta) {
+  if (avisoMesMostrado || !cuenta?.pagado_hasta || cuenta.debito_automatico || cuenta.estado === 'exenta') return;
+  const dias = diasHasta(cuenta.pagado_hasta);
+  if (dias > 5) return;
+  avisoMesMostrado = true;
+  toast(dias > 0 ? `Tu mes de Cobranzas vence en ${dias} día(s). Pagalo desde Más → Suscripción.` : 'Tu mes de Cobranzas venció hoy. Pagalo desde Más → Suscripción para no perder el acceso.', dias <= 1);
+}
 async function arrancarApp() {
+  await confirmarVueltaMercadoPago();
   const token = getToken();
   try {
     const usuario = await api('/auth/yo');
@@ -2102,6 +2127,7 @@ async function arrancarApp() {
     const negocios = await api('/negocios');
     if (token !== getToken()) return;
     state.usuario = usuario; state.negocios = negocios;
+    avisoVencimientoMes(usuario.plataforma?.cuenta);
   } catch { return; }
   if(state.negocioActual && !state.negocios.some(n=>n.id===state.negocioActual))state.negocioActual=null;
   document.querySelectorAll('.nav-item').forEach(a=>{ const p={inicio:'dashboard_financiero.ver',clientes:'clientes.ver',cobrar:'cobranzas.ver',calendario:'cobranzas.ver'}[a.dataset.route];a.hidden=!!p&&!puede(p,null); });
@@ -2463,32 +2489,35 @@ const TEXTO_SUSCRIPCION = {
   activa: ['Tu suscripción está al día', 'El cobro se hace solo todos los meses con el medio de pago que elegiste.'],
   exenta: ['Cuenta sin cargo', 'Esta cuenta no paga suscripción.'],
 };
+function diasHasta(iso) { return iso ? Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000) : null; }
 async function viewSuscripcion(view) {
   if (!esSaaS()) { setHTML(view, notFound()); return; }
   const c = await api('/suscripcion');
-  const [titulo, texto] = TEXTO_SUSCRIPCION[c.estado] || ['Suscripción', ''];
   const admin = state.usuario?.rol === 'administrador';
-  const debePagar = !['activa', 'exenta'].includes(c.estado);
+  const mesAMes = !!c.pagado_hasta && !c.debito_automatico && c.estado !== 'exenta';
+  const vencida = mesAMes && !c.habilitada;
+  let [titulo, texto] = TEXTO_SUSCRIPCION[c.estado] || ['Suscripción', ''];
+  if (vencida) [titulo, texto] = ['Se venció tu mes', 'Tus datos siguen guardados. Pagá un mes para volver a usar la app.'];
+  else if (mesAMes && c.habilitada) [titulo, texto] = ['Tu mes está pago', `Tenés acceso hasta el ${fmtFecha(String(c.pagado_hasta).slice(0, 10))}. Unos días antes te avisamos para que pagues el mes siguiente.`];
+  const puedePagar = admin && c.estado !== 'exenta' && !c.debito_automatico;
   setHTML(view, `<div class="card" style="max-width:520px;margin:24px auto">
     <h2 style="margin:0 0 8px">${esc(titulo)}</h2>
     <p class="field-hint" style="font-size:15px">${esc(texto)}</p>
     ${c.precio_centavos && c.estado !== 'exenta' ? `<p style="font-size:15px">Plan Cobranzas: <strong>${esc(formatARS(c.precio_centavos))} por mes</strong>, sin límites.</p>` : ''}
-    ${c.estado === 'pago_rechazado' && c.habilitada ? `<p class="field-hint">Tenés ${esc(c.dias_gracia)} días desde el primer rechazo para regularizar el pago.</p>` : ''}
-    <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px">
-      ${debePagar && admin ? `<div class="pago-opcion"><h3 style="margin:0 0 4px">Pagar con tarjeta de crédito o débito</h3>
-        <p class="field-hint" style="margin:0 0 8px">Cargás los datos de la tarjeta y listo. No hace falta tener cuenta de Mercado Pago. Se cobra solo cada mes.</p>
-        ${c.mp_public_key ? '<div id="suscTarjeta"><p class="field-hint">Cargando el formulario seguro de pago…</p></div>' : '<p class="field-hint">El pago con tarjeta todavía no está disponible.</p>'}</div>
-      <div class="pago-opcion"><h3 style="margin:0 0 4px">Pagar con mi cuenta de Mercado Pago</h3>
-        <p class="field-hint" style="margin:0 0 8px">Te lleva a Mercado Pago para pagar con tu dinero en cuenta o tus tarjetas guardadas.</p>
-        <details><summary class="field-hint" style="cursor:pointer">¿Tu Mercado Pago usa otro correo?</summary>
-          <div class="field" style="margin-top:8px"><label for="suscEmailPago">Correo de tu cuenta de Mercado Pago</label><input id="suscEmailPago" type="email" maxlength="254" value="${esc(c.email_pago || c.email || '')}" /></div></details>
-        <button class="btn btn-secondary btn-block" style="margin-top:8px" data-action="suscripcion-pagar">Ir a Mercado Pago</button></div>` : ''}
-      ${debePagar && !admin ? '<p class="field-hint">Pedile al dueño de la cuenta que regularice el pago.</p>' : ''}
-      ${debePagar ? '<button class="btn btn-secondary btn-block" data-action="suscripcion-actualizar">Ya pagué, actualizar</button>' : ''}
+    ${c.estado === 'pago_rechazado' && c.habilitada && !mesAMes ? `<p class="field-hint">Tenés ${esc(c.dias_gracia)} días desde el primer rechazo para regularizar el pago.</p>` : ''}
+    <div style="display:flex;flex-direction:column;gap:12px;margin-top:16px">
+      ${puedePagar ? `<div class="pago-opcion"><h3 style="margin:0 0 4px">${mesAMes ? 'Pagar otro mes' : 'Pagar un mes'}</h3>
+        <p class="field-hint" style="margin:0 0 8px">Con <strong>cualquier tarjeta</strong> (también Lemon, Ualá y otras prepagas) o con <strong>dinero disponible en Mercado Pago</strong>. Te da 30 días de acceso${mesAMes && c.habilitada ? ', que se suman a los que te quedan' : ''}. Cada mes te avisamos para que pagues el siguiente.</p>
+        <button class="btn btn-primary btn-block btn-lg" data-action="suscripcion-pagar-mes">Pagar un mes</button></div>
+      <div class="pago-opcion"><h3 style="margin:0 0 4px">Débito automático con tarjeta</h3>
+        <p class="field-hint" style="margin:0 0 8px">Se cobra solo todos los meses y no tenés que acordarte. Funciona con tarjetas de banco, crédito o débito. Mercado Pago no acepta algunas prepagas para el débito automático: si la tuya no pasa, usá "Pagar un mes".</p>
+        ${c.mp_public_key ? '<div id="suscTarjeta"><p class="field-hint">Cargando el formulario seguro de pago…</p></div>' : '<p class="field-hint">El débito automático todavía no está disponible.</p>'}</div>` : ''}
+      ${!c.habilitada && !admin ? '<p class="field-hint">Pedile al dueño de la cuenta que regularice el pago.</p>' : ''}
+      ${!c.habilitada ? '<button class="btn btn-secondary btn-block" data-action="suscripcion-actualizar">Ya pagué, actualizar</button>' : ''}
       ${c.habilitada ? '<button class="btn btn-secondary btn-block" data-action="suscripcion-actualizar">Ir a la app</button>' : ''}
       <button class="btn btn-secondary btn-block" data-action="logout">Cerrar sesión</button>
     </div></div>`);
-  if (debePagar && admin && c.mp_public_key) montarPagoTarjeta(c).catch(() => { const box = document.getElementById('suscTarjeta'); if (box) box.textContent = 'No se pudo cargar el formulario de pago. Recargá la página o pagá con Mercado Pago.'; });
+  if (puedePagar && c.mp_public_key) montarPagoTarjeta(c).catch(() => { const box = document.getElementById('suscTarjeta'); if (box) box.textContent = 'No se pudo cargar el formulario de pago. Recargá la página o usá "Pagar un mes".'; });
 }
 // Formulario seguro de Mercado Pago: los datos de la tarjeta nunca pasan por
 // nuestro servidor, solo el token que devuelve Mercado Pago.
