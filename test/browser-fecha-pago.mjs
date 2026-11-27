@@ -18,6 +18,7 @@ import {crearVenta} from '../src/services/ventasService.js';
 import {registrarPago} from '../src/services/pagosService.js';
 import {guardarCaja,abrirCaja,cerrarCaja} from '../src/services/cajaService.js';
 import {todayAR,addDays,addMonths} from '../src/lib/dates.js';
+import {expandirFicha} from './ficha-expandida.mjs';
 
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE||'/workspace/zilky-browser-tools/node_modules/playwright-core/index.mjs');
 const output=process.env.BROWSER_ARTIFACTS||'/workspace/zilky-pagos-browser';
@@ -93,7 +94,7 @@ try {
     await ctx.route('**/*',route=>{const url=route.request().url();if(new URL(url).origin===base)return route.continue();externalRequestsBlocked.push(url);return route.abort('blockedbyclient');});
     ctx.on('page',p=>p.on('pageerror',error=>errors.push(error.message)));
   };
-  await restrict(context);page=await context.newPage();page.setDefaultTimeout(15000);
+  await restrict(context);await expandirFicha(context);page=await context.newPage();page.setDefaultTimeout(15000);
   const login=async(p,email)=>{
     await p.goto(base);await p.locator('#authEmail').fill(email);await p.locator('#authPassword').fill(password);await p.locator('#authSubmit').click();
     await p.locator('#root').waitFor({state:'visible'});
@@ -190,7 +191,7 @@ try {
   await check('Empleado puede ver el historial pero no recibe el editor ni obtiene permiso por acceso directo',async()=>{
     const ctx=await browser.newContext({viewport:{width:390,height:844},locale:'es-AR',timezoneId:'UTC',colorScheme:'dark',serviceWorkers:'block'});
     try {
-      await restrict(ctx);const p=await ctx.newPage();await login(p,employee.email);await showHistory(p);
+      await restrict(ctx);await expandirFicha(ctx);const p=await ctx.newPage();await login(p,employee.email);await showHistory(p);
       assert.equal(await p.locator('[data-action="corregir-fecha-pago"]').count(),0);
       const status=await p.evaluate(async id=>{const r=await fetch(`/api/pagos/${id.pago}/correccion-fecha?negocio_id=${id.negocio}`,{headers:{Authorization:`Bearer ${localStorage.getItem('zilky_token')}`}});return r.status;},{pago:p2.id,negocio:store.id});
       assert.equal(status,403);await history(p).scrollIntoViewIfNeeded();await capture('05-historial-empleado-movil',p);

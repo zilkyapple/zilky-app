@@ -16,6 +16,7 @@ import {crearVenta} from '../src/services/ventasService.js';
 import {registrarPago} from '../src/services/pagosService.js';
 import {agregarIncidencia} from '../src/services/incidenciasService.js';
 import {todayAR,addDays} from '../src/lib/dates.js';
+import {expandirFicha} from './ficha-expandida.mjs';
 
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE||'playwright-core');
 const output=process.env.BROWSER_ARTIFACTS||'/tmp/zilky-fechas-browser';
@@ -90,7 +91,7 @@ try {
     externalRequestsBlocked.push(url);return route.abort('blockedbyclient');
   });
   context.on('page',p=>{p.on('pageerror',error=>errors.push(error.message));});
-  page=await context.newPage();
+  await expandirFicha(context);page=await context.newPage();
   page.setDefaultTimeout(15000);
   const card=p=>p.locator('.credito-card').filter({has:p.locator(`[data-credito="${creditId}"]`)});
   const editButton=p=>p.locator(`[data-action="corregir-financiacion"][data-credito="${creditId}"]:not([data-cuota])`);
@@ -143,8 +144,8 @@ try {
     await capture('01-editor-fechas-escritorio');
     await saveCorrection();
     await page.reload();await editButton(page).waitFor();await chooseStore(page,store.id);
-    assert.match(await card(page).innerText(),new RegExp(`Compra: ${fmt(purchase)}`));
-    assert.match(await card(page).innerText(),new RegExp(`Entrega / retiro del producto por el cliente: ${fmt(delivery)}`));
+    assert.match(await card(page).innerText(),new RegExp(`Fecha de la compra\\s*${fmt(purchase)}`));
+    assert.match(await card(page).innerText(),new RegExp(`Entrega / retiro del producto\\s*${fmt(delivery)}`));
     await capture('02-ficha-fechas-escritorio');
   });
 
@@ -234,7 +235,7 @@ try {
     const employeeContext=await browser.newContext({viewport:{width:390,height:844},locale:'es-AR',colorScheme:'dark',serviceWorkers:'block'});
     try {
       await employeeContext.route('**/*',route=>new URL(route.request().url()).origin===base?route.continue():route.abort('blockedbyclient'));
-      const employeePage=await employeeContext.newPage();employeePage.on('pageerror',error=>errors.push(error.message));
+      await expandirFicha(employeeContext);const employeePage=await employeeContext.newPage();employeePage.on('pageerror',error=>errors.push(error.message));
       await login(employeePage,employee.email);await clientRoute(employeePage);
       assert.equal(await employeePage.locator('.credito-card').count(),1);
       assert.equal(await employeePage.locator('[data-action="corregir-financiacion"], [data-action="corregir-fecha-incidencia"]').count(),0);

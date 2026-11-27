@@ -14,6 +14,7 @@ import {crearProducto} from '../src/repositories/productos.js';
 import {crearVenta} from '../src/services/ventasService.js';
 import {registrarPago} from '../src/services/pagosService.js';
 import {todayAR,addDays,addMonths} from '../src/lib/dates.js';
+import {expandirFicha} from './ficha-expandida.mjs';
 
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE||'playwright-core');
 const output=process.env.BROWSER_ARTIFACTS||'/tmp/zilky-permiso-cuotas-browser';
@@ -69,7 +70,7 @@ try {
   const adminContext=await browser.newContext({viewport:{width:1440,height:1050},locale:'es-AR',colorScheme:'dark',serviceWorkers:'block'});
   const employeeContext=await browser.newContext({viewport:{width:390,height:844},locale:'es-AR',colorScheme:'dark',serviceWorkers:'block'});
   await restrict(adminContext);await restrict(employeeContext);
-  adminPage=await adminContext.newPage();employeePage=await employeeContext.newPage();
+  await expandirFicha(adminContext);await expandirFicha(employeeContext);adminPage=await adminContext.newPage();employeePage=await employeeContext.newPage();
   for(const page of [adminPage,employeePage])page.setDefaultTimeout(15000);
   employeePage.on('request',request=>{if(request.method()==='PATCH'&&new URL(request.url()).pathname.endsWith('/correccion'))correctionRequests.push(request.postDataJSON());});
   const login=async(page,email)=>{

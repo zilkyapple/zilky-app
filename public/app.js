@@ -929,7 +929,7 @@ function creditoCardHtml(cr, pagosCliente = []) {
             <div><span>Fue a mora</span><strong>${esc(formatARS(pagadoMora))}</strong></div>
             <div><span>Pagos</span><strong>${esc(pagosValidos.length)}</strong></div>
           </div>
-          ${pagos.length ? `<div class="compra-pagos-lista">${pagos.map(p => pagoHistorialHtml(p)).join('')}</div>` : '<p class="field-hint">Todavía no hay pagos registrados para esta compra.</p>'}
+          ${pagos.length ? `<div class="compra-pagos-lista">${pagos.map(compraPagoHtml).join('')}</div><p class="field-hint">Para corregir la fecha de un pago, usá el Historial de pagos del cliente.</p>` : '<p class="field-hint">Todavía no hay pagos registrados para esta compra.</p>'}
         </div>
 
         <div class="compra-panel" data-panel="info" hidden>
@@ -972,6 +972,19 @@ function creditoCardHtml(cr, pagosCliente = []) {
       </details>
     </div>
   `;
+}
+// Fila de solo lectura: las correcciones siguen en el Historial de pagos del cliente,
+// así cada pago tiene un único botón de corrección en la pantalla.
+function compraPagoHtml(p) {
+  const momento = fechaHoraPagoAR(p.fecha_hora);
+  const desglose = !['entrega_inicial','pedido_web'].includes(p.tipo) && Number.isSafeInteger(p.capital_aplicado_centavos) && Number.isSafeInteger(p.mora_aplicada_centavos);
+  return `<div class="compra-pago${p.anulado ? ' compra-pago-anulado' : ''}">
+    <div class="compra-pago-top"><div><div class="compra-pago-tipo">${esc(etiquetaPago(p.tipo))} · ${esc(p.medio_pago || '')}${p.anulado ? ' · <span class="dato-mal">ANULADO</span>' : ''}</div>
+      <div class="field-hint">${esc(fmtFecha(momento.fecha))} ${esc(momento.hora.slice(0,5))}</div></div>
+      <strong class="compra-pago-monto">+${esc(formatARS(p.monto_centavos))}</strong></div>
+    ${desglose ? `<div class="compra-pago-desglose"><span>A capital <b>${esc(formatARS(p.capital_aplicado_centavos))}</b></span><span class="${esc(p.mora_aplicada_centavos > 0 ? 'dato-mal' : '')}">A mora <b>${esc(formatARS(p.mora_aplicada_centavos))}</b></span>${p.remanente_centavos > 0 ? `<span>A saldo a favor <b>${esc(formatARS(p.remanente_centavos))}</b></span>` : ''}</div>` : ''}
+    ${(p.aplicaciones||[]).length ? `<div class="field-hint">${p.aplicaciones.map(a => `Cuota ${esc(a.numero)}`).join(' · ')}</div>` : ''}
+  </div>`;
 }
 function cambiarPestanaCompra(boton) {
   const card = boton.closest('.compra-card');

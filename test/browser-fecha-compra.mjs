@@ -14,6 +14,7 @@ import {crearProducto,getProducto} from '../src/repositories/productos.js';
 import {registrarPago} from '../src/services/pagosService.js';
 import {configurarComision,configurarProductoComision} from '../src/services/comisionesService.js';
 import {todayAR,addDays,addMonths} from '../src/lib/dates.js';
+import {expandirFicha} from './ficha-expandida.mjs';
 
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE||'playwright-core');
 const output=process.env.BROWSER_ARTIFACTS||'/tmp/zilky-fecha-compra-browser';
@@ -47,7 +48,7 @@ try {
   const context=await browser.newContext({viewport:{width:1440,height:1050},locale:'es-AR',timezoneId:'Pacific/Honolulu',colorScheme:'dark',serviceWorkers:'block'});
   await context.route('**/*',route=>{const url=route.request().url();if(new URL(url).origin===base)return route.continue();externalRequestsBlocked.push(url);return route.abort('blockedbyclient');});
   context.on('page',p=>p.on('pageerror',error=>errors.push(error.message)));
-  page=await context.newPage();page.setDefaultTimeout(15000);
+  await expandirFicha(context);page=await context.newPage();page.setDefaultTimeout(15000);
   page.on('request',request=>{if(request.method()==='POST'&&new URL(request.url()).pathname==='/api/ventas')saleRequests.push(request.postDataJSON());});
   const capture=async(name,{fullPage=true}={})=>{
     await page.waitForFunction(()=>!document.querySelector('.toast'));
@@ -88,7 +89,7 @@ try {
     assert.equal(sale.entregaInicial.pago.fecha_hora.slice(0,10),purchase);assert.equal(sale.entregaInicial.pago.monto_centavos,20000000);
     assert.equal((await getProducto(product.id)).stock,7);
     const saved=await db.prepare('SELECT * FROM ventas WHERE id=?').get(sale.venta.id);assert.equal(saved.fecha,purchase);assert.equal(saved.vendedor_id,seller.id);
-    await page.locator('.credito-card').waitFor();assert.match(await page.locator('.credito-card').innerText(),new RegExp('Compra: '+fmt(purchase)));
+    await page.locator('.credito-card').waitFor();assert.match(await page.locator('.credito-card').innerText(),new RegExp('Fecha de la compra\\s*'+fmt(purchase)));
   });
 
   await check('La comisión de la venta corresponde al mes de compra y no al mes de la primera cuota',async()=>{

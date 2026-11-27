@@ -523,3 +523,12 @@ label.cm-check { flex-direction:row;align-items:center;line-height:1.5;gap:10px;
 }
 .client-section .compra-ver, .client-section[open] .compra-ver { font-size:13px; font-weight:600; margin-bottom:0; }
 .compra-acciones:empty { display:none; }
+.compra-pago { padding:12px 0; border-top:1px solid var(--border-soft); }
+.compra-pago:first-child { border-top:none; }
+.compra-pago-top { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+.compra-pago-tipo { font-weight:600; font-size:14px; }
+.compra-pago-monto { color:var(--success); font-size:16px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.compra-pago-anulado .compra-pago-monto { color:var(--text-faint); text-decoration:line-through; }
+.compra-pago-desglose { display:flex; flex-wrap:wrap; gap:4px 14px; margin-top:6px; font-size:12.5px; color:var(--text-muted); }
+.compra-pago-desglose b { color:var(--text); font-weight:600; white-space:nowrap; }
+.compra-pago-desglose .dato-mal b { color:var(--danger); }
