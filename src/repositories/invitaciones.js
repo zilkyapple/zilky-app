@@ -1,4 +1,4 @@
-import { db } from '../db/connection.js';
+import { db, esquemaActual } from '../db/connection.js';
 import { id } from '../lib/id.js';
 import { randomBytes, createHash } from 'node:crypto';
 
@@ -12,11 +12,16 @@ export async function crearInvitacion({ email, nombre, organizacion_id, negocios
   const tokenHash = hashToken(token);
   const expira = new Date();
   expira.setDate(expira.getDate() + 7);
-  await db.prepare(`
-    INSERT INTO invitaciones (id, token_hash, email, nombre, organizacion_id, negocios, expira_en, creado_por)
-    VALUES (?,?,?,?,?,?,?,?)
-  `).run(invId, tokenHash, email.toLowerCase().trim(), nombre || null, organizacion_id || null,
-    JSON.stringify(negocios || []), expira.toISOString(), creado_por || null);
+  await db.transaction(async () => {
+    await db.prepare(`
+      INSERT INTO invitaciones (id, token_hash, email, nombre, organizacion_id, negocios, expira_en, creado_por)
+      VALUES (?,?,?,?,?,?,?,?)
+    `).run(invId, tokenHash, email.toLowerCase().trim(), nombre || null, organizacion_id || null,
+      JSON.stringify(negocios || []), expira.toISOString(), creado_por || null);
+    // Edición de venta: el enlace de invitación tiene que saber a qué cuenta entra.
+    const esquema = esquemaActual();
+    if (esquema) await db.query('INSERT INTO public.plataforma_invitaciones (token_hash, esquema) VALUES ($1,$2)', [tokenHash, esquema]);
+  });
   return { invitacion: await getInvitacion(invId), token };
 }
 

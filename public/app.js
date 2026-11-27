@@ -48,7 +48,7 @@ const clearToken = () => localStorage.removeItem(TOKEN_KEY);
 function showAuthScreen() {
   state.usuario = null; state.negocios = []; state.negocioActual = null;
   document.getElementById('negocioNombre').textContent = 'Todos los negocios';
-  document.getElementById('brandMark').textContent = 'Z';
+  document.getElementById('brandMark').textContent = esSaaS() ? 'C' : 'Z';
   aplicarClaseNegocio();
   setHTML(document.getElementById('view'), '');
   closeSheet();
@@ -73,6 +73,7 @@ async function api(path, opts = {}) {
     clearToken();
     showAuthScreen();
   }
+  if (res.status === 402 && body?.code === 'SUSCRIPCION_INACTIVA' && path !== '/suscripcion' && location.hash !== '#/suscripcion') location.hash = '#/suscripcion';
   if (!res.ok) throw Object.assign(new Error(body?.error || `Error ${res.status}`), {status:res.status,...(typeof body?.code==='string'?{code:body.code}:{})});
   return body;
 }
@@ -263,7 +264,10 @@ async function render() {
     return;
   }
 
+  if ((root === 'tienda' && !funcionOn('tienda')) || (root === 'tiendanube' && !funcionOn('tiendanube'))) { setHTML(view, notFound()); return; }
   try {
+    if (root === 'suscripcion') { await viewSuscripcion(view); return; }
+    if (root === 'plataforma') { await viewPlataforma(view); return; }
     if (root === 'inicio') await viewInicio(view);
     else if (root === 'clientes' && parts[1]) await viewClienteDetail(view, parts[1]);
     else if (root === 'clientes') await viewClientes(view);
@@ -1642,9 +1646,11 @@ async function viewMas(view) {
   setHTML(view, `
     <div class="section-title">Más</div>
     <a class="list-item" href="#/productos"><span class="avatar">${iconProductos()}</span><div class="list-item-body"><div class="list-item-title">Productos y stock</div></div><span class="chev">${iconChevron()}</span></a>
-    <a class="list-item" href="#/tienda"><span class="avatar">${iconProductos()}</span><div class="list-item-body"><div class="list-item-title">Tienda web y pedidos</div><div class="list-item-sub">Catálogo para compartir con tus clientes</div></div><span class="chev">${iconChevron()}</span></a>
-    ${state.usuario?.rol==='administrador'?'<a class="list-item" href="#/tiendanube"><div class="list-item-body"><div class="list-item-title">Conexión con Tiendanube</div><div class="list-item-sub">Autorizar cuenta y vincular talles y colores</div></div></a>':''}
-    ${(state.usuario?.rol==='administrador'||(puede('tienda.pedidos')&&puede('ventas.crear')))?'<a class="list-item" href="#/tiendanube/pedidos"><div class="list-item-body"><div class="list-item-title">Pedidos Tiendanube</div><div class="list-item-sub">Confirmar entrega y dinero realmente recibido</div></div></a>':''}
+    ${plataforma()?.duena?`<a class="list-item" href="#/plataforma"><span class="avatar">★</span><div class="list-item-body"><div class="list-item-title">Panel de la plataforma</div><div class="list-item-sub">Suscriptores, descarga para Excel y funciones</div></div><span class="chev">${iconChevron()}</span></a>`:''}
+    ${plataforma()&&state.usuario?.rol==='administrador'?`<a class="list-item" href="#/suscripcion"><span class="avatar">$</span><div class="list-item-body"><div class="list-item-title">Suscripción</div><div class="list-item-sub">Estado y pago mensual</div></div><span class="chev">${iconChevron()}</span></a>`:''}
+    ${funcionOn('tienda')?`<a class="list-item" href="#/tienda"><span class="avatar">${iconProductos()}</span><div class="list-item-body"><div class="list-item-title">Tienda web y pedidos</div><div class="list-item-sub">Catálogo para compartir con tus clientes</div></div><span class="chev">${iconChevron()}</span></a>`:''}
+    ${funcionOn('tiendanube')&&state.usuario?.rol==='administrador'?'<a class="list-item" href="#/tiendanube"><div class="list-item-body"><div class="list-item-title">Conexión con Tiendanube</div><div class="list-item-sub">Autorizar cuenta y vincular talles y colores</div></div></a>':''}
+    ${funcionOn('tiendanube')&&(state.usuario?.rol==='administrador'||(puede('tienda.pedidos')&&puede('ventas.crear')))?'<a class="list-item" href="#/tiendanube/pedidos"><div class="list-item-body"><div class="list-item-title">Pedidos Tiendanube</div><div class="list-item-sub">Confirmar entrega y dinero realmente recibido</div></div></a>':''}
     <a class="list-item" href="#/comprobantes"><span class="avatar">🧾</span><div class="list-item-body"><div class="list-item-title">Comprobantes</div></div><span class="chev">${iconChevron()}</span></a>
     <a class="list-item" href="#/configuracion"><span class="avatar">⚙️</span><div class="list-item-body"><div class="list-item-title">Configuración del negocio</div></div><span class="chev">${iconChevron()}</span></a>
     <a class="list-item" href="#/empleados"><span class="avatar">👥</span><div class="list-item-body"><div class="list-item-title">Empleados y permisos</div></div><span class="chev">${iconChevron()}</span></a>
@@ -1883,6 +1889,13 @@ document.addEventListener('click', async (e) => {
     setHTML(document.getElementById('vClienteResultados'), '');
   }
   else if (action === 'crear-cliente-inline') abrirCrearCliente();
+  else if (action === 'suscripcion-pagar') { el.disabled=true; try { const inp=document.getElementById('suscEmailPago'); const r=await api('/suscripcion/pagar',{method:'POST',body:JSON.stringify(inp?{email_pago:inp.value.trim()}:{})}); if(r?.init_point) location.href=r.init_point; } catch(err){ toast(err.message,true); el.disabled=false; } }
+  else if (action === 'suscripcion-pagar-mes') { el.disabled=true; try { const r=await api('/suscripcion/pagar-mes',{method:'POST',body:'{}'}); if(r?.init_point) location.href=r.init_point; } catch(err){ toast(err.message,true); el.disabled=false; } }
+  else if (action === 'suscripcion-actualizar') { location.hash = '#/inicio'; await arrancarApp(); }
+  else if (action === 'plataforma-exportar') { try { const r=await api('/plataforma-admin/cuentas/exportar'); const blob=new Blob([r.csv],{type:'text/csv;charset=utf-8'}); const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=r.filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000); } catch(err){ toast(err.message,true); } }
+  else if (action === 'plataforma-precio-guardar') { try { const usd=Number(document.getElementById('platUsd').value), cotizacion=Number(document.getElementById('platCot').value); const r=await api('/plataforma-admin/precio',{method:'PUT',body:JSON.stringify({usd,cotizacion})}); toast(`Precio guardado: ${formatARS(r.ajuste.centavos)} por mes`); render(); } catch(err){ toast(err.message,true); } }
+  else if (action === 'plataforma-precio-aplicar') { el.disabled=true; try { const r=await api('/plataforma-admin/precio/aplicar',{method:'POST'}); toast(`Listo: ${r.actualizadas} actualizada(s)${r.errores.length?`, ${r.errores.length} con error`:''}`, r.errores.length>0); } catch(err){ toast(err.message,true); } el.disabled=false; }
+  else if (action === 'plataforma-funcion') { try { await api(`/plataforma-admin/funciones/${encodeURIComponent(el.dataset.clave)}`,{method:'PUT',body:JSON.stringify({habilitada:el.dataset.on!=='1'})}); toast('Listo'); render(); } catch(err){ toast(err.message,true); } }
   else if (action === 'logout') { clearToken();state.usuario=null;state.negocios=[];state.negocioActual=null;closeSheet();showAuthScreen(); }
 });
 
@@ -2048,8 +2061,9 @@ function wireAuthScreen() {
     authMode = btn.dataset.mode;
     document.querySelectorAll('#authTabs button').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
-    document.getElementById('authNombreField').style.display = authMode === 'registro' ? 'block' : 'none';
-    document.getElementById('authSubmit').textContent = authMode === 'registro' ? 'Crear cuenta' : 'Entrar';
+    document.getElementById('authNombreField').style.display = ['registro','alta'].includes(authMode) ? 'block' : 'none';
+    document.getElementById('authAltaFields').style.display = authMode === 'alta' ? 'block' : 'none';
+    document.getElementById('authSubmit').textContent = authMode === 'alta' ? 'Crear cuenta y pagar con tarjeta o Mercado Pago' : authMode === 'registro' ? 'Crear cuenta' : 'Entrar';
     document.getElementById('authError').style.display = 'none';
   });
   document.getElementById('authSubmit').addEventListener('click', async () => {
@@ -2060,6 +2074,14 @@ function wireAuthScreen() {
     errBox.style.display = 'none';
     if (!email || !password) { errBox.textContent = 'Completá email y contraseña.'; errBox.style.display = 'block'; return; }
     try {
+      if (authMode === 'alta') {
+        const negocio = document.getElementById('authNegocio').value.trim(), telefono = document.getElementById('authTelefono').value.trim();
+        if (!nombre || !negocio || !telefono) { errBox.textContent = 'Completá tu nombre, el negocio y el teléfono.'; errBox.style.display = 'block'; return; }
+        const data = await api('/plataforma/registro', { method: 'POST', body: JSON.stringify({ nombre, negocio, telefono, email, password }) });
+        setToken(data.token);
+        location.hash = '#/suscripcion';
+        await arrancarApp(); return;
+      }
       const body = authMode === 'registro' ? { email, password, nombre } : { email, password };
       const data = await api(`/auth/${authMode === 'registro' ? 'registro' : 'login'}`, { method: 'POST', body: JSON.stringify(body) });
       setToken(data.token);
@@ -2068,14 +2090,44 @@ function wireAuthScreen() {
   });
 }
 
+// Al volver de pagar un mes en Mercado Pago se confirma el pago enseguida.
+async function confirmarVueltaMercadoPago() {
+  const q = new URLSearchParams(location.search);
+  if (q.get('mp') !== 'mes') return;
+  const paymentId = q.get('payment_id') || q.get('collection_id');
+  const estado = q.get('status') || q.get('collection_status');
+  history.replaceState(null, '', location.pathname + '#/suscripcion');
+  if (!paymentId || paymentId === 'null') { if (estado && estado !== 'approved') toast('El pago no se completó. Podés intentarlo de nuevo.', true); return; }
+  try {
+    const r = await api('/suscripcion/confirmar-mes', { method: 'POST', body: JSON.stringify({ payment_id: paymentId }) });
+    if (r.pagado_hasta && r.estado === 'activa') { toast(`¡Listo! Pagaste hasta el ${fmtFecha(String(r.pagado_hasta).slice(0, 10))}.`); location.hash = '#/inicio'; }
+    else if (r.pago === 'pending' || r.pago === 'in_process') toast('Tu pago está pendiente. Cuando Mercado Pago lo apruebe se activa solo.');
+    else if (r.pago) toast('Mercado Pago no aprobó el pago. Probá con otro medio.', true);
+  } catch (err) { toast(err.message, true); }
+}
+let avisoMesMostrado = false;
+function avisoVencimientoMes(cuenta) {
+  if (avisoMesMostrado || !cuenta?.pagado_hasta || cuenta.debito_automatico || cuenta.estado === 'exenta') return;
+  const dias = diasHasta(cuenta.pagado_hasta);
+  if (dias > 5) return;
+  avisoMesMostrado = true;
+  toast(dias > 0 ? `Tu mes de Cobranzas vence en ${dias} día(s). Pagalo desde Más → Suscripción.` : 'Tu mes de Cobranzas venció hoy. Pagalo desde Más → Suscripción para no perder el acceso.', dias <= 1);
+}
 async function arrancarApp() {
+  await confirmarVueltaMercadoPago();
   const token = getToken();
   try {
     const usuario = await api('/auth/yo');
     if (token !== getToken()) return;
+    if (usuario.plataforma && !usuario.plataforma.cuenta?.habilitada) {
+      state.usuario = usuario; state.negocios = []; hideAuthScreen();
+      if (location.hash !== '#/suscripcion') location.hash = '#/suscripcion'; else render();
+      return;
+    }
     const negocios = await api('/negocios');
     if (token !== getToken()) return;
     state.usuario = usuario; state.negocios = negocios;
+    avisoVencimientoMes(usuario.plataforma?.cuenta);
   } catch { return; }
   if(state.negocioActual && !state.negocios.some(n=>n.id===state.negocioActual))state.negocioActual=null;
   document.querySelectorAll('.nav-item').forEach(a=>{ const p={inicio:'dashboard_financiero.ver',clientes:'clientes.ver',cobrar:'cobranzas.ver',calendario:'cobranzas.ver'}[a.dataset.route];a.hidden=!!p&&!puede(p,null); });
@@ -2085,7 +2137,17 @@ async function arrancarApp() {
 }
 
 (async function init() {
+  cargarConfigPlataforma();
   wireAuthScreen();
+  // Desde la página de venta: "Empezar" abre el alta e "Ingresar" el inicio de sesión.
+  const desdeVenta = ['#/crear-cuenta', '#/ingresar'].includes(location.hash) ? location.hash : null;
+  if (desdeVenta && getToken()) history.replaceState({}, '', location.pathname + '#/inicio');
+  if (desdeVenta && !getToken()) {
+    history.replaceState({}, '', location.pathname);
+    showAuthScreen();
+    if (desdeVenta === '#/crear-cuenta' && esSaaS()) document.querySelector('#authTabs [data-mode="alta"]')?.click();
+    return;
+  }
   if (new URLSearchParams(location.search).get('token')) { await renderAceptarInvitacion(); return; }
   if (!getToken()) { showAuthScreen(); return; }
   await arrancarApp();
@@ -2399,3 +2461,120 @@ async function viewCaja(view) {
 function movHtml(m){return `<p>${esc(new Date(m.fecha).toLocaleString('es-AR',{timeZone:'America/Argentina/Cordoba'}))} · ${esc(m.negocio)} · ${esc(m.concepto)} · ${esc(m.medio)} · <strong>${esc(cajaMoney(m.monto))}</strong></p>`;}
 async function cajaSubmit(form,save,done){const buttons=[...form.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);try{await save();await done();}catch(e){form.querySelector('#cajaError').textContent=e.message;}finally{buttons.forEach(b=>b.disabled=false);}}
 
+
+
+// ---------------- Edición de venta (Cobranzas) ----------------
+// Sin EDICION=saas en el servidor nada de esto cambia la app.
+function esSaaS() { return state.config?.edicion === 'saas'; }
+function plataforma() { return state.usuario?.plataforma || null; }
+function funcionOn(clave) { return !plataforma() || !!plataforma().funciones?.[clave]; }
+// El servidor publica la edición en /plataforma-config.js (sin pedidos extra al arrancar).
+function cargarConfigPlataforma() {
+  state.config = { edicion: window.ZILKY_EDICION === 'saas' ? 'saas' : 'propia' };
+  if (!esSaaS()) return;
+  document.title = 'Cobranzas';
+  document.querySelectorAll('.auth-brand strong').forEach(e => { e.textContent = 'Cobranzas'; });
+  document.querySelectorAll('.auth-brand .brand-mark').forEach(e => { e.textContent = 'C'; });
+  const mark = document.getElementById('brandMark'); if (mark) mark.textContent = 'C';
+  const tabs = document.getElementById('authTabs');
+  if (tabs && !tabs.querySelector('[data-mode="alta"]')) {
+    const b = document.createElement('button'); b.type = 'button'; b.dataset.mode = 'alta'; b.textContent = 'Crear cuenta'; tabs.append(b);
+  }
+}
+const TEXTO_SUSCRIPCION = {
+  pendiente_pago: ['Falta completar el pago', 'Para empezar a usar Cobranzas pagá la suscripción con tarjeta de crédito, débito o Mercado Pago. Si ya pagaste, puede tardar unos minutos en confirmarse.'],
+  pago_rechazado: ['No pudimos cobrar este mes', 'Mercado Pago va a volver a intentar el cobro. Revisá tu tarjeta o pagá con otro medio para no perder el acceso.'],
+  bloqueada: ['Tu cuenta está pausada', 'No pudimos cobrar la suscripción. Tus datos siguen guardados: pagá para volver a usar la app.'],
+  cancelada: ['Tu suscripción está cancelada', 'Tus datos siguen guardados. Podés reactivarla cuando quieras.'],
+  activa: ['Tu suscripción está al día', 'El cobro se hace solo todos los meses con el medio de pago que elegiste.'],
+  exenta: ['Cuenta sin cargo', 'Esta cuenta no paga suscripción.'],
+};
+function diasHasta(iso) { return iso ? Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000) : null; }
+async function viewSuscripcion(view) {
+  if (!esSaaS()) { setHTML(view, notFound()); return; }
+  const c = await api('/suscripcion');
+  const admin = state.usuario?.rol === 'administrador';
+  const mesAMes = !!c.pagado_hasta && !c.debito_automatico && c.estado !== 'exenta';
+  const vencida = mesAMes && !c.habilitada;
+  let [titulo, texto] = TEXTO_SUSCRIPCION[c.estado] || ['Suscripción', ''];
+  if (vencida) [titulo, texto] = ['Se venció tu mes', 'Tus datos siguen guardados. Pagá un mes para volver a usar la app.'];
+  else if (mesAMes && c.habilitada) [titulo, texto] = ['Tu mes está pago', `Tenés acceso hasta el ${fmtFecha(String(c.pagado_hasta).slice(0, 10))}. Unos días antes te avisamos para que pagues el mes siguiente.`];
+  const puedePagar = admin && c.estado !== 'exenta' && !c.debito_automatico;
+  setHTML(view, `<div class="card" style="max-width:520px;margin:24px auto">
+    <h2 style="margin:0 0 8px">${esc(titulo)}</h2>
+    <p class="field-hint" style="font-size:15px">${esc(texto)}</p>
+    ${c.precio_centavos && c.estado !== 'exenta' ? `<p style="font-size:15px">Plan Cobranzas: <strong>${esc(formatARS(c.precio_centavos))} por mes</strong>, sin límites.</p>` : ''}
+    ${c.estado === 'pago_rechazado' && c.habilitada && !mesAMes ? `<p class="field-hint">Tenés ${esc(c.dias_gracia)} días desde el primer rechazo para regularizar el pago.</p>` : ''}
+    <div style="display:flex;flex-direction:column;gap:12px;margin-top:16px">
+      ${puedePagar ? `<div class="pago-opcion"><h3 style="margin:0 0 4px">${mesAMes ? 'Pagar otro mes' : 'Pagar un mes'}</h3>
+        <p class="field-hint" style="margin:0 0 8px">Con <strong>cualquier tarjeta</strong> (también Lemon, Ualá y otras prepagas) o con <strong>dinero disponible en Mercado Pago</strong>. Te da 30 días de acceso${mesAMes && c.habilitada ? ', que se suman a los que te quedan' : ''}. Cada mes te avisamos para que pagues el siguiente.</p>
+        <button class="btn btn-primary btn-block btn-lg" data-action="suscripcion-pagar-mes">Pagar un mes</button></div>
+      <div class="pago-opcion"><h3 style="margin:0 0 4px">Débito automático con tarjeta</h3>
+        <p class="field-hint" style="margin:0 0 8px">Se cobra solo todos los meses y no tenés que acordarte. Funciona con tarjetas de banco, crédito o débito. Mercado Pago no acepta algunas prepagas para el débito automático: si la tuya no pasa, usá "Pagar un mes".</p>
+        ${c.mp_public_key ? '<div id="suscTarjeta"><p class="field-hint">Cargando el formulario seguro de pago…</p></div>' : '<p class="field-hint">El débito automático todavía no está disponible.</p>'}</div>` : ''}
+      ${!c.habilitada && !admin ? '<p class="field-hint">Pedile al dueño de la cuenta que regularice el pago.</p>' : ''}
+      ${!c.habilitada ? '<button class="btn btn-secondary btn-block" data-action="suscripcion-actualizar">Ya pagué, actualizar</button>' : ''}
+      ${c.habilitada ? '<button class="btn btn-secondary btn-block" data-action="suscripcion-actualizar">Ir a la app</button>' : ''}
+      <button class="btn btn-secondary btn-block" data-action="logout">Cerrar sesión</button>
+    </div></div>`);
+  if (puedePagar && c.mp_public_key) montarPagoTarjeta(c).catch(() => { const box = document.getElementById('suscTarjeta'); if (box) box.textContent = 'No se pudo cargar el formulario de pago. Recargá la página o usá "Pagar un mes".'; });
+}
+// Formulario seguro de Mercado Pago: los datos de la tarjeta nunca pasan por
+// nuestro servidor, solo el token que devuelve Mercado Pago.
+function cargarSdkMercadoPago() {
+  if (window.MercadoPago) return Promise.resolve();
+  return new Promise((ok, mal) => { const s = document.createElement('script'); s.src = 'https://sdk.mercadopago.com/js/v2'; s.onload = ok; s.onerror = mal; document.head.appendChild(s); });
+}
+async function montarPagoTarjeta(c) {
+  await cargarSdkMercadoPago();
+  if (!window.MercadoPago) throw new Error('sin SDK');
+  if (!document.getElementById('suscTarjeta')) return;
+  document.getElementById('suscTarjeta').textContent = '';
+  const mp = new window.MercadoPago(c.mp_public_key, { locale: 'es-AR' });
+  await mp.bricks().create('cardPayment', 'suscTarjeta', {
+    initialization: { amount: c.precio_centavos / 100, payer: { email: c.email || '' } },
+    customization: { paymentMethods: { maxInstallments: 1 }, visual: { texts: { formSubmit: 'Pagar suscripción' } } },
+    callbacks: {
+      onReady: () => {},
+      onError: (e) => { console.error('Formulario de pago', e); if (e?.type === 'critical') { const box = document.getElementById('suscTarjeta'); if (box) box.textContent = 'No se pudo cargar el formulario de pago (' + (e.message || e.cause || 'error') + '). Recargá la página.'; } },
+      onSubmit: async (datos) => {
+        try {
+          const r = await api('/suscripcion/tarjeta', { method: 'POST', body: JSON.stringify({ token: datos.token, email: datos.payer?.email || '' }) });
+          if (r.estado === 'activa') { toast('¡Listo! Tu suscripción quedó activa.'); location.hash = '#/inicio'; await arrancarApp(); }
+          else { toast('Recibimos el pago. Se está confirmando, puede tardar unos minutos.'); await viewSuscripcion(document.getElementById('view')); }
+        } catch (err) { toast(err.message, true); throw err; }
+      },
+    },
+  });
+}
+async function viewPlataforma(view) {
+  if (!plataforma()?.duena) { setHTML(view, notFound()); return; }
+  const [cuentas, funciones, precio] = await Promise.all([api('/plataforma-admin/cuentas'), api('/plataforma-admin/funciones'), api('/plataforma-admin/precio')]);
+  const aj = precio.ajuste;
+  const activas = cuentas.filter(c => c.habilitada).length;
+  const NOMBRE_FUNCION = { tienda: 'Tienda web y pedidos', tiendanube: 'Conexión y pedidos de Tiendanube' };
+  setHTML(view, `<div class="section-title">Precio de la suscripción</div>
+    <div class="card">
+      <p style="margin:0 0 10px">Precio actual: <strong>${esc(precio.precio_centavos ? formatARS(precio.precio_centavos) + ' por mes' : 'sin definir')}</strong>${aj ? ` <span class="field-hint">(US$ ${esc(aj.usd)} × $ ${esc(aj.cotizacion)})</span>` : ''}</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div class="field" style="flex:1 1 120px"><label for="platUsd">Precio en dólares</label><input id="platUsd" type="number" min="1" step="0.5" inputmode="decimal" value="${esc(aj?.usd ?? 7)}" /></div>
+        <div class="field" style="flex:1 1 120px"><label for="platCot">Cotización del dólar</label><input id="platCot" type="number" min="100" step="1" inputmode="decimal" value="${esc(aj?.cotizacion ?? '')}" placeholder="Ej: 1710" /></div>
+      </div>
+      <p class="field-hint">Mercado Pago cobra en pesos: se cobra dólares × cotización, redondeado a la centena. Al cambiarlo, aplicalo a las suscripciones para que el próximo cobro use el precio nuevo.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-primary" data-action="plataforma-precio-guardar">Guardar precio</button>
+        <button class="btn btn-secondary" data-action="plataforma-precio-aplicar">Aplicar a todas las suscripciones</button>
+      </div>
+    </div>
+    <div class="section-title">Suscriptores</div>
+    <div class="card"><p style="margin:0 0 12px">${esc(cuentas.length)} cuenta(s) registradas · ${esc(activas)} con acceso activo</p>
+      <button class="btn btn-primary btn-block" data-action="plataforma-exportar">Descargar para Excel</button></div>
+    ${cuentas.length ? cuentas.map(c => `<div class="card">
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start"><div><strong>${esc(c.nombre)}</strong> · ${esc(c.negocio)}</div><span class="badge">${esc(c.estado)}</span></div>
+      <div class="field-hint">${esc(c.email)}${c.telefono ? ` · ${esc(c.telefono)}` : ''}</div>
+      <div class="field-hint">Alta: ${esc(fmtFecha(c.alta))}${c.ultimo_pago ? ` · Último pago: ${esc(fmtFecha(c.ultimo_pago))}` : ''}</div></div>`).join('') : '<div class="empty-state"><p>Todavía no se registró nadie.</p></div>'}
+    <div class="section-title">Funciones para los clientes</div>
+    <div class="card">${funciones.map(f => `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 0">
+      <div><strong>${esc(NOMBRE_FUNCION[f.clave] || f.clave)}</strong><div class="field-hint">${f.habilitada ? 'Activada para todos los clientes' : 'Solo la ves vos'}</div></div>
+      <button class="btn ${f.habilitada ? 'btn-secondary' : 'btn-primary'}" data-action="plataforma-funcion" data-clave="${esc(f.clave)}" data-on="${f.habilitada ? '1' : '0'}">${f.habilitada ? 'Desactivar' : 'Activar'}</button></div>`).join('')}</div>`);
+}

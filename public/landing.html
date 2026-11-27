@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cobranzas: app para cobrar cuotas y fiados a tiempo</title>
+<meta name="description" content="Sabé quién te debe, cuánto y cuándo. Avisos por WhatsApp 7, 3 y 1 día antes del vencimiento, calendario de cobros, mora automática y varios negocios en una cuenta.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#FFFFFF}
+*{box-sizing:border-box;min-width:0}
+a{color:#0B7A66}a:hover{color:#075E4F}
+h1,h2,h3{font-family:'Space Grotesk','Inter',sans-serif;letter-spacing:-0.02em}
+html{scroll-behavior:smooth}
+@media (max-width:600px){#inicio > div:last-child{flex-direction:column;align-items:center}#inicio > div:last-child > div:last-child{position:static !important;margin-top:16px;width:100% !important;max-width:320px}.nav-sec{display:none}}
+</style>
+</head>
+<body>
+<div style="font-family: Inter, system-ui, sans-serif; color: #10201C; background: #FFFFFF; width: 100%; box-sizing: border-box">
+
+<!-- NAV -->
+<header style="padding: 18px clamp(16px, 5vw, 64px); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; border-bottom: 1px solid #E6ECE9">
+  <a href="#inicio" style="display: flex; align-items: center; gap: 10px; text-decoration: none; color: #10201C">
+    <span style="width: 38px; height: 38px; border-radius: 11px; background: #0E2F2A; color: #2FE0C0; display: flex; align-items: center; justify-content: center; font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 19px">C</span>
+    <span style="font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 21px">Cobranzas</span>
+  </a>
+  <nav style="display: flex; align-items: center; gap: 22px; flex-wrap: wrap; font-size: 15px; font-weight: 500">
+    <a class="nav-sec" href="#avisos" style="color: #3B4A46; text-decoration: none">Avisos</a>
+    <a class="nav-sec" href="#calendario" style="color: #3B4A46; text-decoration: none">Calendario</a>
+    <a class="nav-sec" href="#volver-a-vender" style="color: #3B4A46; text-decoration: none">Volver a vender</a>
+    <a class="nav-sec" href="#funciones" style="color: #3B4A46; text-decoration: none">Funciones</a>
+    <a class="nav-sec" href="#precio" style="color: #3B4A46; text-decoration: none">Precio</a>
+    <a href="/app#/ingresar" style="color: #3B4A46; text-decoration: none">Ingresar</a>
+    <a href="/app#/crear-cuenta" style="background: #0E2F2A; color: #FFFFFF; text-decoration: none; padding: 11px 18px; border-radius: 10px; font-weight: 600">Empezar</a>
+  </nav>
+</header>
+
+<!-- HERO -->
+<section id="inicio" style="padding: clamp(40px, 6vw, 88px) clamp(16px, 5vw, 64px); display: flex; flex-wrap: wrap; align-items: center; gap: clamp(32px, 5vw, 72px); max-width: 1280px; margin: 0 auto; box-sizing: border-box">
+  <div style="flex: 1 1 480px; min-width: 0; display: flex; flex-direction: column; gap: 22px">
+    <span style="align-self: flex-start; background: #E7F7F2; color: #0B6B5A; font-size: 14px; font-weight: 600; padding: 7px 12px; border-radius: 100px">Para negocios que venden en cuotas y al fiado</span>
+    <h1 style="margin: 0; font-size: clamp(38px, 5.2vw, 62px); line-height: 1.04; text-wrap: balance">Sabé quién te debe, cuánto y cuándo. Y avisale con un toque.</h1>
+    <p style="margin: 0; font-size: 19px; line-height: 1.55; color: #3B4A46; max-width: 560px">Cobranzas te muestra qué cuotas vencen hoy, cuáles se vienen en 7 y 3 días y quién está atrasado. Tocás <strong>Avisar</strong> y le llega a tu cliente un WhatsApp con la fecha y el importe ya escritos.</p>
+    <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-top: 6px">
+      <a href="/app#/crear-cuenta" style="background: #13B89A; color: #04241D; text-decoration: none; padding: 16px 24px; border-radius: 12px; font-weight: 700; font-size: 17px">Empezar por {{PRECIO}} al mes</a>
+      <a href="#avisos" style="background: #FFFFFF; color: #10201C; text-decoration: none; padding: 16px 22px; border-radius: 12px; font-weight: 600; font-size: 17px; border: 1px solid #CBD6D2">Ver cómo funciona</a>
+    </div>
+    <p style="margin: 0; font-size: 14px; color: #5A6864">Sin límites de clientes, negocios ni empleados. Débito automático con tarjeta o Mercado Pago.</p>
+  </div>
+
+  <!-- Phone: Cobrar -->
+  <div style="flex: 0 1 380px; min-width: 0; display: flex; justify-content: center; position: relative">
+    <div style="width: 320px; max-width: 100%; background: #0B0F14; border-radius: 40px; padding: 14px; box-shadow: 0 30px 60px rgba(14,47,42,0.28); border: 1px solid #1D2733">
+      <div style="background: #10151C; border-radius: 28px; padding: 18px 14px; display: flex; flex-direction: column; gap: 12px; color: #EAEEF4">
+        <div style="display: flex; align-items: center; justify-content: space-between">
+          <span style="font-weight: 700; font-size: 15px">Cobrar</span>
+          <span style="font-size: 12px; color: #8B96A6">Hoy, 27/11</span>
+        </div>
+        <div style="background: #141B24; border: 1px solid #232D3A; border-radius: 16px; padding: 12px; display: flex; flex-direction: column; gap: 10px">
+          <div style="font-size: 13px; font-weight: 700; color: #22D3B6">3 clientes para avisar hoy</div>
+          <div style="display: flex; align-items: center; gap: 10px">
+            <span style="width: 34px; height: 34px; border-radius: 50%; background: #1A222D; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700">AR</span>
+            <div style="flex: 1; min-width: 0"><div style="font-size: 13.5px; font-weight: 600">Ana Ríos</div><div style="font-size: 12px; color: #F5A524">Vence en 7 días</div></div>
+            <span style="background: #22D3B6; color: #04241D; font-size: 12px; font-weight: 700; padding: 7px 10px; border-radius: 9px">Avisar</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px">
+            <span style="width: 34px; height: 34px; border-radius: 50%; background: #1A222D; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700">MP</span>
+            <div style="flex: 1; min-width: 0"><div style="font-size: 13.5px; font-weight: 600">Martín Paz</div><div style="font-size: 12px; color: #F5A524">Vence en 3 días</div></div>
+            <span style="background: #22D3B6; color: #04241D; font-size: 12px; font-weight: 700; padding: 7px 10px; border-radius: 9px">Avisar</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px">
+            <span style="width: 34px; height: 34px; border-radius: 50%; background: #1A222D; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700">LG</span>
+            <div style="flex: 1; min-width: 0"><div style="font-size: 13.5px; font-weight: 600">Lucía Gómez</div><div style="font-size: 12px; color: #FB4B62">Vence hoy</div></div>
+            <span style="background: #22D3B6; color: #04241D; font-size: 12px; font-weight: 700; padding: 7px 10px; border-radius: 9px">Avisar</span>
+          </div>
+        </div>
+        <div style="display: flex; gap: 6px; font-size: 11.5px; font-weight: 600">
+          <span style="background: #22D3B6; color: #04241D; padding: 6px 10px; border-radius: 100px">Hoy (1)</span>
+          <span style="background: #1A222D; color: #8B96A6; padding: 6px 10px; border-radius: 100px">Próximas (2)</span>
+          <span style="background: #1A222D; color: #8B96A6; padding: 6px 10px; border-radius: 100px">Vencidas (4)</span>
+        </div>
+        <div style="background: #141B24; border: 1px solid #232D3A; border-radius: 14px; padding: 10px 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px">
+          <div><div style="font-size: 13px; font-weight: 600">Carlos Díaz</div><div style="font-size: 11.5px; color: #FB4B62">Cuota 2/6 · 17 días de atraso</div></div>
+          <div style="font-weight: 700; font-size: 14px">$ 36.800</div>
+        </div>
+      </div>
+    </div>
+    <!-- WhatsApp bubble -->
+    <div style="position: absolute; left: -24px; bottom: -28px; width: 250px; background: #DCF8C6; color: #10201C; border-radius: 14px 14px 14px 4px; padding: 12px 14px; font-size: 13.5px; line-height: 1.45; box-shadow: 0 14px 30px rgba(0,0,0,0.16)">
+      Ana, cómo estás? Te recordamos que tu cuota vence el 04/12/2026 (en 7 días). El importe de esa cuota es $32.000. Mantenenos al tanto.
+    </div>
+  </div>
+</section>
+
+<!-- STRIP -->
+<section style="background: #0E2F2A; color: #FFFFFF; padding: 26px clamp(16px, 5vw, 64px)">
+  <div style="max-width: 1280px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 14px 40px; justify-content: space-between; font-size: 16px; font-weight: 500">
+    <span>Avisos 7, 3 y 1 día antes y el mismo día</span>
+    <span>Calendario de cobros</span>
+    <span>Mora calculada sola</span>
+    <span>Clientes listos para volver a comprar</span>
+    <span>Varios negocios en una cuenta</span>
+  </div>
+</section>
+
+<!-- BENEFIT 1: AVISOS -->
+<section id="avisos" style="padding: clamp(56px, 7vw, 104px) clamp(16px, 5vw, 64px); max-width: 1280px; margin: 0 auto; box-sizing: border-box; display: flex; flex-direction: column; gap: 40px">
+  <div style="display: flex; flex-direction: column; gap: 14px; max-width: 760px">
+    <span style="font-size: 15px; font-weight: 600; color: #0B7A66">Beneficio 1 · Avisos antes de que venza</span>
+    <h2 style="margin: 0; font-size: clamp(32px, 4vw, 46px); line-height: 1.08">Te enterás antes que tu cliente se olvide</h2>
+    <p style="margin: 0; font-size: 18px; line-height: 1.6; color: #3B4A46">Cada día Cobranzas arma la lista de clientes para avisar. Por defecto te aparecen 7 días antes, 3 días antes, 1 día antes y el mismo día del vencimiento, y en cada negocio elegís los días que prefieras.</p>
+  </div>
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
+    <div style="border: 1px solid #E1E8E5; border-radius: 18px; padding: 22px; display: flex; flex-direction: column; gap: 10px; background: #FFFFFF">
+      <span style="font-family: 'Space Grotesk', sans-serif; font-size: 44px; font-weight: 700; color: #0E2F2A; line-height: 1">7 días</span>
+      <span style="font-size: 16px; color: #3B4A46; line-height: 1.5">Un aviso con tiempo para que tu cliente se organice.</span>
+    </div>
+    <div style="border: 1px solid #E1E8E5; border-radius: 18px; padding: 22px; display: flex; flex-direction: column; gap: 10px; background: #FFFFFF">
+      <span style="font-family: 'Space Grotesk', sans-serif; font-size: 44px; font-weight: 700; color: #0E2F2A; line-height: 1">3 días</span>
+      <span style="font-size: 16px; color: #3B4A46; line-height: 1.5">El recordatorio justo antes de la fecha.</span>
+    </div>
+    <div style="border: 1px solid #E1E8E5; border-radius: 18px; padding: 22px; display: flex; flex-direction: column; gap: 10px; background: #FFFFFF">
+      <span style="font-family: 'Space Grotesk', sans-serif; font-size: 44px; font-weight: 700; color: #0E2F2A; line-height: 1">1 día</span>
+      <span style="font-size: 16px; color: #3B4A46; line-height: 1.5">La víspera, para que nadie diga que no sabía.</span>
+    </div>
+    <div style="border: 1px solid #F3D19B; border-radius: 18px; padding: 22px; display: flex; flex-direction: column; gap: 10px; background: #FFF7EA">
+      <span style="font-family: 'Space Grotesk', sans-serif; font-size: 44px; font-weight: 700; color: #8A5A0B; line-height: 1">Hoy</span>
+      <span style="font-size: 16px; color: #5C4310; line-height: 1.5">El día del vencimiento, con el importe exacto.</span>
+    </div>
+  </div>
+  <div style="display: flex; flex-wrap: wrap; gap: 28px; align-items: center; background: #F2F6F4; border-radius: 22px; padding: clamp(22px, 3vw, 36px)">
+    <div style="flex: 1 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+      <h3 style="margin: 0; font-size: 26px">Un toque y el mensaje sale por WhatsApp</h3>
+      <p style="margin: 0; font-size: 17px; line-height: 1.6; color: #3B4A46">No escribís nada. Cobranzas arma el mensaje con el nombre del cliente, la fecha de vencimiento y el importe de la cuota, y lo abre en WhatsApp listo para enviar. Si la cuota ya venció, el mensaje habla del saldo pendiente.</p>
+    </div>
+    <div style="flex: 0 1 360px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+      <div style="align-self: flex-end; background: #DCF8C6; border-radius: 14px 14px 4px 14px; padding: 12px 14px; font-size: 15px; line-height: 1.45; max-width: 330px">Martín, cómo estás? Te recordamos que tu cuota vence el 30/11/2026 (en 3 días). El importe de esa cuota es $45.000. Mantenenos al tanto.</div>
+      <span style="align-self: flex-end; font-size: 13px; color: #5A6864">Mensaje que arma Cobranzas</span>
+    </div>
+  </div>
+</section>
+
+<!-- BENEFIT 2: CALENDARIO -->
+<section id="calendario" style="background: #F2F6F4; padding: clamp(56px, 7vw, 104px) clamp(16px, 5vw, 64px)">
+  <div style="max-width: 1280px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: clamp(32px, 5vw, 72px); align-items: center">
+    <div style="flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+      <span style="font-size: 15px; font-weight: 600; color: #0B7A66">Beneficio 2 · Calendario de cobros</span>
+      <h2 style="margin: 0; font-size: clamp(32px, 4vw, 46px); line-height: 1.08">Mirá el mes y sabé qué día cobra cada uno</h2>
+      <p style="margin: 0; font-size: 18px; line-height: 1.6; color: #3B4A46">Cada día con vencimientos muestra cuántas cuotas hay. Tocás el día, por ejemplo hoy 27 de noviembre, y aparecen los clientes que tienen que pagar, con el importe y el botón para registrar el pago. Desde ahí entrás directo a la ficha del cliente.</p>
+      <ul style="margin: 0; padding-left: 20px; font-size: 17px; line-height: 1.8; color: #3B4A46">
+        <li>Ves el total a cobrar de cada día</li>
+        <li>Pasás de mes con las flechas</li>
+        <li>Un calendario por negocio</li>
+      </ul>
+    </div>
+    <div style="flex: 1 1 440px; min-width: 0; display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+      <div style="flex: 1 1 280px; min-width: 0; background: #FFFFFF; border-radius: 20px; padding: 20px; border: 1px solid #E1E8E5">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px">
+          <span style="font-weight: 700; font-size: 17px">noviembre de 2026</span>
+          <span style="font-size: 13px; color: #5A6864">Negocio: Indumentaria</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; text-align: center; font-size: 13px">
+          <span style="color: #5A6864; font-weight: 600">D</span><span style="color: #5A6864; font-weight: 600">L</span><span style="color: #5A6864; font-weight: 600">M</span><span style="color: #5A6864; font-weight: 600">M</span><span style="color: #5A6864; font-weight: 600">J</span><span style="color: #5A6864; font-weight: 600">V</span><span style="color: #5A6864; font-weight: 600">S</span>
+          <span style="padding: 8px 0">1</span><span style="padding: 8px 0">2</span><span style="padding: 8px 0">3</span><span style="padding: 8px 0">4</span><span style="padding: 8px 0; background: #E7F7F2; border-radius: 8px; font-weight: 700">5<br><b style="font-size: 10px; color: #0B6B5A">2</b></span><span style="padding: 8px 0">6</span><span style="padding: 8px 0">7</span>
+          <span style="padding: 8px 0">8</span><span style="padding: 8px 0">9</span><span style="padding: 8px 0; background: #E7F7F2; border-radius: 8px; font-weight: 700">10<br><b style="font-size: 10px; color: #0B6B5A">4</b></span><span style="padding: 8px 0">11</span><span style="padding: 8px 0">12</span><span style="padding: 8px 0">13</span><span style="padding: 8px 0">14</span>
+          <span style="padding: 8px 0; background: #E7F7F2; border-radius: 8px; font-weight: 700">15<br><b style="font-size: 10px; color: #0B6B5A">3</b></span><span style="padding: 8px 0">16</span><span style="padding: 8px 0">17</span><span style="padding: 8px 0">18</span><span style="padding: 8px 0; background: #E7F7F2; border-radius: 8px; font-weight: 700">19<br><b style="font-size: 10px; color: #0B6B5A">1</b></span><span style="padding: 8px 0">20</span><span style="padding: 8px 0">21</span>
+          <span style="padding: 8px 0">22</span><span style="padding: 8px 0">23</span><span style="padding: 8px 0">24</span><span style="padding: 8px 0">25</span><span style="padding: 8px 0">26</span><span style="padding: 8px 0; background: #0E2F2A; color: #FFFFFF; border-radius: 8px; font-weight: 700">27<br><b style="font-size: 10px; color: #2FE0C0">3</b></span><span style="padding: 8px 0">28</span>
+          <span style="padding: 8px 0">29</span><span style="padding: 8px 0; background: #E7F7F2; border-radius: 8px; font-weight: 700">30<br><b style="font-size: 10px; color: #0B6B5A">2</b></span><span></span><span></span><span></span><span></span><span></span>
+        </div>
+      </div>
+      <div style="flex: 1 1 240px; min-width: 0; background: #10151C; color: #EAEEF4; border-radius: 20px; padding: 18px; display: flex; flex-direction: column; gap: 10px">
+        <div style="font-weight: 700; font-size: 18px">27/11/2026</div>
+        <div style="font-size: 13px; color: #8B96A6">3 vencimientos · $ 113.000 por cobrar</div>
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 0; border-top: 1px solid #232D3A"><div><div style="font-size: 14px; font-weight: 600">Lucía Gómez</div><div style="font-size: 12px; color: #8B96A6">Cuota 3/6</div></div><span style="font-weight: 700; font-size: 14px">$ 32.000</span></div>
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 0; border-top: 1px solid #232D3A"><div><div style="font-size: 14px; font-weight: 600">Diego Sosa</div><div style="font-size: 12px; color: #8B96A6">Cuota 1/3</div></div><span style="font-weight: 700; font-size: 14px">$ 36.000</span></div>
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 0; border-top: 1px solid #232D3A"><div><div style="font-size: 14px; font-weight: 600">Paula Ortiz</div><div style="font-size: 12px; color: #8B96A6">Cuota 5/5</div></div><span style="font-weight: 700; font-size: 14px">$ 45.000</span></div>
+        <span style="background: #22D3B6; color: #04241D; text-align: center; font-size: 13px; font-weight: 700; padding: 10px; border-radius: 10px">Registrar pago</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- BENEFIT 3: FICHA -->
+<section style="padding: clamp(56px, 7vw, 104px) clamp(16px, 5vw, 64px); max-width: 1280px; margin: 0 auto; box-sizing: border-box; display: flex; flex-wrap: wrap; gap: clamp(32px, 5vw, 72px); align-items: center">
+  <div style="flex: 0 1 400px; min-width: 0; background: #10151C; color: #EAEEF4; border-radius: 22px; padding: 22px; border-left: 5px solid #FB4B62; display: flex; flex-direction: column; gap: 12px">
+    <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px"><span style="font-size: 12px; color: #8B96A6; font-weight: 600; letter-spacing: 0.03em">CUOTAS MENSUALES · 10/09/2026</span><span style="background: rgba(251,75,98,0.15); color: #FB4B62; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 100px">Atrasada</span></div>
+    <div style="font-size: 20px; font-weight: 700">Jean + Suéter</div>
+    <div style="display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap">
+      <div><div style="font-size: 12.5px; color: #8B96A6">Saldo pendiente</div><div style="font-size: 32px; font-weight: 800">$ 68.800</div></div>
+      <div style="display: flex; gap: 16px"><div><div style="font-size: 12px; color: #8B96A6">Capital</div><div style="font-weight: 700">$ 64.000</div></div><div><div style="font-size: 12px; color: #8B96A6">Mora</div><div style="font-weight: 700; color: #FB4B62">$ 4.800</div></div></div>
+    </div>
+    <div style="height: 8px; border-radius: 100px; background: #1A222D"><div style="width: 33%; height: 8px; border-radius: 100px; background: #F5A524"></div></div>
+    <div style="font-size: 13px; color: #8B96A6">Pagado $ 32.000 de $ 96.000 en cuotas · 33%</div>
+    <span style="background: #22D3B6; color: #04241D; text-align: center; font-size: 15px; font-weight: 700; padding: 13px; border-radius: 12px">Registrar pago</span>
+  </div>
+  <div style="flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+    <span style="font-size: 15px; font-weight: 600; color: #0B7A66">Beneficio 3 · Ficha del cliente clara</span>
+    <h2 style="margin: 0; font-size: clamp(32px, 4vw, 46px); line-height: 1.08">Cada compra separada: lo que se llevó, lo que pagó y lo que debe</h2>
+    <p style="margin: 0; font-size: 18px; line-height: 1.6; color: #3B4A46">Ves la deuda total dividida en capital y mora, y cada compra en su tarjeta: el producto, cuánto lleva pagado, las cuotas pagadas y la próxima fecha. Si está atrasada se marca en rojo; si vence en los próximos días, en amarillo.</p>
+    <p style="margin: 0; font-size: 18px; line-height: 1.6; color: #3B4A46">La mora se calcula sola, con los días de gracia y el porcentaje que elijas para cada negocio. Y si querés, la perdonás con un motivo.</p>
+  </div>
+</section>
+
+<!-- BENEFIT 4: VOLVER A VENDER -->
+<section id="volver-a-vender" style="background: #FFF7EA; padding: clamp(56px, 7vw, 104px) clamp(16px, 5vw, 64px)">
+  <div style="max-width: 1280px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: clamp(32px, 5vw, 72px); align-items: center">
+    <div style="flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+      <span style="font-size: 15px; font-weight: 600; color: #8A5A0B">Beneficio 4 · Clientes que terminaron de pagar</span>
+      <h2 style="margin: 0; font-size: clamp(32px, 4vw, 46px); line-height: 1.08">El que ya te pagó todo es tu mejor próximo comprador</h2>
+      <p style="margin: 0; font-size: 18px; line-height: 1.6; color: #4A3B1E">Cobranzas te junta en una lista a los clientes que terminaron de pagar sus compras, con cuántas compras te hicieron y cuándo fue la última. Ya te conocen y ya cumplieron: escribiles por WhatsApp para ofrecerles algo nuevo y cargá la venta en el momento.</p>
+      <ul style="margin: 0; padding-left: 20px; font-size: 17px; line-height: 1.8; color: #4A3B1E">
+        <li>Sabés quién cumple y quién no antes de volver a fiarle</li>
+        <li>De la lista a su ficha, al WhatsApp y a la nueva venta</li>
+      </ul>
+    </div>
+    <div style="flex: 0 1 380px; min-width: 0; background: #10151C; color: #EAEEF4; border-radius: 22px; padding: 18px; display: flex; flex-direction: column; gap: 10px">
+      <div style="display: flex; gap: 6px; font-size: 12px; font-weight: 600">
+        <span style="background: #1A222D; color: #8B96A6; padding: 6px 10px; border-radius: 100px">Todos</span>
+        <span style="background: #1A222D; color: #8B96A6; padding: 6px 10px; border-radius: 100px">Con deuda</span>
+        <span style="background: #22D3B6; color: #04241D; padding: 6px 10px; border-radius: 100px">Finalizados</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid #232D3A"><span style="width: 36px; height: 36px; border-radius: 50%; background: #1A222D; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700">SM</span><div style="flex: 1; min-width: 0"><div style="font-size: 14px; font-weight: 600">Sofía Méndez</div><div style="font-size: 12px; color: #8B96A6">3 compras · última: 12/08/2026</div></div><span style="background: rgba(34,197,139,0.15); color: #22C58B; font-size: 11.5px; font-weight: 700; padding: 4px 9px; border-radius: 100px">Pagó todo</span></div>
+      <div style="display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid #232D3A"><span style="width: 36px; height: 36px; border-radius: 50%; background: #1A222D; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700">JR</span><div style="flex: 1; min-width: 0"><div style="font-size: 14px; font-weight: 600">Javier Ruiz</div><div style="font-size: 12px; color: #8B96A6">1 compra · última: 03/06/2026</div></div><span style="background: rgba(34,197,139,0.15); color: #22C58B; font-size: 11.5px; font-weight: 700; padding: 4px 9px; border-radius: 100px">Pagó todo</span></div>
+      <div style="display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid #232D3A"><span style="width: 36px; height: 36px; border-radius: 50%; background: #1A222D; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700">VC</span><div style="flex: 1; min-width: 0"><div style="font-size: 14px; font-weight: 600">Valeria Castro</div><div style="font-size: 12px; color: #8B96A6">2 compras · última: 20/04/2026</div></div><span style="background: rgba(34,197,139,0.15); color: #22C58B; font-size: 11.5px; font-weight: 700; padding: 4px 9px; border-radius: 100px">Pagó todo</span></div>
+      <div style="display: flex; gap: 8px">
+        <span style="flex: 1; background: #25D366; color: #06210F; text-align: center; font-size: 13px; font-weight: 700; padding: 11px; border-radius: 10px">WhatsApp</span>
+        <span style="flex: 1; background: #22D3B6; color: #04241D; text-align: center; font-size: 13px; font-weight: 700; padding: 11px; border-radius: 10px">Nueva venta</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FUNCIONES -->
+<section id="funciones" style="background: #0E2F2A; color: #FFFFFF; padding: clamp(56px, 7vw, 104px) clamp(16px, 5vw, 64px)">
+  <div style="max-width: 1280px; margin: 0 auto; display: flex; flex-direction: column; gap: 36px">
+    <div style="display: flex; flex-direction: column; gap: 12px; max-width: 760px">
+      <h2 style="margin: 0; font-size: clamp(32px, 4vw, 46px); line-height: 1.08">Todo tu negocio en un solo lugar</h2>
+      <p style="margin: 0; font-size: 18px; line-height: 1.6; color: #B9CCC6">Desde el celular o la compu, sin instalar nada.</p>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px">
+      <div style="background: #143D37; border-radius: 18px; padding: 22px; display: flex; flex-direction: column; gap: 8px"><h3 style="margin: 0; font-size: 20px">Varios negocios</h3><p style="margin: 0; font-size: 15.5px; line-height: 1.55; color: #C9DAD5">Manejá todos tus negocios con una sola cuenta y cambiá de uno a otro con un toque. Inicio, cobranza y calendario se filtran solos.</p></div>
+      <div style="background: #143D37; border-radius: 18px; padding: 22px; display: flex; flex-direction: column; gap: 8px"><h3 style="margin: 0; font-size: 20px">Cobranza ordenada</h3><p style="margin: 0; font-size: 15.5px; line-height: 1.55; color: #C9DAD5">Pestañas de cuotas de hoy, próximas y vencidas, con el importe y el botón para cobrar en cada una.</p></div>
+      <div style="background: #143D37; border-radius: 18px; padding: 22px; display: flex; flex-direction: column; gap: 8px"><h3 style="margin: 0; font-size: 20px">Ventas en cuotas o al fiado</h3><p style="margin: 0; font-size: 15.5px; line-height: 1.55; color: #C9DAD5">Cuotas mensuales, pago libre o pago único, con entrega inicial. Las cuotas y sus fechas se arman solas.</p></div>
+      <div style="background: #143D37; border-radius: 18px; padding: 22px; display: flex; flex-direction: column; gap: 8px"><h3 style="margin: 0; font-size: 20px">Comprobantes</h3><p style="margin: 0; font-size: 15.5px; line-height: 1.55; color: #C9DAD5">Cada pago genera su comprobante. Si cargaste algo mal, lo anulás y queda el registro.</p></div>
+      <div style="background: #143D37; border-radius: 18px; padding: 22px; display: flex; flex-direction: column; gap: 8px"><h3 style="margin: 0; font-size: 20px">Productos y stock</h3><p style="margin: 0; font-size: 15.5px; line-height: 1.55; color: #C9DAD5">Cargá tus productos y el stock baja solo con cada venta.</p></div>
+      <div style="background: #143D37; border-radius: 18px; padding: 22px; display: flex; flex-direction: column; gap: 8px"><h3 style="margin: 0; font-size: 20px">Empleados y permisos</h3><p style="margin: 0; font-size: 15.5px; line-height: 1.55; color: #C9DAD5">Invitá a tu equipo y elegí qué puede hacer cada uno en cada negocio: ver clientes, cobrar, vender o editar cuotas.</p></div>
+      <div style="background: #143D37; border-radius: 18px; padding: 22px; display: flex; flex-direction: column; gap: 8px"><h3 style="margin: 0; font-size: 20px">Contratos</h3><p style="margin: 0; font-size: 15.5px; line-height: 1.55; color: #C9DAD5">Armá el contrato de la venta financiada con los datos del cliente y del plan.</p></div>
+      <div style="background: #143D37; border-radius: 18px; padding: 22px; display: flex; flex-direction: column; gap: 8px"><h3 style="margin: 0; font-size: 20px">Comisiones</h3><p style="margin: 0; font-size: 15.5px; line-height: 1.55; color: #C9DAD5">Calculá lo que ganó cada vendedor en el mes y cerralo cuando lo pagás.</p></div>
+      <div style="background: #143D37; border-radius: 18px; padding: 22px; display: flex; flex-direction: column; gap: 8px"><h3 style="margin: 0; font-size: 20px">Configuración por negocio</h3><p style="margin: 0; font-size: 15.5px; line-height: 1.55; color: #C9DAD5">Días de gracia, porcentaje de mora y días de aviso, distintos para cada negocio.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- PRECIO -->
+<section id="precio" style="padding: clamp(56px, 7vw, 104px) clamp(16px, 5vw, 64px); max-width: 1280px; margin: 0 auto; box-sizing: border-box; display: flex; flex-wrap: wrap; gap: clamp(32px, 5vw, 64px); align-items: center">
+  <div style="flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 14px">
+    <h2 style="margin: 0; font-size: clamp(32px, 4vw, 46px); line-height: 1.08">Un solo plan. Todo incluido.</h2>
+    <p style="margin: 0; font-size: 18px; line-height: 1.6; color: #3B4A46">Por menos de lo que perdés con una cuota que se olvidó de pagarte, tenés todas las funciones, sin límites.</p>
+  </div>
+  <div style="flex: 0 1 420px; min-width: 0; border: 2px solid #0E2F2A; border-radius: 24px; padding: clamp(24px, 3vw, 36px); display: flex; flex-direction: column; gap: 16px">
+    <span style="font-size: 16px; font-weight: 600; color: #0B7A66">Plan Cobranzas</span>
+    <div style="display: flex; align-items: baseline; gap: 8px"><span style="font-family: 'Space Grotesk', sans-serif; font-size: clamp(44px, 9vw, 64px); font-weight: 700; line-height: 1">{{PRECIO}}</span><span style="font-size: 18px; color: #5A6864">por mes</span></div>
+    <ul style="margin: 0; padding-left: 20px; font-size: 16.5px; line-height: 1.9; color: #253430">
+      <li>Clientes, negocios y empleados ilimitados</li>
+      <li>Avisos por WhatsApp y calendario de cobros</li>
+      <li>Todas las funciones, sin extras</li>
+      <li>Débito automático mensual con tarjeta de crédito, débito o Mercado Pago</li>
+    </ul>
+    <a href="/app#/crear-cuenta" style="background: #13B89A; color: #04241D; text-decoration: none; text-align: center; padding: 16px; border-radius: 12px; font-weight: 700; font-size: 17px">Empezar ahora</a>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section style="background: #F2F6F4; padding: clamp(56px, 7vw, 96px) clamp(16px, 5vw, 64px)">
+  <div style="max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px">
+    <h2 style="margin: 0 0 10px; font-size: clamp(30px, 3.6vw, 40px)">Preguntas frecuentes</h2>
+    <details style="background: #FFFFFF; border-radius: 14px; padding: 18px 20px"><summary style="font-weight: 600; font-size: 17px; cursor: pointer">¿Tengo que instalar algo?</summary><p style="margin: 10px 0 0; font-size: 16px; line-height: 1.6; color: #3B4A46">No. Entrás desde el navegador del celular o de la compu, con tu usuario y contraseña.</p></details>
+    <details style="background: #FFFFFF; border-radius: 14px; padding: 18px 20px"><summary style="font-weight: 600; font-size: 17px; cursor: pointer">¿Los mensajes se mandan solos?</summary><p style="margin: 10px 0 0; font-size: 16px; line-height: 1.6; color: #3B4A46">Cobranzas arma el mensaje y abre WhatsApp listo para enviar; vos tocás enviar. Así cada aviso sale desde tu número y vos decidís a quién le escribís.</p></details>
+    <details style="background: #FFFFFF; border-radius: 14px; padding: 18px 20px"><summary style="font-weight: 600; font-size: 17px; cursor: pointer">¿Mis empleados ven todo?</summary><p style="margin: 10px 0 0; font-size: 16px; line-height: 1.6; color: #3B4A46">No. Vos elegís en qué negocios trabaja cada uno y qué puede hacer en cada uno.</p></details>
+    <details style="background: #FFFFFF; border-radius: 14px; padding: 18px 20px"><summary style="font-weight: 600; font-size: 17px; cursor: pointer">¿Cómo pago?</summary><p style="margin: 10px 0 0; font-size: 16px; line-height: 1.6; color: #3B4A46">Con tarjeta de crédito, débito o tu cuenta de Mercado Pago. El cobro es automático todos los meses, no tenés que acordarte de pagar.</p></details>
+    <details style="background: #FFFFFF; border-radius: 14px; padding: 18px 20px"><summary style="font-weight: 600; font-size: 17px; cursor: pointer">¿Puedo dar de baja la suscripción?</summary><p style="margin: 10px 0 0; font-size: 16px; line-height: 1.6; color: #3B4A46">La suscripción es mensual y se renueva sola. Si la cancelás, dejás de pagar y tus datos quedan guardados por si volvés.</p></details>
+  </div>
+</section>
+
+<!-- CTA FINAL + FOOTER -->
+<section style="padding: clamp(56px, 7vw, 96px) clamp(16px, 5vw, 64px); text-align: center; display: flex; flex-direction: column; align-items: center; gap: 18px">
+  <h2 style="margin: 0; font-size: clamp(32px, 4.4vw, 50px); line-height: 1.06; max-width: 820px; text-wrap: balance">Cobrá a tiempo sin andar persiguiendo a nadie</h2>
+  <a href="/app#/crear-cuenta" style="background: #0E2F2A; color: #FFFFFF; text-decoration: none; padding: 17px 28px; border-radius: 12px; font-weight: 700; font-size: 17px">Empezar por {{PRECIO}} al mes</a>
+</section>
+<footer style="border-top: 1px solid #E1E8E5; padding: 24px clamp(16px, 5vw, 64px); display: flex; flex-wrap: wrap; gap: 12px 28px; justify-content: space-between; font-size: 14px; color: #5A6864">
+  <span>© 2026 Cobranzas</span>
+  {{CONTACTO}}
+</footer>
+
+</div>
+</body>
+</html>

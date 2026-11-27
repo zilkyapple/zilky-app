@@ -1,0 +1,85 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
+// Cliente mínimo de la API de Suscripciones de Mercado Pago. Las
+// notificaciones nunca se creen tal cual: siempre se vuelve a consultar el
+// estado real a la API con nuestras credenciales.
+const API = 'https://api.mercadopago.com';
+function accessToken() {
+  const t = process.env.MP_ACCESS_TOKEN;
+  if (!t) throw Object.assign(new Error('Mercado Pago todavía no está configurado'), { status: 503 });
+  return t;
+}
+async function llamar(method, ruta, body) {
+  const r = await fetch(API + ruta, {
+    method,
+    headers: { Authorization: `Bearer ${accessToken()}`, 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(15000),
+  });
+  const data = await r.json().catch(() => null);
+  if (!r.ok) throw Object.assign(new Error('No pudimos conectar con Mercado Pago. Probá de nuevo en unos minutos.'), { status: 502, publico: true, detalle: data });
+  return data;
+}
+export function crearSuscripcion({ cuentaId, email, montoCentavos, backUrl }) {
+  // email: el de la cuenta de Mercado Pago con la que va a pagar.
+  return llamar('POST', '/preapproval', {
+    reason: 'Cobranzas · suscripción mensual',
+    external_reference: cuentaId,
+    payer_email: email,
+    back_url: backUrl,
+    status: 'pending',
+    auto_recurring: { frequency: 1, frequency_type: 'months', transaction_amount: montoCentavos / 100, currency_id: 'ARS' },
+  });
+}
+// Suscripción con la tarjeta cargada en nuestra página (token del formulario
+// seguro de Mercado Pago): no hace falta tener cuenta de Mercado Pago.
+export async function crearSuscripcionConTarjeta({ cuentaId, email, cardTokenId, montoCentavos, backUrl }) {
+  try {
+    return await llamar('POST', '/preapproval', {
+      reason: 'Cobranzas · suscripción mensual',
+      external_reference: cuentaId,
+      payer_email: email,
+      card_token_id: cardTokenId,
+      back_url: backUrl,
+      status: 'authorized',
+      auto_recurring: { frequency: 1, frequency_type: 'months', transaction_amount: montoCentavos / 100, currency_id: 'ARS' },
+    });
+  } catch (e) {
+    if (e.detalle && e.detalle.status >= 400 && e.detalle.status < 500) {
+      console.error('Mercado Pago rechazó la tarjeta', e.detalle);
+      throw Object.assign(new Error('Mercado Pago no aceptó esa tarjeta. Revisá los datos o probá con otra tarjeta.'), { status: 402, publico: true });
+    }
+    throw e;
+  }
+}
+// Pago de un solo mes con Checkout Pro: acepta cualquier tarjeta (también
+// prepagas) y dinero disponible en Mercado Pago.
+export function crearPagoMes({ cuentaId, email, montoCentavos, base }) {
+  return llamar('POST', '/checkout/preferences', {
+    items: [{ id: 'cobranzas-mes', title: 'Cobranzas · 1 mes', quantity: 1, unit_price: montoCentavos / 100, currency_id: 'ARS' }],
+    payer: { email },
+    external_reference: `mes:${cuentaId}`,
+    back_urls: { success: `${base}/app?mp=mes`, pending: `${base}/app?mp=mes`, failure: `${base}/app?mp=mes` },
+    auto_return: 'approved',
+    notification_url: `${base}/api/plataforma/mercadopago/webhook?source_news=webhooks`,
+    statement_descriptor: 'COBRANZAS',
+    payment_methods: { installments: 1 },
+  });
+}
+export const obtenerPago = (id) => llamar('GET', `/v1/payments/${encodeURIComponent(id)}`);
+export function cambiarMontoSuscripcion(id, montoCentavos) {
+  return llamar('PUT', `/preapproval/${encodeURIComponent(id)}`, { auto_recurring: { transaction_amount: montoCentavos / 100, currency_id: 'ARS' } });
+}
+export const obtenerSuscripcion = (id) => llamar('GET', `/preapproval/${encodeURIComponent(id)}`);
+export const obtenerPagoAutorizado = (id) => llamar('GET', `/authorized_payments/${encodeURIComponent(id)}`);
+// Firma de notificaciones (x-signature: "ts=...,v1=..."). Si no hay secreto
+// configurado no se valida, pero igual se consulta el estado a la API.
+export function firmaValida({ xSignature, xRequestId, dataId, secret = process.env.MP_WEBHOOK_SECRET }) {
+  if (!secret) return true;
+  const partes = Object.fromEntries(String(xSignature || '').split(',').map(p => p.split('=').map(s => s.trim())).filter(p => p.length === 2));
+  if (!partes.ts || !partes.v1) return false;
+  const id = /^[a-z0-9]+$/i.test(dataId || '') ? String(dataId).toLowerCase() : dataId;
+  const manifiesto = `id:${id};request-id:${xRequestId};ts:${partes.ts};`;
+  const esperado = createHmac('sha256', secret).update(manifiesto).digest('hex');
+  const a = Buffer.from(esperado), b = Buffer.from(String(partes.v1));
+  return a.length === b.length && timingSafeEqual(a, b);
+}
