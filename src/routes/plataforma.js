@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { modoSaaS, precioMensualCentavos, diasGracia, MARCA, FUNCIONES_OPCIONALES } from '../plataforma/config.js';
-import { registrarCuenta, linkDePago, procesarNotificacion } from '../plataforma/suscripcionService.js';
+import { modoSaaS, diasGracia, MARCA, FUNCIONES_OPCIONALES } from '../plataforma/config.js';
+import { registrarCuenta, linkDePago, procesarNotificacion, aplicarPrecioASuscripciones } from '../plataforma/suscripcionService.js';
+import { precioActualCentavos, ajustePrecio, guardarPrecio } from '../plataforma/precio.js';
 import { firmaValida } from '../plataforma/mercadopago.js';
 import { cuentaHabilitada, soloDuenaPlataforma, esDuenaPlataforma, funcionDisponible } from '../plataforma/middleware.js';
 import { listarCuentas, funcionesHabilitadas, fijarFuncion, cuentaPorId } from '../plataforma/cuentas.js';
@@ -11,9 +12,11 @@ const soloSaaS = (req, res, next) => modoSaaS() ? next() : res.status(404).json(
 
 // Público: configuración de la edición, alta de cuentas y avisos de Mercado Pago.
 export const plataformaPublicaRouter = Router();
-plataformaPublicaRouter.get('/config', (req, res) => {
-  if (!modoSaaS()) return res.json({ edicion: 'propia' });
-  res.json({ edicion: 'saas', marca: MARCA, precio_centavos: precioMensualCentavos(), dias_gracia: diasGracia() });
+plataformaPublicaRouter.get('/config', async (req, res, next) => {
+  try {
+    if (!modoSaaS()) return res.json({ edicion: 'propia' });
+    res.json({ edicion: 'saas', marca: MARCA, precio_centavos: await precioActualCentavos(), dias_gracia: diasGracia() });
+  } catch (e) { next(e); }
 });
 plataformaPublicaRouter.post('/registro', soloSaaS, async (req, res, next) => {
   try { res.status(201).json(await registrarCuenta(req.body)); } catch (e) { next(e); }
@@ -31,13 +34,15 @@ plataformaPublicaRouter.post('/mercadopago/webhook', soloSaaS, async (req, res, 
 // Con sesión (sin exigir suscripción activa): ver el estado y pagar.
 export const suscripcionRouter = Router();
 suscripcionRouter.use(soloSaaS);
-function resumenCuenta(c) {
+async function resumenCuenta(c) {
   return { estado: c.estado, habilitada: cuentaHabilitada(c), negocio: c.negocio_nombre, ultimo_pago_en: c.ultimo_pago_en,
-    rechazo_desde: c.rechazo_desde, precio_centavos: precioMensualCentavos(), dias_gracia: diasGracia() };
+    rechazo_desde: c.rechazo_desde, precio_centavos: await precioActualCentavos(), dias_gracia: diasGracia() };
 }
-suscripcionRouter.get('/', (req, res) => {
-  if (!req.cuenta) return res.status(404).json({ error: 'Cuenta no encontrada' });
-  res.json(resumenCuenta(req.cuenta));
+suscripcionRouter.get('/', async (req, res, next) => {
+  try {
+    if (!req.cuenta) return res.status(404).json({ error: 'Cuenta no encontrada' });
+    res.json(await resumenCuenta(req.cuenta));
+  } catch (e) { next(e); }
 });
 suscripcionRouter.post('/pagar', requireAdmin, async (req, res, next) => {
   try {
@@ -49,7 +54,7 @@ export async function datosPlataformaParaSesion(req) {
   if (!modoSaaS() || !req.cuenta) return null;
   const funciones = {};
   for (const f of FUNCIONES_OPCIONALES) funciones[f] = await funcionDisponible(req, f);
-  return { marca: MARCA, cuenta: resumenCuenta(req.cuenta), funciones, duena: esDuenaPlataforma(req) };
+  return { marca: MARCA, cuenta: await resumenCuenta(req.cuenta), funciones, duena: esDuenaPlataforma(req) };
 }
 
 // Solo la dueña de la plataforma: registro de suscriptores y funciones.
@@ -80,4 +85,13 @@ plataformaAdminRouter.put('/funciones/:clave', async (req, res, next) => {
     await fijarFuncion(req.params.clave, req.body.habilitada);
     res.json({ clave: req.params.clave, habilitada: req.body.habilitada });
   } catch (e) { next(e); }
+});
+plataformaAdminRouter.get('/precio', async (req, res, next) => {
+  try { res.json({ ajuste: await ajustePrecio(), precio_centavos: await precioActualCentavos() }); } catch (e) { next(e); }
+});
+plataformaAdminRouter.put('/precio', async (req, res, next) => {
+  try { res.json({ ajuste: await guardarPrecio({ usd: req.body?.usd, cotizacion: req.body?.cotizacion }) }); } catch (e) { next(e); }
+});
+plataformaAdminRouter.post('/precio/aplicar', async (req, res, next) => {
+  try { res.json(await aplicarPrecioASuscripciones()); } catch (e) { next(e); }
 });

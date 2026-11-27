@@ -29,6 +29,9 @@ export function crearSuscripcion({ cuentaId, email, montoCentavos, backUrl }) {
     auto_recurring: { frequency: 1, frequency_type: 'months', transaction_amount: montoCentavos / 100, currency_id: 'ARS' },
   });
 }
+export function cambiarMontoSuscripcion(id, montoCentavos) {
+  return llamar('PUT', `/preapproval/${encodeURIComponent(id)}`, { auto_recurring: { transaction_amount: montoCentavos / 100, currency_id: 'ARS' } });
+}
 export const obtenerSuscripcion = (id) => llamar('GET', `/preapproval/${encodeURIComponent(id)}`);
 export const obtenerPagoAutorizado = (id) => llamar('GET', `/authorized_payments/${encodeURIComponent(id)}`);
 // Firma de notificaciones (x-signature: "ts=...,v1=..."). Si no hay secreto

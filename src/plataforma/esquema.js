@@ -15,12 +15,14 @@ CREATE TABLE IF NOT EXISTS plataforma_cuentas (
   mp_preapproval_id TEXT UNIQUE,
   mp_estado TEXT,
   mp_init_point TEXT,
+  mp_monto_centavos BIGINT,
   primer_pago_en TIMESTAMPTZ,
   ultimo_pago_en TIMESTAMPTZ,
   rechazo_desde TIMESTAMPTZ,
   creada_en TIMESTAMPTZ NOT NULL DEFAULT now(),
   actualizada_en TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE plataforma_cuentas ADD COLUMN IF NOT EXISTS mp_monto_centavos BIGINT;
 CREATE TABLE IF NOT EXISTS plataforma_directorio (
   email TEXT PRIMARY KEY,
   esquema TEXT NOT NULL REFERENCES plataforma_cuentas(esquema) ON DELETE CASCADE
@@ -33,6 +35,11 @@ CREATE TABLE IF NOT EXISTS plataforma_funciones (
   clave TEXT PRIMARY KEY,
   habilitada BOOLEAN NOT NULL DEFAULT FALSE,
   actualizada_en TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS plataforma_ajustes (
+  clave TEXT PRIMARY KEY,
+  valor JSONB NOT NULL,
+  actualizado_en TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS plataforma_eventos_pago (
   id TEXT PRIMARY KEY,

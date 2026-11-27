@@ -6,9 +6,11 @@ import { crearNegocio } from '../repositories/negocios.js';
 import { firmarToken } from '../lib/auth.js';
 import { normalizarEmail, validarPassword } from '../lib/invitaciones.js';
 import { id as nuevoId } from '../lib/id.js';
-import { precioMensualCentavos, emailDuenaPlataforma, urlApp } from './config.js';
+import { emailDuenaPlataforma, urlApp } from './config.js';
+import { precioActualCentavos } from './precio.js';
 import { nuevoEsquema, insertarCuenta, actualizarCuenta, esquemaPorEmail, cuentaPorId, cuentaPorPreapproval } from './cuentas.js';
-import { crearSuscripcion, obtenerSuscripcion, obtenerPagoAutorizado } from './mercadopago.js';
+import { crearSuscripcion, obtenerSuscripcion, obtenerPagoAutorizado, cambiarMontoSuscripcion } from './mercadopago.js';
+import { listarCuentas } from './cuentas.js';
 
 const fallo = (status, msg) => Object.assign(new Error(msg), { status });
 function texto(valor, campo, max, obligatorio = true) {
@@ -32,7 +34,7 @@ export async function registrarCuenta(body = {}) {
   validarPassword(body.password);
   if (await esquemaPorEmail(email)) throw fallo(409, 'Ya existe una cuenta con ese email');
   const exenta = email === emailDuenaPlataforma();
-  if (!exenta && !precioMensualCentavos()) throw fallo(503, 'Las altas todavía no están habilitadas');
+  if (!exenta && !(await precioActualCentavos())) throw fallo(503, 'Las altas todavía no están habilitadas');
 
   const esquema = nuevoEsquema();
   let cuenta;
@@ -64,13 +66,14 @@ export async function registrarCuenta(body = {}) {
 // Link de Mercado Pago para pagar (o volver a pagar) la suscripción.
 export async function linkDePago(cuenta) {
   if (cuenta.estado === 'exenta') throw fallo(400, 'Esta cuenta no paga suscripción');
-  if (cuenta.mp_init_point && cuenta.mp_estado === 'pending') return cuenta.mp_init_point;
-  const monto = precioMensualCentavos();
+  const monto = await precioActualCentavos();
+  // Un link pendiente se reutiliza solo si es del precio vigente.
+  if (cuenta.mp_init_point && cuenta.mp_estado === 'pending' && cuenta.mp_monto_centavos === monto) return cuenta.mp_init_point;
   if (!monto) throw fallo(503, 'Falta configurar el precio');
   const base = urlApp();
   if (!base.startsWith('https://')) throw fallo(503, 'Falta configurar la dirección de la app');
   const pre = await crearSuscripcion({ cuentaId: cuenta.id, email: cuenta.email, montoCentavos: monto, backUrl: `${base}/app#/suscripcion` });
-  await actualizarCuenta(cuenta.id, { mp_preapproval_id: pre.id, mp_estado: pre.status || 'pending', mp_init_point: pre.init_point });
+  await actualizarCuenta(cuenta.id, { mp_preapproval_id: pre.id, mp_estado: pre.status || 'pending', mp_init_point: pre.init_point, mp_monto_centavos: monto });
   return pre.init_point;
 }
 
@@ -119,4 +122,21 @@ export async function procesarNotificacion({ tipo, recursoId }) {
     return { cuenta_id: cuenta.id, estado: cuenta.estado };
   }
   return { ignorada: true };
+}
+
+// Aplica el precio vigente a todas las suscripciones de Mercado Pago que
+// siguen vivas. Los links pendientes se regeneran con el precio nuevo.
+export async function aplicarPrecioASuscripciones() {
+  const monto = await precioActualCentavos();
+  if (!monto) throw fallo(400, 'Primero definí el precio');
+  const resultado = { actualizadas: 0, sin_cambios: 0, errores: [] };
+  for (const c of await listarCuentas()) {
+    if (c.estado === 'exenta' || !c.mp_preapproval_id) continue;
+    if (c.mp_monto_centavos === monto) { resultado.sin_cambios++; continue; }
+    if (c.mp_estado === 'pending') { await actualizarCuenta(c.id, { mp_init_point: null }); resultado.actualizadas++; continue; }
+    if (!['authorized', 'paused'].includes(c.mp_estado)) continue;
+    try { await cambiarMontoSuscripcion(c.mp_preapproval_id, monto); await actualizarCuenta(c.id, { mp_monto_centavos: monto }); resultado.actualizadas++; }
+    catch { resultado.errores.push(c.email); }
+  }
+  return { ...resultado, precio_centavos: monto };
 }

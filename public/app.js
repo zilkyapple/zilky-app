@@ -1892,6 +1892,8 @@ document.addEventListener('click', async (e) => {
   else if (action === 'suscripcion-pagar') { el.disabled=true; try { const r=await api('/suscripcion/pagar',{method:'POST'}); if(r?.init_point) location.href=r.init_point; } catch(err){ toast(err.message,true); el.disabled=false; } }
   else if (action === 'suscripcion-actualizar') { location.hash = '#/inicio'; await arrancarApp(); }
   else if (action === 'plataforma-exportar') { try { const r=await api('/plataforma-admin/cuentas/exportar'); const blob=new Blob([r.csv],{type:'text/csv;charset=utf-8'}); const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=r.filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000); } catch(err){ toast(err.message,true); } }
+  else if (action === 'plataforma-precio-guardar') { try { const usd=Number(document.getElementById('platUsd').value), cotizacion=Number(document.getElementById('platCot').value); const r=await api('/plataforma-admin/precio',{method:'PUT',body:JSON.stringify({usd,cotizacion})}); toast(`Precio guardado: ${formatARS(r.ajuste.centavos)} por mes`); render(); } catch(err){ toast(err.message,true); } }
+  else if (action === 'plataforma-precio-aplicar') { el.disabled=true; try { const r=await api('/plataforma-admin/precio/aplicar',{method:'POST'}); toast(`Listo: ${r.actualizadas} actualizada(s)${r.errores.length?`, ${r.errores.length} con error`:''}`, r.errores.length>0); } catch(err){ toast(err.message,true); } el.disabled=false; }
   else if (action === 'plataforma-funcion') { try { await api(`/plataforma-admin/funciones/${encodeURIComponent(el.dataset.clave)}`,{method:'PUT',body:JSON.stringify({habilitada:el.dataset.on!=='1'})}); toast('Listo'); render(); } catch(err){ toast(err.message,true); } }
   else if (action === 'logout') { clearToken();state.usuario=null;state.negocios=[];state.negocioActual=null;closeSheet();showAuthScreen(); }
 });
@@ -2483,10 +2485,24 @@ async function viewSuscripcion(view) {
 }
 async function viewPlataforma(view) {
   if (!plataforma()?.duena) { setHTML(view, notFound()); return; }
-  const [cuentas, funciones] = await Promise.all([api('/plataforma-admin/cuentas'), api('/plataforma-admin/funciones')]);
+  const [cuentas, funciones, precio] = await Promise.all([api('/plataforma-admin/cuentas'), api('/plataforma-admin/funciones'), api('/plataforma-admin/precio')]);
+  const aj = precio.ajuste;
   const activas = cuentas.filter(c => c.habilitada).length;
   const NOMBRE_FUNCION = { tienda: 'Tienda web y pedidos', tiendanube: 'Conexión y pedidos de Tiendanube' };
-  setHTML(view, `<div class="section-title">Suscriptores</div>
+  setHTML(view, `<div class="section-title">Precio de la suscripción</div>
+    <div class="card">
+      <p style="margin:0 0 10px">Precio actual: <strong>${esc(precio.precio_centavos ? formatARS(precio.precio_centavos) + ' por mes' : 'sin definir')}</strong>${aj ? ` <span class="field-hint">(US$ ${esc(aj.usd)} × $ ${esc(aj.cotizacion)})</span>` : ''}</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div class="field" style="flex:1 1 120px"><label for="platUsd">Precio en dólares</label><input id="platUsd" type="number" min="1" step="0.5" inputmode="decimal" value="${esc(aj?.usd ?? 7)}" /></div>
+        <div class="field" style="flex:1 1 120px"><label for="platCot">Cotización del dólar</label><input id="platCot" type="number" min="100" step="1" inputmode="decimal" value="${esc(aj?.cotizacion ?? '')}" placeholder="Ej: 1710" /></div>
+      </div>
+      <p class="field-hint">Mercado Pago cobra en pesos: se cobra dólares × cotización, redondeado a la centena. Al cambiarlo, aplicalo a las suscripciones para que el próximo cobro use el precio nuevo.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn btn-primary" data-action="plataforma-precio-guardar">Guardar precio</button>
+        <button class="btn btn-secondary" data-action="plataforma-precio-aplicar">Aplicar a todas las suscripciones</button>
+      </div>
+    </div>
+    <div class="section-title">Suscriptores</div>
     <div class="card"><p style="margin:0 0 12px">${esc(cuentas.length)} cuenta(s) registradas · ${esc(activas)} con acceso activo</p>
       <button class="btn btn-primary btn-block" data-action="plataforma-exportar">Descargar para Excel</button></div>
     ${cuentas.length ? cuentas.map(c => `<div class="card">

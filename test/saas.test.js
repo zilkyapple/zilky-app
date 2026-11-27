@@ -18,7 +18,7 @@ const { crearInvitacion } = await import('../src/repositories/invitaciones.js');
 async function limpiar() {
   const { rows } = await pool.query("SELECT nspname FROM pg_namespace WHERE nspname ~ '^t_[a-z0-9]{16,40}$'");
   for (const { nspname } of rows) await pool.query(`DROP SCHEMA "${nspname}" CASCADE`);
-  await pool.query('DROP TABLE IF EXISTS plataforma_eventos_pago, plataforma_funciones, plataforma_invitaciones, plataforma_directorio, plataforma_cuentas CASCADE');
+  await pool.query('DROP TABLE IF EXISTS plataforma_ajustes, plataforma_eventos_pago, plataforma_funciones, plataforma_invitaciones, plataforma_directorio, plataforma_cuentas CASCADE');
 }
 await limpiar();
 await migrarPlataforma();
@@ -182,6 +182,27 @@ test('Tienda y Tiendanube apagadas para clientes hasta que la dueña las active'
   assert.equal((await api('/api/plataforma-admin/funciones/tienda', B.token, 'PUT', { habilitada: true })).status, 200);
   assert.notEqual((await api('/api/tiendas', A.token)).body?.error, 'Función no disponible');
   assert.equal((await api('/api/auth/yo', A.token)).body.plataforma.funciones.tienda, true);
+});
+
+test('Precio en dólares: la dueña fija dólares y cotización y se aplica a las suscripciones', async () => {
+  const cambios = [];
+  const antes = globalThis.fetch;
+  globalThis.fetch = async (url, opts = {}) => {
+    if (String(url).startsWith('https://api.mercadopago.com/preapproval/') && opts.method === 'PUT') { cambios.push({ url: String(url), body: JSON.parse(opts.body) }); return new Response('{}', { status: 200 }); }
+    return antes(url, opts);
+  };
+  try {
+    assert.equal((await api('/api/plataforma-admin/precio', A.token, 'PUT', { usd: 7, cotizacion: 1710 })).status, 404, 'solo la dueña');
+    assert.equal((await api('/api/plataforma-admin/precio', B.token, 'PUT', { usd: 7, cotizacion: 'mucho' })).status, 400);
+    const g = await api('/api/plataforma-admin/precio', B.token, 'PUT', { usd: 7, cotizacion: 1710 });
+    assert.equal(g.status, 200); assert.equal(g.body.ajuste.centavos, 1200000, '7 × 1710 = 11.970, redondeado a $ 12.000');
+    assert.equal((await api('/api/suscripcion', A.token)).body.precio_centavos, 1200000);
+    assert.match((await api('/')).text, /Empezar por \$\s12\.000 al mes/);
+    const ap = await api('/api/plataforma-admin/precio/aplicar', B.token, 'POST');
+    assert.equal(ap.status, 200); assert.equal(ap.body.actualizadas, 1); assert.deepEqual(ap.body.errores, []);
+    assert.deepEqual(cambios.map(c => [c.url.split('/').pop(), c.body.auto_recurring.transaction_amount, c.body.auto_recurring.currency_id]), [['pre2', 12000, 'ARS']]);
+    assert.equal((await api('/api/plataforma-admin/precio/aplicar', B.token, 'POST')).body.sin_cambios, 1, 'aplicar de nuevo no repite cambios');
+  } finally { globalThis.fetch = antes; await pool.query("DELETE FROM plataforma_ajustes WHERE clave='precio'"); }
 });
 
 test('Webhook con secreto: rechaza firmas falsas y acepta las válidas', async () => {

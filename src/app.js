@@ -27,7 +27,8 @@ import { usuariosRouter } from './routes/usuarios.js';
 import { invitacionesRouter } from './routes/invitaciones.js';
 import { cargarUsuario, requireAuth } from './middleware/authorize.js';
 import { plataformaPublicaRouter, suscripcionRouter, plataformaAdminRouter } from './routes/plataforma.js';
-import { modoSaaS, precioMensualCentavos } from './plataforma/config.js';
+import { modoSaaS } from './plataforma/config.js';
+import { precioActualCentavos } from './plataforma/precio.js';
 import { readFile } from 'node:fs/promises';
 import { resolverCuenta, exigirSuscripcionActiva, exigirFuncion, noDisponibleEnSaaS } from './plataforma/middleware.js';
 
@@ -104,7 +105,7 @@ const archivoPublico = (nombre) => path.join(__dirname, '..', 'public', nombre);
 let plantillaVenta = null;
 async function paginaDeVenta() {
   plantillaVenta ??= await readFile(archivoPublico('landing.html'), 'utf8');
-  const centavos = precioMensualCentavos();
+  const centavos = await precioActualCentavos();
   const precio = centavos ? new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(centavos / 100) : 'un precio fijo';
   const contacto = (process.env.PLATAFORMA_CONTACTO || '').trim();
   const esc = (t) => t.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
